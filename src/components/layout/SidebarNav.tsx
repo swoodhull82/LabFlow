@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -61,16 +62,13 @@ export function SidebarNav() {
         <SidebarMenu>
           {filteredNavItems.map((item) => (
             <SidebarMenuItem key={item.href}>
-              <Link href={item.href} legacyBehavior passHref>
+              <Link href={item.href} passHref={false}>
                 <SidebarMenuButton
-                  asChild
                   isActive={pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href))}
                   tooltip={{ children: item.label, side: "right", align: "center" }}
                 >
-                  <a>
-                    <item.icon />
-                    <span>{item.label}</span>
-                  </a>
+                  <item.icon />
+                  <span>{item.label}</span>
                 </SidebarMenuButton>
               </Link>
             </SidebarMenuItem>
@@ -86,3 +84,4 @@ export function SidebarNav() {
     </>
   );
 }
+
