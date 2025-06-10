@@ -1,3 +1,4 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -22,7 +23,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
-  password: z.string().min(6, { message: "Password must be at least 6 characters." }),
+  password: z.string().min(1, { message: "Password is required." }), // PocketBase doesn't enforce min 6 on client
   role: z.enum(["admin", "employee"], { required_error: "You need to select a role." }),
 });
 
@@ -41,11 +42,36 @@ export function LoginForm() {
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    login(values.email, values.role as UserRole);
-    setIsLoading(false);
+    await login(values.email, values.password, values.role as UserRole);
+    // setLoading(false) is handled within the login function of AuthContext
+    // to ensure it only happens after the async login operation completes or fails.
+    // For this form, we can set isLoading to false if the login function itself doesn't
+    // directly cause a navigation or unmount that makes this irrelevant.
+    // However, since login navigates, it's often fine.
+    // If login errors out and doesn't navigate, we need to reset isLoading.
+    // The login function in AuthContext will set its own loading state,
+    // this isLoading is specific to the button's disabled state.
+    // A more robust way is for login() to return a promise that resolves/rejects,
+    // then set isLoading here. For now, AuthContext handles its own loading.
+    // If login fails, router.push won't happen, so we should reset isLoading here.
+    // The login function doesn't throw on UI side, it shows a toast.
+    // So we'll rely on the global loading state from useAuth if needed, or just set it.
+     const authContextLoading = form.formState.isSubmitting;
+     if (!authContextLoading) {
+        setIsLoading(false);
+     }
   }
+
+  // Watch for form submission state to manage button loading
+  // This is more reliable than a manual setIsLoading(false) after calling login
+  React.useEffect(() => {
+    if (form.formState.isSubmitting) {
+      setIsLoading(true);
+    } else {
+      setIsLoading(false);
+    }
+  }, [form.formState.isSubmitting]);
+
 
   return (
     <Card className="shadow-xl">
@@ -63,7 +89,7 @@ export function LoginForm() {
                 <FormItem>
                   <FormLabel>Email</FormLabel>
                   <FormControl>
-                    <Input placeholder="your.email@example.com" {...field} />
+                    <Input placeholder="your.email@example.com" {...field} type="email" autoComplete="email" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -76,7 +102,7 @@ export function LoginForm() {
                 <FormItem>
                   <FormLabel>Password</FormLabel>
                   <FormControl>
-                    <Input type="password" placeholder="••••••••" {...field} />
+                    <Input type="password" placeholder="••••••••" {...field} autoComplete="current-password" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
