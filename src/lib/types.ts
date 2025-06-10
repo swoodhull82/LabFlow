@@ -19,14 +19,26 @@ export interface Task {
   description?: string;
   status: TaskStatus;
   priority: TaskPriority;
-  dueDate?: Date | string; // Allow string for PB, convert to Date on client
-  assignedTo_text?: string; // Store assigned user's name as text for now
+  dueDate?: Date | string; 
+  assignedTo_text?: string; 
   recurrence: TaskRecurrence;
-  attachments?: File[] | string[]; // File list for client, string array for PB URLs
-  userId: string; // ID of the user who created the task
+  attachments?: File[] | string[]; 
+  userId: string; 
   created: Date | string;
   updated: Date | string;
-  // PocketBase specific fields we might get
+  collectionId?: string;
+  collectionName?: string;
+  expand?: any;
+}
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  eventDate: Date | string; // Date of the event
+  description?: string;
+  userId?: string; // Optional: if events are user-specific
+  created: Date | string;
+  updated: Date | string;
   collectionId?: string;
   collectionName?: string;
   expand?: any;
@@ -36,7 +48,7 @@ export interface Employee {
   id: string;
   name: string;
   email: string;
-  role: string; // e.g., 'Lab Technician', 'Researcher'
+  role: string; 
   hireDate: Date;
-  userId: string; // Link to User account
+  userId: string; 
 }
