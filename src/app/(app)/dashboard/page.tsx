@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { BarChart, CalendarClock, CheckCircle2, ClipboardList, AlertTriangle, Zap } from "lucide-react";
 import { Bar, BarChart as RechartsBarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const taskSummaryData = [
   {
@@ -126,7 +127,7 @@ export default function DashboardPage() {
               {[...Array(5)].map((_, i) => (
                 <li key={i} className="flex items-start space-x-3 p-2 rounded-md hover:bg-muted">
                   <Avatar className="h-8 w-8 mt-1">
-                    <AvatarImage src={`https://placehold.co/40x40.png?text=${String.fromCharCode(65 + i)}`} />
+                    <AvatarImage data-ai-hint="person avatar" src={`https://placehold.co/40x40.png?text=${String.fromCharCode(65 + i)}`} />
                     <AvatarFallback>{String.fromCharCode(65 + i)}</AvatarFallback>
                   </Avatar>
                   <div>
