@@ -1,7 +1,8 @@
+
 "use client";
 
-import React, { type ReactNode, useEffect } from 'react';
-import { SidebarProvider, Sidebar, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
+import React, { type ReactNode, useEffect, type FC } from 'react';
+import { SidebarProvider, Sidebar, SidebarInset } from '@/components/ui/sidebar';
 import { SidebarNav } from './SidebarNav';
 import { Header } from './Header';
 import { useAuth } from '@/context/AuthContext';
@@ -13,7 +14,7 @@ interface AppLayoutProps {
   children: ReactNode;
 }
 
-export function AppLayout({ children }: AppLayoutProps) {
+export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
   const { user, loading } = useAuth();
   const router = useRouter();
 
@@ -43,8 +44,8 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <SidebarProvider defaultOpen>
-      <Sidebar Nav={<SidebarNav />} collapsible="icon" variant="sidebar">
-        {/* Sidebar content is managed by Nav prop and internal structure */}
+      <Sidebar collapsible="icon" variant="sidebar">
+        <SidebarNav />
       </Sidebar>
       <SidebarInset>
         <Header />
@@ -55,27 +56,3 @@ export function AppLayout({ children }: AppLayoutProps) {
     </SidebarProvider>
   );
 }
-
-// This is a helper for the Sidebar component variant="sidebar" when using a Nav prop
-// It will be rendered within the Sidebar component if Nav prop is used.
-declare module "@/components/ui/sidebar" {
-  interface SidebarProps {
-    Nav?: React.ReactNode;
-  }
-}
-
-// Monkey patch or extend Sidebar to accept Nav prop for cleaner AppLayout
-const OriginalSidebar = Sidebar;
-// @ts-ignore
-OriginalSidebar = React.forwardRef<HTMLDivElement, React.ComponentProps<typeof Sidebar> & { Nav?: React.ReactNode }>(
-  ({ Nav, children, ...props }, ref) => {
-    return (
-      <OriginalSidebar ref={ref} {...props}>
-        {Nav || children}
-      </OriginalSidebar>
-    );
-  }
-);
-// @ts-ignore
-Sidebar = OriginalSidebar;
-
