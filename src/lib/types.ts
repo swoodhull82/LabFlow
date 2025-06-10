@@ -1,3 +1,4 @@
+
 export type UserRole = "admin" | "employee";
 
 export interface User {
@@ -18,12 +19,17 @@ export interface Task {
   description?: string;
   status: TaskStatus;
   priority: TaskPriority;
-  dueDate?: Date;
-  assignedTo?: string; // Employee ID
+  dueDate?: Date | string; // Allow string for PB, convert to Date on client
+  assignedTo_text?: string; // Store assigned user's name as text for now
   recurrence: TaskRecurrence;
-  attachments?: File[];
-  createdAt: Date;
-  updatedAt: Date;
+  attachments?: File[] | string[]; // File list for client, string array for PB URLs
+  userId: string; // ID of the user who created the task
+  created: Date | string;
+  updated: Date | string;
+  // PocketBase specific fields we might get
+  collectionId?: string;
+  collectionName?: string;
+  expand?: any;
 }
 
 export interface Employee {
