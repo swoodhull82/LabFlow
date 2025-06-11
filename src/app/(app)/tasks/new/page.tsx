@@ -110,7 +110,12 @@ export default function NewTaskPage() {
 
     } catch (err: any) {
       console.error("Error fetching task configuration options:", err);
-      const errorMessage = err.message || "Could not load task configuration options.";
+      let errorMessage = "Could not load task configuration options. Please ensure the backend is set up correctly.";
+      if (err.status === 404) {
+        errorMessage = "Failed to load task options. One or more configuration collections (e.g., task_config_statuses, task_config_priorities, task_config_recurrences) might be missing in the backend or are not accessible. Please check your PocketBase setup.";
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
       setFetchConfigError(errorMessage);
       toast({ title: "Error Loading Task Options", description: errorMessage, variant: "destructive" });
     } finally {
@@ -191,7 +196,7 @@ export default function NewTaskPage() {
       
       if (err?.data?.message) {
         detailedMessage = `Error: ${err.data.message}`;
-      } else if (err?.data?.data) { // Check for field-specific errors
+      } else if (err?.data?.data) { 
          const fieldErrors = Object.entries(err.data.data)
           .map(([key, val]: [string, any]) => `${key}: ${val.message}`)
           .join(" \n");
