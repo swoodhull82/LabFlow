@@ -17,20 +17,47 @@ import type PocketBase from "pocketbase";
 const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred.";
   if (error && typeof error === 'object') {
-    if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
-      message = error.data.message;
+    // Prioritize PocketBase's structured error data if available
+    if (error.data && typeof error.data === 'object') {
+      if (error.data.message && typeof error.data.message === 'string') {
+        message = error.data.message;
+      }
+      // Check for field-specific validation errors (error.data.data)
+      if (error.data.data && typeof error.data.data === 'object' && Object.keys(error.data.data).length > 0) {
+        const fieldErrorString = Object.entries(error.data.data)
+          .map(([key, val]: [string, any]) => {
+            const valMessage = val && val.message ? val.message : 'Invalid value';
+            return `${key}: ${valMessage}`;
+          })
+          .join("; ");
+        message = fieldErrorString ? `${message}. Details: ${fieldErrorString}` : message;
+      }
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
+      // Use non-PocketBase error message if more specific and available
       message = error.message;
     } else if (error.originalError && typeof error.originalError.message === 'string') {
-        message = error.originalError.message;
+      message = error.originalError.message; // Check for nested originalError
     } else if (error.message && typeof error.message === 'string') {
+      // Fallback to generic PocketBase error message
       message = error.message;
     }
 
+    // Add context based on status code
     if ('status' in error) {
       const status = error.status;
-      if (status === 404) message = `The calendar_events collection was not found (404). Original: ${message}`;
-      else if (status === 403) message = `You do not have permission to view calendar events (403). Original: ${message}`;
+      if (status === 404) {
+        message = `The calendar_events collection was not found (404). ${message}`;
+      } else if (status === 403) {
+        message = `You do not have permission to view calendar events (403). ${message}`;
+      } else if (status === 400) {
+        // If it's a generic 400 and no specific field errors were found from error.data.data, add a hint.
+        const isGenericErrorMessage = message.toLowerCase().includes("something went wrong") || message.startsWith("PocketBase_ClientResponseError") || (error.data && Object.keys(error.data.data || {}).length === 0);
+        if (isGenericErrorMessage) {
+           message = `Request error (400): ${message}. Please check the 'calendar_events' collection schema in PocketBase, especially ensure the 'eventDate' field exists, is correctly configured, and is sortable.`;
+        } else {
+           message = `Request error (400): ${message}.`;
+        }
+      }
     }
   } else if (typeof error === 'string') {
     message = error;
@@ -49,7 +76,7 @@ export default function CalendarPage() {
 
   const fetchEvents = useCallback(async (pb: PocketBase | null) => {
     if (!pb) {
-      setIsLoading(false);
+      setIsLoading(false); // ensure loading stops if pbClient is null
       return;
     }
     let ignore = false;
@@ -94,7 +121,7 @@ export default function CalendarPage() {
         }
       };
     } else {
-      setIsLoading(true);
+      setIsLoading(true); // Set loading if pbClient is not yet available
     }
   }, [pbClient, fetchEvents]);
 
@@ -128,7 +155,7 @@ export default function CalendarPage() {
         <div className="text-center py-10 text-destructive">
           <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
           <p className="mt-4 text-lg font-semibold">Failed to Load Calendar Events</p>
-          <p className="text-sm">{error}</p>
+          <p className="text-sm whitespace-pre-wrap">{error}</p>
           <Button onClick={refetchEvents} className="mt-6">Try Again</Button>
         </div>
       )}
