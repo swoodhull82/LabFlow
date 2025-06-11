@@ -69,7 +69,11 @@ export default function CalendarPage() {
   const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]); 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [date, setDate] = useState<Date | undefined>(undefined);
+
+  useEffect(() => {
+    setDate(new Date());
+  }, []);
 
   const fetchEvents = useCallback(async (pb: PocketBase | null) => {
     if (!pb) {
@@ -238,4 +242,3 @@ export default function CalendarPage() {
     </div>
   );
 }
-
