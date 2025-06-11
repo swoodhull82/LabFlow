@@ -3,54 +3,117 @@
 
 import { Calendar as ShadcnCalendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { format } from "date-fns";
-import type { CalendarEvent } from "@/lib/types"; // Updated type
+import type { CalendarEvent } from "@/lib/types"; 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
-import { getCalendarEvents } from "@/services/calendarEventService"; // Updated service
+import { getCalendarEvents } from "@/services/calendarEventService"; 
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle } from "lucide-react";
+import type PocketBase from "pocketbase";
+
+const getDetailedErrorMessage = (error: any): string => {
+  let message = "An unexpected error occurred.";
+  if (error && typeof error === 'object') {
+    if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
+      message = error.data.message;
+    } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
+      message = error.message;
+    } else if (error.originalError && typeof error.originalError.message === 'string') {
+        message = error.originalError.message;
+    } else if (error.message && typeof error.message === 'string') {
+      message = error.message;
+    }
+
+    if ('status' in error) {
+      const status = error.status;
+      if (status === 404) message = `The calendar_events collection was not found (404). Original: ${message}`;
+      else if (status === 403) message = `You do not have permission to view calendar events (403). Original: ${message}`;
+    }
+  } else if (typeof error === 'string') {
+    message = error;
+  }
+  return message;
+};
+
 
 export default function CalendarPage() {
   const { pbClient } = useAuth();
   const { toast } = useToast();
-  const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]); // Renamed state
+  const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]); 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState<Date | undefined>(new Date());
 
-  const fetchEvents = async () => { // Renamed function
-    if (!pbClient) return;
+  const fetchEvents = useCallback(async (pb: PocketBase | null) => {
+    if (!pb) {
+      setIsLoading(false);
+      return;
+    }
+    let ignore = false;
     setIsLoading(true);
     setError(null);
     try {
-      const fetchedEvents = await getCalendarEvents(pbClient); // Using new service
-      setAllEvents(fetchedEvents);
-    } catch (err) {
-      console.error("Error fetching calendar events:", err);
-      setError("Failed to load calendar events.");
-      toast({ title: "Error", description: "Failed to load calendar events.", variant: "destructive" });
+      const fetchedEvents = await getCalendarEvents(pb); 
+      if (!ignore) {
+        setAllEvents(fetchedEvents);
+      }
+    } catch (err: any) {
+      if (!ignore) {
+        const isPocketBaseAutocancel = err?.isAbort === true;
+        const isGeneralAutocancelOrNetworkIssue = err?.status === 0;
+        const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
+        
+        if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
+          console.warn("Calendar events fetch request was automatically cancelled or due to a network issue. This is often expected.", err);
+        } else {
+          console.error("Error fetching calendar events:", err);
+          const detailedError = getDetailedErrorMessage(err);
+          setError(detailedError);
+          toast({ title: "Error Loading Calendar Events", description: detailedError, variant: "destructive" });
+        }
+      }
     } finally {
-      setIsLoading(false);
+      if (!ignore) {
+        setIsLoading(false);
+      }
     }
-  };
+    return () => {
+      ignore = true;
+    };
+  }, [toast]);
 
   useEffect(() => {
-    fetchEvents();
-  }, [pbClient]);
+    if (pbClient) {
+      const cleanup = fetchEvents(pbClient);
+       return () => {
+        if (typeof cleanup === 'function') {
+          cleanup();
+        }
+      };
+    } else {
+      setIsLoading(true);
+    }
+  }, [pbClient, fetchEvents]);
 
-  const eventsForSelectedDate = useMemo(() => { // Renamed
+  const eventsForSelectedDate = useMemo(() => { 
     if (!date) return [];
     return allEvents.filter(event => 
       event.eventDate && format(new Date(event.eventDate), "yyyy-MM-dd") === format(date, "yyyy-MM-dd")
     );
   }, [date, allEvents]);
 
-  const eventDates = useMemo(() => { // Renamed
+  const eventDates = useMemo(() => { 
     return allEvents.map(event => event.eventDate ? new Date(event.eventDate) : null).filter(Boolean) as Date[];
   }, [allEvents]);
+
+  const refetchEvents = () => {
+    if (pbClient) {
+      fetchEvents(pbClient);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -63,8 +126,10 @@ export default function CalendarPage() {
       )}
       {error && !isLoading && (
         <div className="text-center py-10 text-destructive">
-          <p>{error}</p>
-          <Button onClick={fetchEvents} className="mt-4">Try Again</Button>
+          <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
+          <p className="mt-4 text-lg font-semibold">Failed to Load Calendar Events</p>
+          <p className="text-sm">{error}</p>
+          <Button onClick={refetchEvents} className="mt-6">Try Again</Button>
         </div>
       )}
       {!isLoading && !error && (
@@ -76,8 +141,8 @@ export default function CalendarPage() {
                 selected={date}
                 onSelect={setDate}
                 className="rounded-md"
-                modifiers={{ eventDay: eventDates }} // Use a different modifier name if needed
-                modifiersClassNames={{ eventDay: "bg-accent/30 rounded-full !text-accent-foreground" }} // Adjusted style for events
+                modifiers={{ eventDay: eventDates }} 
+                modifiersClassNames={{ eventDay: "bg-accent/30 rounded-full !text-accent-foreground" }} 
               />
             </CardContent>
           </Card>
@@ -94,7 +159,6 @@ export default function CalendarPage() {
                     <li key={event.id} className="p-3 rounded-md border hover:bg-muted transition-colors">
                       <h3 className="font-semibold">{event.title}</h3>
                       {event.description && <p className="text-sm text-muted-foreground mt-1">{event.description}</p>}
-                      {/* You can add more event details here, like time, color coded badges etc. */}
                     </li>
                   ))}
                 </ul>
