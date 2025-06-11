@@ -15,8 +15,9 @@ import { useAuth } from "@/context/AuthContext";
 import { createEmployee, getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Save } from "lucide-react";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import type { Employee } from "@/lib/types";
+import type PocketBase from "pocketbase";
 
 const employeeFormSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
@@ -47,7 +48,7 @@ export default function NewEmployeePage() {
       email: "",
       role: "",
       department_text: "",
-      reportsTo_text: "", // Initially empty, placeholder will show
+      reportsTo_text: "", 
     },
   });
 
@@ -58,26 +59,35 @@ export default function NewEmployeePage() {
     }
   }, [user, router, toast, canManageEmployees]);
 
-  useEffect(() => {
-    const fetchManagers = async () => {
-      if (!pbClient || !canManageEmployees) return;
-      setIsLoadingManagers(true);
-      try {
-        const allEmployees = await getEmployees(pbClient);
-        const managers = allEmployees.filter(
-          (emp) => emp.role === "Supervisor" || emp.role === "Team Lead"
-        );
-        setPotentialManagers(managers);
-      } catch (error) {
-        console.error("Failed to fetch potential managers:", error);
-        toast({ title: "Error", description: "Could not load list of managers.", variant: "destructive" });
-      } finally {
-        setIsLoadingManagers(false);
-      }
-    };
+  const fetchManagersCallback = useCallback(async (pb: PocketBase | null) => {
+    if (!pb || !canManageEmployees) return;
+    setIsLoadingManagers(true);
+    try {
+      const allEmployees = await getEmployees(pb);
+      const managers = allEmployees.filter(
+        (emp) => emp.role === "Supervisor" || emp.role === "Team Lead"
+      );
+      setPotentialManagers(managers);
+    } catch (error: any) {
+      const isPocketBaseAutocancel = error?.isAbort === true;
+      const isGeneralAutocancelOrNetworkIssue = error?.status === 0;
+      const isMessageAutocancel = typeof error?.message === 'string' && error.message.toLowerCase().includes("autocancelled");
 
-    fetchManagers();
-  }, [pbClient, toast, canManageEmployees]);
+      if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
+        console.warn("Fetch potential managers request was autocancelled or due to a network issue.", error);
+      } else {
+        console.error("Failed to fetch potential managers:", error);
+        toast({ title: "Error", description: "Could not load list of potential managers.", variant: "destructive" });
+      }
+    } finally {
+      setIsLoadingManagers(false);
+    }
+  }, [toast, canManageEmployees]);
+
+
+  useEffect(() => {
+    fetchManagersCallback(pbClient);
+  }, [pbClient, fetchManagersCallback]);
 
 
   const onSubmit = async (data: EmployeeFormData) => {
