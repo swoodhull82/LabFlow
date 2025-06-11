@@ -7,12 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import type { Task } from "@/lib/types";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle } from "lucide-react";
+import type { Task, TaskStatus } from "@/lib/types";
+import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { deleteTask, getTasks } from "@/services/taskService";
+import { deleteTask, getTasks, updateTask } from "@/services/taskService";
 import { useToast } from "@/hooks/use-toast";
 import type PocketBase from "pocketbase";
 
@@ -93,7 +93,7 @@ export default function TasksPage() {
         const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
         
         if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-          console.warn("Tasks fetch request was automatically cancelled (this is expected in some cases, e.g., navigation or quick re-fetch). UI should not be affected.", err);
+          console.warn("Tasks fetch request was automatically cancelled (this is expected in some cases, e.g., navigation or quick re-fetch). UI should not be affected. Details:", err);
         } else {
           console.error("Error fetching tasks:", err);
           const detailedError = getDetailedErrorMessage(err);
@@ -123,6 +123,32 @@ export default function TasksPage() {
       setIsLoading(true); 
     }
   }, [pbClient, fetchTasksCallback]);
+
+  const handleToggleTaskStatus = async (taskId: string, currentStatus: TaskStatus) => {
+    if (!pbClient) {
+      toast({ title: "Error", description: "Client not available.", variant: "destructive" });
+      return;
+    }
+
+    const newStatus: TaskStatus = currentStatus === "Done" ? "To Do" : "Done";
+    const optimisticUpdatedTasks = tasks.map(task => 
+      task.id === taskId ? { ...task, status: newStatus } : task
+    );
+    setTasks(optimisticUpdatedTasks);
+
+    try {
+      const updatedTaskData = await updateTask(pbClient, taskId, { status: newStatus });
+      setTasks(prevTasks => prevTasks.map(task => 
+        task.id === taskId ? updatedTaskData : task
+      ));
+      toast({ title: "Success", description: `Task marked as ${newStatus}.` });
+    } catch (err) {
+      console.error("Error updating task status:", err);
+      // Revert optimistic update
+      setTasks(tasks);
+      toast({ title: "Error", description: `Failed to update task status: ${getDetailedErrorMessage(err)}`, variant: "destructive" });
+    }
+  };
 
   const handleDeleteTask = async (taskId: string) => {
     if (!pbClient) {
@@ -220,6 +246,17 @@ export default function TasksPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => handleToggleTaskStatus(task.id, task.status)}
+                            className="flex items-center w-full"
+                          >
+                            {task.status === "Done" ? (
+                              <Circle className="mr-2 h-4 w-4" />
+                            ) : (
+                              <CheckCircle2 className="mr-2 h-4 w-4" />
+                            )}
+                            {task.status === "Done" ? "Mark as To Do" : "Mark as Done"}
+                          </DropdownMenuItem>
                           <DropdownMenuItem asChild>
                              {/* TODO: Implement Edit Task Page: /tasks/[id]/edit */}
                             <Link href={`/tasks/${task.id}/edit`} className="flex items-center w-full cursor-not-allowed opacity-50">
@@ -245,3 +282,4 @@ export default function TasksPage() {
     </div>
   );
 }
+
