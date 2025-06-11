@@ -28,6 +28,8 @@ const employeeFormSchema = z.object({
 
 type EmployeeFormData = z.infer<typeof employeeFormSchema>;
 
+const NONE_REPORTS_TO_VALUE = "__NONE__";
+
 export default function NewEmployeePage() {
   const { pbClient, user } = useAuth();
   const router = useRouter();
@@ -45,7 +47,7 @@ export default function NewEmployeePage() {
       email: "",
       role: "",
       department_text: "",
-      reportsTo_text: "",
+      reportsTo_text: "", // Initially empty, placeholder will show
     },
   });
 
@@ -86,12 +88,16 @@ export default function NewEmployeePage() {
     setIsSubmitting(true);
 
     try {
+      const finalReportsTo = data.reportsTo_text === NONE_REPORTS_TO_VALUE || !data.reportsTo_text 
+        ? undefined 
+        : data.reportsTo_text;
+
       const employeePayload: Partial<Omit<Employee, 'id' | 'created' | 'updated'>> = {
         name: data.name,
         email: data.email,
         role: data.role,
         department_text: data.department_text || undefined,
-        reportsTo_text: data.reportsTo_text || undefined,
+        reportsTo_text: finalReportsTo,
       };
 
       await createEmployee(pbClient, employeePayload);
@@ -111,7 +117,7 @@ export default function NewEmployeePage() {
     }
   };
   
-  if (!user && !isLoadingManagers && !isSubmitting) { // Check isLoadingManagers as well
+  if (!user && !isLoadingManagers && !isSubmitting) {
      return (
       <div className="flex items-center justify-center h-full p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -184,17 +190,17 @@ export default function NewEmployeePage() {
             </div>
             
             <div>
-              <Label htmlFor="reportsTo_text">Reports To (Optional)</Label>
+              <Label htmlFor="reportsTo_text">Reports To (Supervisor or Team Lead - Optional)</Label>
               <Controller
                 name="reportsTo_text"
                 control={form.control}
                 render={({ field }) => (
-                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value || ""}>
+                  <Select onValueChange={field.onChange} value={field.value || ""} >
                     <SelectTrigger id="reportsTo_text" disabled={isLoadingManagers}>
                       <SelectValue placeholder={isLoadingManagers ? "Loading managers..." : "Select a manager"} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value={NONE_REPORTS_TO_VALUE}>None</SelectItem>
                       {potentialManagers.map((manager) => (
                         <SelectItem key={manager.id} value={manager.name}>
                           {manager.name} ({manager.role})

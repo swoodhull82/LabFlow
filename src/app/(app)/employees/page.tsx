@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Label } from "@/components/ui/label"; // Keep Label if used elsewhere, or remove if FormLabel covers all.
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import type { Employee } from "@/lib/types";
@@ -31,6 +31,8 @@ const employeeFormSchema = z.object({
 });
 
 type EmployeeFormData = z.infer<typeof employeeFormSchema>;
+
+const NONE_REPORTS_TO_VALUE = "__NONE__";
 
 const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred.";
@@ -153,7 +155,7 @@ export default function EmployeesPage() {
         email: editingEmployee.email,
         role: editingEmployee.role,
         department_text: editingEmployee.department_text || "",
-        reportsTo_text: editingEmployee.reportsTo_text || "",
+        reportsTo_text: editingEmployee.reportsTo_text || "", // Will show placeholder if empty
       });
     }
   }, [editingEmployee, form]);
@@ -193,17 +195,20 @@ export default function EmployeesPage() {
     }
     setIsSubmittingEdit(true);
     
+    const finalReportsTo = data.reportsTo_text === NONE_REPORTS_TO_VALUE || !data.reportsTo_text
+        ? undefined
+        : data.reportsTo_text;
+
     const employeePayload: Partial<Omit<Employee, 'id' | 'created' | 'updated'>> = {
         name: data.name,
         email: data.email,
         role: data.role,
         department_text: data.department_text || undefined,
-        reportsTo_text: data.reportsTo_text || undefined,
+        reportsTo_text: finalReportsTo,
       };
 
     try {
         const updatedRecord = await updateEmployee(pbClient, editingEmployee.id, employeePayload);
-        // Ensure the updatedRecord is correctly typed if updateEmployee returns a generic record
         const updatedEmp = updatedRecord as Employee; 
         setEmployees(prev => prev.map(emp => emp.id === editingEmployee.id ? updatedEmp : emp));
         toast({ title: "Success", description: "Employee details updated successfully." });
@@ -408,15 +413,15 @@ export default function EmployeesPage() {
                   name="reportsTo_text"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Reports To (Optional)</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                      <FormLabel>Reports To (Supervisor or Team Lead - Optional)</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ""} >
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select a manager" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                           <SelectItem value="">None</SelectItem>
+                           <SelectItem value={NONE_REPORTS_TO_VALUE}>None</SelectItem>
                           {potentialManagersForEdit.map((manager) => (
                             <SelectItem key={manager.id} value={manager.name}>
                               {manager.name} ({manager.role})
