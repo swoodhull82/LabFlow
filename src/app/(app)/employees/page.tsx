@@ -14,7 +14,7 @@ import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { getEmployees, deleteEmployee, updateEmployee } from "@/services/employeeService";
+// Removed: import { getEmployees, deleteEmployee, updateEmployee } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -30,46 +30,34 @@ const employeeFormSchema = z.object({
 
 type EmployeeFormData = z.infer<typeof employeeFormSchema>;
 
-const getDetailedErrorMessage = (error: any): string => {
-  let message = "An unexpected error occurred.";
-
-  if (error && typeof error === 'object') {
-    if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
-      message = error.data.message;
-    } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
-      message = error.message;
-    } else if (error.message && typeof error.message === 'string') {
-        message = error.message;
-    }
-
-    if ('status' in error) {
-      const status = error.status;
-      if (status === 404 && !message.toLowerCase().includes("found") && !message.toLowerCase().includes("exist")) {
-        message = `The required resource was not found (404). Collection or record might be missing. Original: ${message}`;
-      } else if (status === 403 && !message.toLowerCase().includes("forbidden") && !message.toLowerCase().includes("permission")) {
-        message = `You do not have permission for this action (403). Please check API rules. Original: ${message}`;
-      } else if (status === 401 && !message.toLowerCase().includes("unauthorized") && !message.toLowerCase().includes("failed to authenticate")) {
-        message = `Authentication failed or is required (401). Original: ${message}`;
-      } else if (status === 0 && !(message.toLowerCase().includes("autocancelled") || message.toLowerCase().includes("network error"))) {
-        message = `Network error or request cancelled. Please check your connection. Original: ${message}`;
-      }
-    }
-  } else if (typeof error === 'string') {
-    message = error;
-  }
-  
-  return message;
-};
+const initialMockEmployees: Employee[] = [
+  // Supervisors
+  { id: "mock-s1", name: "Dr. Evelyn Hayes", email: "evelyn.hayes@labflow.example", role: "Chief Science Officer", department_text: "Executive Management", reportsTo_text: "" },
+  { id: "mock-s2", name: "Mr. Samuel Green", email: "samuel.green@labflow.example", role: "Lab Director", department_text: "Operations", reportsTo_text: "Dr. Evelyn Hayes" },
+  // Team Leads
+  { id: "mock-tl1", name: "Ms. Olivia Carter", email: "olivia.carter@labflow.example", role: "Team Lead - Chemistry", department_text: "Chemistry", reportsTo_text: "Mr. Samuel Green" },
+  { id: "mock-tl2", name: "Mr. David Lee", email: "david.lee@labflow.example", role: "Team Lead - Microbiology", department_text: "Microbiology", reportsTo_text: "Mr. Samuel Green" },
+  { id: "mock-tl3", name: "Dr. Priya Sharma", email: "priya.sharma@labflow.example", role: "Team Lead - R&D", department_text: "Research & Development", reportsTo_text: "Mr. Samuel Green" },
+  // Analysts
+  { id: "mock-a1", name: "Alice Johnson", email: "alice.johnson@labflow.example", role: "Senior Analyst", department_text: "Chemistry", reportsTo_text: "Ms. Olivia Carter" },
+  { id: "mock-a2", name: "Bob Williams", email: "bob.williams@labflow.example", role: "Lab Analyst", department_text: "Chemistry", reportsTo_text: "Ms. Olivia Carter" },
+  { id: "mock-a3", name: "Carol Davis", email: "carol.davis@labflow.example", role: "Microbiologist I", department_text: "Microbiology", reportsTo_text: "Mr. David Lee" },
+  { id: "mock-a4", name: "Daniel Miller", email: "daniel.miller@labflow.example", role: "Research Analyst", department_text: "Research & Development", reportsTo_text: "Dr. Priya Sharma" },
+  { id: "mock-a5", name: "Emily Wilson", email: "emily.wilson@labflow.example", role: "Junior Analyst", department_text: "Chemistry", reportsTo_text: "Ms. Olivia Carter" },
+  { id: "mock-a6", name: "Frank Garcia", email: "frank.garcia@labflow.example", role: "Lab Technician", department_text: "Microbiology", reportsTo_text: "Mr. David Lee" },
+  { id: "mock-a7", name: "Grace Rodriguez", email: "grace.rodriguez@labflow.example", role: "Associate Scientist", department_text: "Research & Development", reportsTo_text: "Dr. Priya Sharma" },
+  { id: "mock-a8", name: "Henry Martinez", email: "henry.martinez@labflow.example", role: "Quality Control Analyst", department_text: "Quality Assurance", reportsTo_text: "Mr. Samuel Green" },
+];
 
 
 export default function EmployeesPage() {
-  const { user, pbClient } = useAuth();
+  const { user } = useAuth(); // pbClient might not be needed if all ops are local
   const router = useRouter();
   const { toast } = useToast();
 
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true); // Start true, then set to false
+  const [error, setError] = useState<string | null>(null); // Errors are less likely with mock data
   
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
@@ -88,91 +76,21 @@ export default function EmployeesPage() {
     },
   });
 
-  const fetchEmployees = useCallback(async (pb: PocketBase) => {
-    let ignore = false;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const fetchedEmployees = await getEmployees(pb);
-      if (!ignore) {
-        setEmployees(fetchedEmployees);
-      }
-    } catch (err: any) {
-      if (!ignore) {
-        const isPocketBaseAutocancel = err && typeof err === 'object' && err.isAbort === true;
-        const isGeneralAutocancelOrNetworkIssue = err && err.status === 0;
-        const isMessageAutocancel = err && typeof err.message === 'string' && err.message.toLowerCase().includes("autocancelled");
-
-        if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-          console.warn("Employees fetch request was autocancelled or due to a network issue.", err);
-          // Don't set error state for autocancelled requests
-        } else {
-          console.error("Error fetching employees:", err);
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError ? `${detailedError}` : "Failed to load employees. Please try again.");
-          toast({ title: "Error Loading Employees", description: detailedError || "An unknown error occurred.", variant: "destructive" });
-        }
-      }
-    } finally {
-       if (!ignore) {
-        setIsLoading(false);
-       }
-    }
-    return () => {
-      ignore = true;
-    };
-  }, [toast]);
-
-
   useEffect(() => {
-    if (!pbClient || !user) {
-      setIsLoading(true); // Keep loading if user/client isn't ready
-      return;
-    }
-
-    if (!canManageEmployees) {
+    // Simulate loading and set mock data
+    setIsLoading(true);
+    // Simulate a short delay for loading appearance if desired, or set immediately
+    setTimeout(() => {
+        setEmployees([...initialMockEmployees]); // Use a copy to allow modification
+        setIsLoading(false);
+    }, 100); // Small delay to mimic loading
+    
+    if (user && !canManageEmployees) {
       toast({ title: "Access Denied", description: "This page is for Supervisors and Team Leads only.", variant: "destructive" });
       router.push('/dashboard');
-      return;
     }
-    
-    let ignore = false;
-    const loadData = async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            const fetchedEmployees = await getEmployees(pbClient);
-            if (!ignore) {
-                setEmployees(fetchedEmployees);
-            }
-        } catch (err: any) {
-             if (!ignore) {
-                const isPocketBaseAutocancel = err?.isAbort === true;
-                const isGeneralAutocancelOrNetworkIssue = err?.status === 0;
-                const isMessageAutocancel = typeof err.message === 'string' && err.message.toLowerCase().includes("autocancelled");
+  }, [user, router, toast, canManageEmployees]);
 
-                if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-                    console.warn("Employees fetch request was autocancelled or due to a network issue during initial load.", err);
-                } else {
-                    console.error("Error fetching employees on initial load:", err);
-                    const detailedError = getDetailedErrorMessage(err);
-                    setError(detailedError || "Failed to load employees.");
-                    toast({ title: "Error Loading Employees", description: detailedError || "An unknown error occurred.", variant: "destructive" });
-                }
-            }
-        } finally {
-            if (!ignore) {
-                setIsLoading(false);
-            }
-        }
-    };
-
-    loadData();
-
-    return () => {
-      ignore = true;
-    };
-  }, [user, pbClient, router, toast, canManageEmployees]);
 
   useEffect(() => {
     if (editingEmployee) {
@@ -187,16 +105,8 @@ export default function EmployeesPage() {
   }, [editingEmployee, form]);
 
   const handleDeleteEmployee = async (employeeId: string) => {
-    if (!pbClient) return;
-    try {
-      await deleteEmployee(pbClient, employeeId);
-      toast({ title: "Success", description: "Employee deleted successfully." });
-      setEmployees(prevEmployees => prevEmployees.filter(emp => emp.id !== employeeId));
-    } catch (err) {
-      console.error("Error deleting employee:", err);
-      const detailedError = getDetailedErrorMessage(err);
-      toast({ title: "Error Deleting Employee", description: detailedError, variant: "destructive" });
-    }
+    setEmployees(prevEmployees => prevEmployees.filter(emp => emp.id !== employeeId));
+    toast({ title: "Success (Mock)", description: "Employee removed from the list." });
   };
   
   const handleEditClick = (employee: Employee) => {
@@ -211,33 +121,35 @@ export default function EmployeesPage() {
   };
 
   const onEditSubmit = async (data: EmployeeFormData) => {
-    if (!pbClient || !editingEmployee) return;
+    if (!editingEmployee) return;
     setIsSubmittingEdit(true);
-    try {
-      const updatedData: Partial<Employee> = {
-        name: data.name,
-        email: data.email,
-        role: data.role,
-        department_text: data.department_text || undefined,
-        reportsTo_text: data.reportsTo_text || undefined,
-      };
-      const updatedRecord = await updateEmployee(pbClient, editingEmployee.id, updatedData);
-      setEmployees(prev => prev.map(emp => emp.id === updatedRecord.id ? updatedRecord : emp));
-      toast({ title: "Success", description: "Employee details updated." });
-      handleEditDialogClose();
-    } catch (err) {
-      console.error("Error updating employee:", err);
-      const detailedError = getDetailedErrorMessage(err);
-      toast({ title: "Error Updating Employee", description: detailedError, variant: "destructive" });
-    } finally {
-      setIsSubmittingEdit(false);
-    }
+    
+    const updatedEmployeeData: Employee = {
+      ...editingEmployee,
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      department_text: data.department_text || undefined,
+      reportsTo_text: data.reportsTo_text || undefined,
+      // Ensure other required fields of Employee type are preserved or handled
+      created: editingEmployee.created || new Date().toISOString(), // Keep original or set new
+      updated: new Date().toISOString(), // Set new updated time
+    };
+
+    setEmployees(prev => prev.map(emp => emp.id === editingEmployee.id ? updatedEmployeeData : emp));
+    toast({ title: "Success (Mock)", description: "Employee details updated in the list." });
+    handleEditDialogClose();
+    setIsSubmittingEdit(false);
   };
   
   const refetchEmployees = () => {
-     if (pbClient && user && canManageEmployees) {
-        fetchEmployees(pbClient);
-     }
+     setIsLoading(true);
+     setTimeout(() => {
+        setEmployees([...initialMockEmployees]);
+        setIsLoading(false);
+        setError(null);
+        toast({ title: "Refreshed (Mock)", description: "Employee list reset to mock data." });
+    }, 100);
   };
 
   if (!user && isLoading) { 
@@ -284,7 +196,7 @@ export default function EmployeesPage() {
       <Card className="shadow-md">
         <CardHeader>
           <CardTitle className="font-headline">All Employees</CardTitle>
-          <CardDescription>Manage employee information and access.</CardDescription>
+          <CardDescription>Manage employee information and access. (Displaying Mock Data)</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading && (
@@ -293,7 +205,7 @@ export default function EmployeesPage() {
               <p className="ml-2">Loading employees...</p>
             </div>
           )}
-          {error && !isLoading && (
+          {error && !isLoading && ( // This error state is less likely with mock data
             <div className="text-center py-10 text-destructive">
               <p>{error}</p>
               <Button onClick={refetchEmployees} className="mt-4">Try Again</Button>
@@ -301,7 +213,7 @@ export default function EmployeesPage() {
           )}
           {!isLoading && !error && employees.length === 0 && (
              <div className="text-center py-10 text-muted-foreground">
-              <p>No employees found. Get started by adding a new employee!</p>
+              <p>No employees found in the mock data. This shouldn't happen if initialized correctly.</p>
             </div>
           )}
           {!isLoading && !error && employees.length > 0 && (
@@ -359,7 +271,7 @@ export default function EmployeesPage() {
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle className="font-headline">Edit Employee: {editingEmployee.name}</DialogTitle>
-              <DialogDescription>Make changes to the employee's details below.</DialogDescription>
+              <DialogDescription>Make changes to the employee's details below. (Changes are local to this mock list)</DialogDescription>
             </DialogHeader>
             <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-4 py-4">
               <div>
@@ -409,3 +321,5 @@ export default function EmployeesPage() {
     </div>
   );
 }
+
+    
