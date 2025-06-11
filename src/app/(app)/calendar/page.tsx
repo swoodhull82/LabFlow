@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { format } from "date-fns";
 import type { CalendarEvent } from "@/lib/types"; 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { getCalendarEvents } from "@/services/calendarEventService"; 
@@ -15,7 +14,7 @@ import { Loader2, AlertTriangle } from "lucide-react";
 import type PocketBase from "pocketbase";
 
 const getDetailedErrorMessage = (error: any): string => {
-  let message = "An unexpected error occurred.";
+  let message = "An unexpected error occurred while fetching tasks for the calendar.";
   if (error && typeof error === 'object') {
     // Prioritize PocketBase's structured error data if available
     if (error.data && typeof error.data === 'object') {
@@ -33,12 +32,10 @@ const getDetailedErrorMessage = (error: any): string => {
         message = fieldErrorString ? `${message}. Details: ${fieldErrorString}` : message;
       }
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
-      // Use non-PocketBase error message if more specific and available
       message = error.message;
     } else if (error.originalError && typeof error.originalError.message === 'string') {
-      message = error.originalError.message; // Check for nested originalError
+      message = error.originalError.message; 
     } else if (error.message && typeof error.message === 'string') {
-      // Fallback to generic PocketBase error message
       message = error.message;
     }
 
@@ -46,16 +43,15 @@ const getDetailedErrorMessage = (error: any): string => {
     if ('status' in error) {
       const status = error.status;
       if (status === 404) {
-        message = `The calendar_events collection was not found (404). ${message}`;
+        message = `The 'tasks' collection (used for calendar events) was not found (404). ${message}`;
       } else if (status === 403) {
-        message = `You do not have permission to view calendar events (403). ${message}`;
+        message = `You do not have permission to view tasks for the calendar (403). ${message}`;
       } else if (status === 400) {
-        // If it's a generic 400 and no specific field errors were found from error.data.data, add a hint.
         const isGenericErrorMessage = message.toLowerCase().includes("something went wrong") || message.startsWith("PocketBase_ClientResponseError") || (error.data && Object.keys(error.data.data || {}).length === 0);
         if (isGenericErrorMessage) {
-           message = `Request error (400): ${message}. Please check the 'calendar_events' collection schema in PocketBase, especially ensure the 'eventDate' field exists, is correctly configured, and is sortable.`;
+           message = `Request error (400): ${message}. Please check the 'tasks' collection schema in PocketBase, especially ensure the 'dueDate' field exists, is correctly configured as a Date type, and is sortable. This field is used as the event date.`;
         } else {
-           message = `Request error (400): ${message}.`;
+           message = `Request error (400) when fetching tasks for calendar: ${message}.`;
         }
       }
     }
@@ -76,7 +72,7 @@ export default function CalendarPage() {
 
   const fetchEvents = useCallback(async (pb: PocketBase | null) => {
     if (!pb) {
-      setIsLoading(false); // ensure loading stops if pbClient is null
+      setIsLoading(true); 
       return;
     }
     let ignore = false;
@@ -94,12 +90,12 @@ export default function CalendarPage() {
         const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
         
         if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-          console.warn("Calendar events fetch request was automatically cancelled or due to a network issue. This is often expected.", err);
+          console.warn("Calendar events (tasks) fetch request was automatically cancelled or due to a network issue. This is often expected.", err);
         } else {
-          console.error("Error fetching calendar events:", err);
+          console.error("Error fetching tasks for calendar:", err);
           const detailedError = getDetailedErrorMessage(err);
           setError(detailedError);
-          toast({ title: "Error Loading Calendar Events", description: detailedError, variant: "destructive" });
+          toast({ title: "Error Loading Calendar Data", description: detailedError, variant: "destructive" });
         }
       }
     } finally {
@@ -121,7 +117,7 @@ export default function CalendarPage() {
         }
       };
     } else {
-      setIsLoading(true); // Set loading if pbClient is not yet available
+      setIsLoading(true); 
     }
   }, [pbClient, fetchEvents]);
 
@@ -144,17 +140,17 @@ export default function CalendarPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-headline font-semibold">Event Calendar</h1>
+      <h1 className="text-3xl font-headline font-semibold">Task Calendar</h1>
       {isLoading && (
         <div className="flex justify-center items-center py-10">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="ml-2">Loading calendar events...</p>
+          <p className="ml-2">Loading tasks for calendar...</p>
         </div>
       )}
       {error && !isLoading && (
         <div className="text-center py-10 text-destructive">
           <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
-          <p className="mt-4 text-lg font-semibold">Failed to Load Calendar Events</p>
+          <p className="mt-4 text-lg font-semibold">Failed to Load Calendar Data</p>
           <p className="text-sm whitespace-pre-wrap">{error}</p>
           <Button onClick={refetchEvents} className="mt-6">Try Again</Button>
         </div>
@@ -176,7 +172,7 @@ export default function CalendarPage() {
           <Card className="shadow-md">
             <CardHeader>
               <CardTitle className="font-headline">
-                Events for {date ? format(date, "PPP") : "selected date"}
+                Tasks for {date ? format(date, "PPP") : "selected date"}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -190,7 +186,7 @@ export default function CalendarPage() {
                   ))}
                 </ul>
               ) : (
-                <p className="text-muted-foreground">No events scheduled for this day.</p>
+                <p className="text-muted-foreground">No tasks due on this day.</p>
               )}
             </CardContent>
           </Card>
@@ -199,3 +195,4 @@ export default function CalendarPage() {
     </div>
   );
 }
+
