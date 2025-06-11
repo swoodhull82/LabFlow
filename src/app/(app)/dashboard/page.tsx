@@ -72,20 +72,24 @@ const taskStatusChartConfig = {
 } satisfies ChartConfig;
 
 const activeTasksByEmployeeData = [
-  { employee: 'Dr. Eleanor Vance', activeTasks: 5, fill: "hsl(var(--chart-1))" },
-  { employee: 'Marcus Chen', activeTasks: 3, fill: "hsl(var(--chart-2))" },
-  { employee: 'Aisha Khan', activeTasks: 4, fill: "hsl(var(--chart-3))" },
-  { employee: 'John Smith', activeTasks: 2, fill: "hsl(var(--chart-4))" },
-  { employee: 'Jane Doe', activeTasks: 6, fill: "hsl(var(--chart-5))" },
+  { employee: 'Dr. Vance', activeTasks: 5, fill: "hsl(var(--chart-1))" },
+  { employee: 'M. Chen', activeTasks: 3, fill: "hsl(var(--chart-2))" },
+  { employee: 'A. Khan', activeTasks: 4, fill: "hsl(var(--chart-3))" },
+  { employee: 'J. Smith', activeTasks: 2, fill: "hsl(var(--chart-4))" },
+  { employee: 'J. Doe', activeTasks: 6, fill: "hsl(var(--chart-5))" },
 ];
 
 const employeeTasksChartConfig = {
   activeTasks: {
     label: "Active Tasks",
   },
-  // Individual employee names could be keys here if we wanted specific icons/labels per employee
-  // but for a dynamic list driven by data, this simpler config is fine.
   // The 'fill' color is provided directly in the activeTasksByEmployeeData.
+  // We can map employee names to colors if needed for legend consistency
+  'Dr. Vance': { color: "hsl(var(--chart-1))" },
+  'M. Chen': { color: "hsl(var(--chart-2))" },
+  'A. Khan': { color: "hsl(var(--chart-3))" },
+  'J. Smith': { color: "hsl(var(--chart-4))" },
+  'J. Doe': {  color: "hsl(var(--chart-5))" },
 } satisfies ChartConfig;
 
 
@@ -142,13 +146,15 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <ChartContainer config={employeeTasksChartConfig} className="h-[300px] w-full">
-              <RechartsBarChart data={activeTasksByEmployeeData} layout="vertical" margin={{left:20, right:30}}>
-                <CartesianGrid horizontal={false} />
-                <XAxis type="number" dataKey="activeTasks" />
-                <YAxis dataKey="employee" type="category" tickLine={false} axisLine={false} width={120} />
+              {/* Removed layout="vertical" to make bars vertical */}
+              <RechartsBarChart data={activeTasksByEmployeeData} margin={{top: 5, right: 20, left: 0, bottom: 5}}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="employee" type="category" />
+                <YAxis dataKey="activeTasks" type="number" allowDecimals={false} />
                 <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent />} />
-                 {/* Legend might be redundant if colors are distinct and Y-axis labels are clear */}
-                <Bar dataKey="activeTasks" radius={4} />
+                {/* Legend might be useful if bars were stacked or grouped by another dimension */}
+                {/* <Legend />  */}
+                <Bar dataKey="activeTasks" radius={[4, 4, 0, 0]} />
               </RechartsBarChart>
             </ChartContainer>
           </CardContent>
@@ -185,4 +191,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
