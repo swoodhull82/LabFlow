@@ -43,6 +43,8 @@ export default function ActivityLogPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const canViewPage = user?.role === 'Supervisor' || user?.role === 'Team Lead';
+
   const fetchLogEntries = useCallback(async (pb: PocketBase) => {
     setIsLoading(true);
     setError(null);
@@ -73,16 +75,16 @@ export default function ActivityLogPage() {
       return;
     }
 
-    if (user.role !== 'Supervisor') {
-      toast({ title: "Access Denied", description: "This page is for Supervisors only.", variant: "destructive" });
+    if (!canViewPage) {
+      toast({ title: "Access Denied", description: "This page is for Supervisors and Team Leads only.", variant: "destructive" });
       router.push('/dashboard');
       return;
     }
     fetchLogEntries(pbClient);
-  }, [user, pbClient, router, toast, fetchLogEntries]);
+  }, [user, pbClient, router, toast, fetchLogEntries, canViewPage]);
 
   const refetchLogs = () => {
-    if (pbClient && user?.role === 'Supervisor') {
+    if (pbClient && canViewPage) {
       fetchLogEntries(pbClient);
     }
   };
@@ -96,7 +98,7 @@ export default function ActivityLogPage() {
     );
   }
 
-  if (user && user.role !== 'Supervisor' && !isLoading) {
+  if (user && !canViewPage && !isLoading) {
     return (
       <div className="flex items-center justify-center h-full p-4">
         <Card className="w-full max-w-md shadow-lg">
@@ -104,7 +106,7 @@ export default function ActivityLogPage() {
             <CardTitle className="text-center">Access Denied</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-center text-muted-foreground">This page is for Supervisors only.</p>
+            <p className="text-center text-muted-foreground">This page is for Supervisors and Team Leads only.</p>
             <Button onClick={() => router.push('/dashboard')} className="w-full mt-6">Go to Dashboard</Button>
           </CardContent>
         </Card>
@@ -148,7 +150,6 @@ export default function ActivityLogPage() {
                   <TableHead>Timestamp</TableHead>
                   <TableHead>User</TableHead>
                   <TableHead>Action</TableHead>
-                  <TableHead>Target Resource</TableHead>
                   <TableHead>Details</TableHead>
                 </TableRow>
               </TableHeader>
@@ -160,7 +161,6 @@ export default function ActivityLogPage() {
                     </TableCell>
                     <TableCell>{entry.user_name}</TableCell>
                     <TableCell>{entry.action}</TableCell>
-                    <TableCell>{entry.target_resource || "-"}</TableCell>
                     <TableCell>{entry.details || "-"}</TableCell>
                   </TableRow>
                 ))}

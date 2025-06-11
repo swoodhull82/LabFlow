@@ -33,6 +33,8 @@ export default function NewEmployeePage() {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const canManageEmployees = user?.role === 'Supervisor' || user?.role === 'Team Lead';
+
   const form = useForm<EmployeeFormData>({
     resolver: zodResolver(employeeFormSchema),
     defaultValues: {
@@ -45,31 +47,27 @@ export default function NewEmployeePage() {
   });
 
   useEffect(() => {
-    // Redirect if not a Supervisor
-    if (user && user.role !== 'Supervisor') {
+    if (user && !canManageEmployees) {
       toast({ title: "Access Denied", description: "You are not authorized to add employees.", variant: "destructive" });
       router.push("/dashboard");
     }
-  }, [user, router, toast]);
+  }, [user, router, toast, canManageEmployees]);
 
 
   const onSubmit = async (data: EmployeeFormData) => {
-    if (!pbClient || !user || user.role !== 'Supervisor') {
+    if (!pbClient || !user || !canManageEmployees) {
       toast({ title: "Error", description: "Unauthorized or client not available.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
 
     try {
-      // The createEmployee service function expects a Partial<Omit<Employee, 'id' | 'created' | 'updated'>>
-      // or FormData. We'll pass an object that fits this.
       const employeePayload: Partial<Omit<Employee, 'id' | 'created' | 'updated'>> = {
         name: data.name,
         email: data.email,
-        role: data.role, // This is the job title
+        role: data.role,
         department_text: data.department_text || undefined,
         reportsTo_text: data.reportsTo_text || undefined,
-        // userId: user.id, // Optionally link to the creating supervisor if your PB schema supports it
       };
 
       await createEmployee(pbClient, employeePayload);
@@ -98,7 +96,7 @@ export default function NewEmployeePage() {
     );
   }
   
-  if (user && user.role !== 'Supervisor') {
+  if (user && !canManageEmployees) {
       return (
       <div className="flex items-center justify-center h-full p-4">
         <Card className="w-full max-w-md shadow-lg">
@@ -162,7 +160,7 @@ export default function NewEmployeePage() {
             </div>
             <div>
               <Label htmlFor="reportsTo_text">Reports To (Optional)</Label>
-              <Input id="reportsTo_text" {...form.register("reportsTo_text")} placeholder="e.g., Dr. John Smith" />
+              <Input id="reportsTo_text" {...form.register("reportsTo_text")} placeholder="e.g., Dr. John Smith (Supervisor) or Ms. Ada Wong (Team Lead)" />
             </div>
             <div className="flex justify-end space-x-2">
               <Button type="button" variant="outline" onClick={() => router.push("/employees")} disabled={isSubmitting}>

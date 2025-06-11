@@ -19,6 +19,7 @@ import {
 
 export default function SettingsPage() {
   const { user } = useAuth();
+  const canManageWorkspace = user?.role === 'Supervisor' || user?.role === 'Team Lead';
 
   return (
     <div className="space-y-6">
@@ -96,7 +97,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {user?.role === 'Supervisor' && (
+          {canManageWorkspace && (
             <Card className="shadow-md">
               <CardHeader>
                 <CardTitle className="font-headline">Workspace Settings</CardTitle>

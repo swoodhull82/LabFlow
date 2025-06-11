@@ -75,6 +75,8 @@ export default function EmployeesPage() {
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
+  const canManageEmployees = user?.role === 'Supervisor' || user?.role === 'Team Lead';
+
   const form = useForm<EmployeeFormData>({
     resolver: zodResolver(employeeFormSchema),
     defaultValues: {
@@ -87,43 +89,90 @@ export default function EmployeesPage() {
   });
 
   const fetchEmployees = useCallback(async (pb: PocketBase) => {
+    let ignore = false;
     setIsLoading(true);
     setError(null);
     try {
       const fetchedEmployees = await getEmployees(pb);
-      setEmployees(fetchedEmployees);
+      if (!ignore) {
+        setEmployees(fetchedEmployees);
+      }
     } catch (err: any) {
+      if (!ignore) {
         const isPocketBaseAutocancel = err && typeof err === 'object' && err.isAbort === true;
         const isGeneralAutocancelOrNetworkIssue = err && err.status === 0;
         const isMessageAutocancel = err && typeof err.message === 'string' && err.message.toLowerCase().includes("autocancelled");
 
-      if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-        console.warn("Employees fetch request was autocancelled or due to a network issue.", err);
-      } else {
-        console.error("Error fetching employees:", err);
-        const detailedError = getDetailedErrorMessage(err);
-        setError(detailedError ? `${detailedError} Please try again.` : "Failed to load employees. Please try again.");
-        toast({ title: "Error Loading Employees", description: detailedError || "An unknown error occurred.", variant: "destructive" });
+        if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
+          console.warn("Employees fetch request was autocancelled or due to a network issue.", err);
+          // Don't set error state for autocancelled requests
+        } else {
+          console.error("Error fetching employees:", err);
+          const detailedError = getDetailedErrorMessage(err);
+          setError(detailedError ? `${detailedError}` : "Failed to load employees. Please try again.");
+          toast({ title: "Error Loading Employees", description: detailedError || "An unknown error occurred.", variant: "destructive" });
+        }
       }
     } finally {
-       setIsLoading(false);
+       if (!ignore) {
+        setIsLoading(false);
+       }
     }
+    return () => {
+      ignore = true;
+    };
   }, [toast]);
 
 
   useEffect(() => {
     if (!pbClient || !user) {
-      setIsLoading(true);
+      setIsLoading(true); // Keep loading if user/client isn't ready
       return;
     }
 
-    if (user.role !== 'Supervisor') {
-      toast({ title: "Access Denied", description: "This page is for Supervisors only.", variant: "destructive" });
+    if (!canManageEmployees) {
+      toast({ title: "Access Denied", description: "This page is for Supervisors and Team Leads only.", variant: "destructive" });
       router.push('/dashboard');
       return;
     }
-    fetchEmployees(pbClient);
-  }, [user, pbClient, router, toast, fetchEmployees]);
+    
+    let ignore = false;
+    const loadData = async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const fetchedEmployees = await getEmployees(pbClient);
+            if (!ignore) {
+                setEmployees(fetchedEmployees);
+            }
+        } catch (err: any) {
+             if (!ignore) {
+                const isPocketBaseAutocancel = err?.isAbort === true;
+                const isGeneralAutocancelOrNetworkIssue = err?.status === 0;
+                const isMessageAutocancel = typeof err.message === 'string' && err.message.toLowerCase().includes("autocancelled");
+
+                if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
+                    console.warn("Employees fetch request was autocancelled or due to a network issue during initial load.", err);
+                } else {
+                    console.error("Error fetching employees on initial load:", err);
+                    const detailedError = getDetailedErrorMessage(err);
+                    setError(detailedError || "Failed to load employees.");
+                    toast({ title: "Error Loading Employees", description: detailedError || "An unknown error occurred.", variant: "destructive" });
+                }
+            }
+        } finally {
+            if (!ignore) {
+                setIsLoading(false);
+            }
+        }
+    };
+
+    loadData();
+
+    return () => {
+      ignore = true;
+    };
+  }, [user, pbClient, router, toast, canManageEmployees]);
 
   useEffect(() => {
     if (editingEmployee) {
@@ -158,7 +207,7 @@ export default function EmployeesPage() {
   const handleEditDialogClose = () => {
     setIsEditDialogOpen(false);
     setEditingEmployee(null);
-    form.reset(); // Reset form on close
+    form.reset();
   };
 
   const onEditSubmit = async (data: EmployeeFormData) => {
@@ -186,7 +235,7 @@ export default function EmployeesPage() {
   };
   
   const refetchEmployees = () => {
-     if (pbClient && user && user.role === 'Supervisor') {
+     if (pbClient && user && canManageEmployees) {
         fetchEmployees(pbClient);
      }
   };
@@ -200,7 +249,7 @@ export default function EmployeesPage() {
     );
   }
   
-  if (user && user.role !== 'Supervisor' && !isLoading) { 
+  if (user && !canManageEmployees && !isLoading) { 
     return (
       <div className="flex items-center justify-center h-full p-4">
         <Card className="w-full max-w-md shadow-lg">
@@ -209,7 +258,7 @@ export default function EmployeesPage() {
             </CardHeader>
             <CardContent>
                 <p className="text-center text-muted-foreground">
-                    This page is for Supervisors only.
+                    This page is for Supervisors and Team Leads only.
                 </p>
                  <Button onClick={() => router.push('/dashboard')} className="w-full mt-6">
                     Go to Dashboard
@@ -340,7 +389,7 @@ export default function EmployeesPage() {
               </div>
               <div>
                 <Label htmlFor="edit-reportsTo_text">Reports To (Optional)</Label>
-                <Input id="edit-reportsTo_text" {...form.register("reportsTo_text")} />
+                <Input id="edit-reportsTo_text" {...form.register("reportsTo_text")} placeholder="Supervisor or Team Lead Name" />
               </div>
               <DialogFooter>
                 <DialogClose asChild>
@@ -360,5 +409,3 @@ export default function EmployeesPage() {
     </div>
   );
 }
-
-    

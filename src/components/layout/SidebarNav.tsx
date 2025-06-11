@@ -23,9 +23,9 @@ import {
   LogOut,
   ChevronsLeft,
   ChevronsRight,
-  History, // Added History icon
+  History,
 } from "lucide-react";
-import { useSidebar } from "@/components/ui/sidebar"; // Import useSidebar
+import { useSidebar } from "@/components/ui/sidebar";
 
 interface NavItem {
   href: string;
@@ -39,17 +39,17 @@ const navItems: NavItem[] = [
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/tasks", label: "Tasks", icon: ClipboardList },
   { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true },
-  { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true }, // Added Activity Log
+  { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function SidebarNav() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const { toggleSidebar, state } = useSidebar(); // Get toggleSidebar and state from context
+  const { toggleSidebar, state } = useSidebar();
 
   const filteredNavItems = navItems.filter(item => 
-    !item.supervisorOnly || (user && user.role === "Supervisor")
+    !item.supervisorOnly || (user && (user.role === "Supervisor" || user.role === "Team Lead"))
   );
 
   return (
