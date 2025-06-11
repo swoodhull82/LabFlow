@@ -86,7 +86,7 @@ export default function NewTaskPage() {
       return;
     }
     if (!title.trim()) {
-      toast({ title: "Error", description: "Task title is required.", variant: "destructive" });
+      toast({ title: "Validation Error", description: "Task title is required.", variant: "destructive" });
       return;
     }
 
@@ -119,9 +119,30 @@ export default function NewTaskPage() {
       await createTask(pbClient, formData);
       toast({ title: "Success", description: "New task created successfully!" });
       router.push("/tasks");
-    } catch (error) {
-      console.error("Failed to create task:", error);
-      toast({ title: "Error", description: "Failed to create task. Please try again.", variant: "destructive" });
+    } catch (err: any) {
+      console.error("Failed to create task:", err);
+      let detailedMessage = "Failed to create task. Please try again.";
+      
+      if (err?.data?.message) {
+        detailedMessage = `Error: ${err.data.message}`;
+      } else if (err?.message) {
+        detailedMessage = err.message;
+      }
+      
+      if (err?.data?.data) {
+        const fieldErrors = Object.entries(err.data.data)
+          .map(([key, val]: [string, any]) => `${key}: ${val.message}`)
+          .join(" \n"); // Use newline for better readability in toast if possible, or ;
+        if (fieldErrors) {
+          detailedMessage += ` Details: ${fieldErrors}`;
+        }
+      }
+      
+      toast({
+        title: "Error Creating Task",
+        description: detailedMessage,
+        variant: "destructive",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -145,7 +166,7 @@ export default function NewTaskPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <Label htmlFor="title">Title</Label>
-              <Input id="title" placeholder="e.g., Calibrate pH meter" required value={title} onChange={(e) => setTitle(e.target.value)} />
+              <Input id="title" placeholder="e.g., Calibrate pH meter" value={title} onChange={(e) => setTitle(e.target.value)} />
             </div>
             <div>
               <Label htmlFor="description">Description</Label>
