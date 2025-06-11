@@ -9,7 +9,7 @@ import type { Employee } from "@/lib/types";
 import { PlusCircle, MoreHorizontal, Edit, Trash2, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getEmployees, deleteEmployee } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
@@ -17,21 +17,15 @@ import { useToast } from "@/hooks/use-toast";
 const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred.";
 
-  // Check for PocketBase ClientResponseError structure or similar error objects
   if (error && typeof error === 'object') {
     if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
-      // Use the detailed message from PocketBase's response data
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
-      // Use the error's own message if it's not the generic PocketBase wrapper and more specific
       message = error.message;
     } else if (error.message && typeof error.message === 'string') {
-        // Fallback to generic error.message if it exists
         message = error.message;
     }
 
-
-    // Add more context based on status if the message isn't already informative
     if ('status' in error) {
       const status = error.status;
       if (status === 404 && !message.toLowerCase().includes("found") && !message.toLowerCase().includes("exist")) {
@@ -41,7 +35,6 @@ const getDetailedErrorMessage = (error: any): string => {
       } else if (status === 401 && !message.toLowerCase().includes("unauthorized") && !message.toLowerCase().includes("failed to authenticate")) {
         message = `Authentication failed or is required (401). Original: ${message}`;
       } else if (status === 0 && !(message.toLowerCase().includes("autocancelled") || message.toLowerCase().includes("network error"))) {
-         // This case is usually handled by the autocancelled logic, but as a fallback:
         message = `Network error or request cancelled. Please check your connection. Original: ${message}`;
       }
     }
@@ -62,49 +55,70 @@ export default function EmployeesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const fetchEmployees = useCallback(async (pb: PocketBase, signal?: AbortSignal) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      // Pass AbortSignal to getEmployees if your service supports it.
+      // For now, PocketBase SDK handles autocancellation internally based on new requests.
+      const fetchedEmployees = await getEmployees(pb);
+      setEmployees(fetchedEmployees);
+    } catch (err: any) {
+        // Check if it's an autocancelled error from PocketBase
+        const isPocketBaseAutocancel = err && typeof err === 'object' && err.isAbort === true;
+        // Broader check for general autocancel/network issues (status 0)
+        const isGeneralAutocancelOrNetworkIssue = err && err.status === 0;
+        const isMessageAutocancel = err && typeof err.message === 'string' && err.message.toLowerCase().includes("autocancelled");
+
+      if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
+        console.warn("Employees fetch request was autocancelled or due to a network issue. This can occur if the request was rapidly re-initiated (e.g., in React StrictMode) or due to navigation/network problems.", err);
+        // Do NOT set a user-facing error for these cases if a retry is expected or it's a common dev scenario.
+        // If `isLoading` is true, it will remain true until a successful fetch or a non-autocancel error on a subsequent attempt.
+        // If no subsequent attempt succeeds, the UI will remain in loading or the last valid state.
+        // If it was the *only* attempt and it was a network error (status 0, not isAbort), then an error message might be suitable.
+        // For now, we are suppressing setError for all status 0 / isAbort cases.
+      } else {
+        console.error("Error fetching employees:", err);
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError ? `${detailedError} Please try again.` : "Failed to load employees. Please try again.");
+        toast({ title: "Error Loading Employees", description: detailedError || "An unknown error occurred.", variant: "destructive" });
+      }
+    } finally {
+      // Only set loading to false if it wasn't an abort that might be retried by StrictMode's second call.
+      // However, the `ignore` flag pattern handles unmounted state updates better.
+      // For simplicity here, always setting loading to false in finally if not ignored by cleanup.
+      // The `useEffect` cleanup with `ignore` handles the unmounted component scenario.
+       setIsLoading(false);
+    }
+  }, [toast]);
+
+
   useEffect(() => {
-    if (user && user.role !== 'Supervisor') {
-      router.push('/dashboard');
-      return; 
-    }
-
-    if (pbClient && user && user.role === 'Supervisor') {
-      let ignore = false; 
-      
+    if (!pbClient || !user) {
+      // User or pbClient not ready, AuthContext might be loading or user not logged in.
+      // If user is null and AuthContext is not loading, AppLayout will redirect.
+      // Set loading true here to show loading indicator until auth status is resolved.
       setIsLoading(true);
-      setError(null);
-      
-      getEmployees(pbClient)
-        .then(fetchedEmployees => {
-          if (!ignore) {
-            setEmployees(fetchedEmployees);
-          }
-        })
-        .catch(err => {
-          if (!ignore) {
-            if (err && (err.status === 0 || (err.message && err.message.toLowerCase().includes("autocancelled")))) {
-              console.warn("Employees fetch request was autocancelled. This can occur if the request was rapidly re-initiated (e.g., in React StrictMode) or due to navigation.", err);
-            } else {
-              console.error("Error fetching employees:", err);
-              const detailedError = getDetailedErrorMessage(err);
-              setError(`${detailedError} Please try again.`);
-              toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
-            }
-          }
-        })
-        .finally(() => {
-          if (!ignore) {
-            setIsLoading(false);
-          }
-        });
-
-      return () => {
-        ignore = true; 
-      };
-    } else if (!user && !pbClient && router) { 
-        setIsLoading(true); 
+      return;
     }
-  }, [user, pbClient, router, toast]);
+
+    if (user.role !== 'Supervisor') {
+      toast({ title: "Access Denied", description: "This page is for Supervisors only.", variant: "destructive" });
+      router.push('/dashboard');
+      return;
+    }
+
+    let ignore = false;
+
+    // Call the memoized fetchEmployees function
+    fetchEmployees(pbClient);
+    
+    return () => {
+      ignore = true;
+      // If your `getEmployees` or `pbClient.collection.getFullList` supported AbortController,
+      // you would call controller.abort() here. PocketBase handles this internally.
+    };
+  }, [user, pbClient, router, toast, fetchEmployees]);
 
 
   const handleDeleteEmployee = async (employeeId: string) => {
@@ -121,25 +135,10 @@ export default function EmployeesPage() {
   };
   
   const refetchEmployees = () => {
-    if (pbClient && user && user.role === 'Supervisor') {
-        setIsLoading(true);
-        setError(null);
-        getEmployees(pbClient)
-            .then(fetchedEmployees => {
-                setEmployees(fetchedEmployees);
-            })
-            .catch(err_retry => {
-                console.error("Error refetching employees:", err_retry);
-                const detailedError = getDetailedErrorMessage(err_retry);
-                setError(`${detailedError} Please try again.`);
-                toast({ title: "Error Refetching Employees", description: detailedError, variant: "destructive" });
-            })
-            .finally(() => {
-                setIsLoading(false);
-            });
-    }
+     if (pbClient && user && user.role === 'Supervisor') {
+        fetchEmployees(pbClient);
+     }
   };
-
 
   if (!user && isLoading) { 
      return (
@@ -150,7 +149,9 @@ export default function EmployeesPage() {
     );
   }
   
-  if (user && user.role !== 'Supervisor') { 
+  if (user && user.role !== 'Supervisor' && !isLoading) { 
+    // This case should ideally be caught by the useEffect redirect,
+    // but as a fallback UI if redirection is slow or fails.
     return (
       <div className="flex items-center justify-center h-full p-4">
         <Card className="w-full max-w-md shadow-lg">
@@ -260,4 +261,3 @@ export default function EmployeesPage() {
     </div>
   );
 }
-
