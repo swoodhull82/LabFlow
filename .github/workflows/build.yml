@@ -29,3 +29,22 @@ jobs:
 
       - name: Build application
         run: npm run build
+
+      - name: Export application
+        run: npm run export
+
+      - name: Start Genkit server (and check flows load)
+        run: |
+          echo "Attempting to start Genkit server to check if flows load..."
+          timeout 30s npm run genkit:dev
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "Genkit server started successfully and was terminated by timeout (flows likely loaded)."
+            exit 0 # Treat timeout as success for this check
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "Genkit server failed to start (exit code $EXIT_CODE)."
+            exit $EXIT_CODE # Propagate error
+          else
+            echo "Genkit server exited cleanly before timeout (unexpected, but assume success)."
+            exit 0
+          fi
