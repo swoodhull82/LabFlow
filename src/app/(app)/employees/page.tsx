@@ -23,29 +23,57 @@ export default function EmployeesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchEmployees = async () => {
-    if (!pbClient || (user && user.role !== 'Supervisor')) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const fetchedEmployees = await getEmployees(pbClient);
-      setEmployees(fetchedEmployees);
-    } catch (err) {
-      console.error("Error fetching employees:", err);
-      setError("Failed to load employees. Please try again.");
-      toast({ title: "Error", description: "Failed to load employees.", variant: "destructive" });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (user && user.role !== 'Supervisor') {
-      router.push('/dashboard'); // Or an unauthorized page
-    } else if (pbClient) {
-      fetchEmployees();
+      router.push('/dashboard');
+      return; // Exit early if redirecting
     }
-  }, [user, pbClient, router]);
+
+    // This condition ensures fetching only happens when user is a Supervisor and pbClient is available.
+    if (pbClient && user && user.role === 'Supervisor') {
+      let ignore = false; // Flag to prevent state updates if component unmounts or effect re-runs
+      
+      setIsLoading(true);
+      setError(null);
+      
+      getEmployees(pbClient)
+        .then(fetchedEmployees => {
+          if (!ignore) {
+            setEmployees(fetchedEmployees);
+          }
+        })
+        .catch(err => {
+          if (!ignore) {
+            // PocketBase ClientResponseError for auto-cancellation often has status 0 or a specific message
+            if (err && (err.status === 0 || (err.message && err.message.toLowerCase().includes("autocancelled")))) {
+              console.warn("Employees fetch request was autocancelled. This can occur if the request was rapidly re-initiated (e.g., in React StrictMode) or due to navigation.", err);
+              // If employees array is empty after this, the UI will show "No employees found".
+              // We might not want to show a disruptive error toast for this specific case.
+            } else {
+              console.error("Error fetching employees:", err);
+              setError("Failed to load employees. Please try again.");
+              toast({ title: "Error", description: "Failed to load employees.", variant: "destructive" });
+            }
+          }
+        })
+        .finally(() => {
+          if (!ignore) {
+            setIsLoading(false);
+          }
+        });
+
+      return () => {
+        ignore = true; // Set ignore to true on cleanup (e.g., component unmount, or before StrictMode's second run)
+      };
+    } else if (!user && !pbClient && router) { 
+        // If user and pbClient are not yet available, we are likely in an initial app loading phase.
+        // AppLayout usually shows a loader. We ensure this page also shows loading.
+        setIsLoading(true); 
+    }
+    // If user exists but is not supervisor, the redirect at the top handles it.
+    // If user is supervisor but pbClient isn't ready, effect will re-run when pbClient becomes available.
+  }, [user, pbClient, router, toast]);
+
 
   const handleDeleteEmployee = async (employeeId: string) => {
     if (!pbClient) return;
@@ -59,19 +87,56 @@ export default function EmployeesPage() {
       toast({ title: "Error", description: "Failed to delete employee.", variant: "destructive" });
     }
   };
+  
+  const refetchEmployees = () => {
+    if (pbClient && user && user.role === 'Supervisor') {
+        setIsLoading(true);
+        setError(null);
+        getEmployees(pbClient)
+            .then(fetchedEmployees => {
+                setEmployees(fetchedEmployees);
+            })
+            .catch(err_retry => {
+                console.error("Error refetching employees:", err_retry);
+                setError("Failed to load employees. Please try again.");
+                toast({ title: "Error", description: "Failed to load employees.", variant: "destructive" });
+            })
+            .finally(() => {
+                setIsLoading(false);
+            });
+    }
+  };
 
-  if (!user || user.role !== 'Supervisor') {
-    // This should ideally be handled by the redirect, but as a fallback
-    return (
-      <div className="flex items-center justify-center h-full">
-        {user === null && isLoading ? (
-             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        ) : (
-            <p className="text-destructive">Access Denied. This page is for Supervisors only.</p>
-        )}
+
+  if (!user && isLoading) { // Still determining user auth state or initial load
+     return (
+      <div className="flex items-center justify-center h-full p-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="ml-2">Loading user information...</p>
       </div>
     );
   }
+  
+  if (user && user.role !== 'Supervisor') { // User loaded, but not a supervisor
+    return (
+      <div className="flex items-center justify-center h-full p-4">
+        <Card className="w-full max-w-md shadow-lg">
+            <CardHeader>
+                <CardTitle className="text-center">Access Denied</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <p className="text-center text-muted-foreground">
+                    This page is for Supervisors only.
+                </p>
+                 <Button onClick={() => router.push('/dashboard')} className="w-full mt-6">
+                    Go to Dashboard
+                </Button>
+            </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
 
   return (
     <div className="space-y-6">
@@ -99,7 +164,7 @@ export default function EmployeesPage() {
           {error && !isLoading && (
             <div className="text-center py-10 text-destructive">
               <p>{error}</p>
-              <Button onClick={fetchEmployees} className="mt-4">Try Again</Button>
+              <Button onClick={refetchEmployees} className="mt-4">Try Again</Button>
             </div>
           )}
           {!isLoading && !error && employees.length === 0 && (
@@ -143,7 +208,7 @@ export default function EmployeesPage() {
                               <Edit className="mr-2 h-4 w-4" /> Edit
                             </Link>
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             className="text-destructive focus:text-destructive focus:bg-destructive/10"
                             onClick={() => handleDeleteEmployee(employee.id)}
                           >
@@ -162,4 +227,3 @@ export default function EmployeesPage() {
     </div>
   );
 }
-
