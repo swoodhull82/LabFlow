@@ -42,7 +42,11 @@ export default function NewTaskPage() {
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [fetchEmployeesError, setFetchEmployeesError] = useState<string | null>(null);
 
-  const fetchAndSetEmployees = useCallback(async (pb: PocketBase) => {
+  const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null) => {
+    if (!pb) {
+      setIsLoadingEmployees(false); // Ensure loading stops if pbClient is null initially
+      return;
+    }
     setIsLoadingEmployees(true);
     setFetchEmployeesError(null);
     try {
@@ -70,7 +74,7 @@ export default function NewTaskPage() {
     if (pbClient) {
       fetchAndSetEmployees(pbClient);
     } else {
-      setIsLoadingEmployees(true); // Keep loading if pbClient is not yet available
+      setIsLoadingEmployees(true); 
     }
   }, [pbClient, fetchAndSetEmployees]);
 
@@ -134,19 +138,42 @@ export default function NewTaskPage() {
       toast({ title: "Success", description: "New task created successfully!" });
       router.push("/tasks");
     } catch (err: any) {
-      console.error("Failed to create task:", err);
+      console.error("Failed to create task (full error object):", err);
       let detailedMessage = "Failed to create task. Please try again.";
       
-      if (err?.data?.message) {
-        detailedMessage = `Error: ${err.data.message}`;
-      } else if (err?.data?.data) { 
-         const fieldErrors = Object.entries(err.data.data)
-          .map(([key, val]: [string, any]) => `${key}: ${val.message}`)
-          .join(" \n");
-        if (fieldErrors) {
-          detailedMessage = `Validation errors: ${fieldErrors}`;
+      if (err.data && typeof err.data === 'object') {
+        let mainErrorMessage = "";
+        if (err.data.message && typeof err.data.message === 'string') {
+          mainErrorMessage = err.data.message;
         }
-      } else if (err?.message) {
+
+        let fieldErrorString = "";
+        // Check for field-specific validation errors (err.data.data)
+        if (err.data.data && typeof err.data.data === 'object' && Object.keys(err.data.data).length > 0) {
+          fieldErrorString = Object.entries(err.data.data)
+            .map(([key, val]: [string, any]) => {
+              const message = val && val.message ? val.message : 'Invalid value';
+              return `${key}: ${message}`;
+            })
+            .join("; ");
+        }
+
+        if (mainErrorMessage && fieldErrorString) {
+          detailedMessage = `${mainErrorMessage}. Details: ${fieldErrorString}`;
+        } else if (mainErrorMessage) {
+          detailedMessage = mainErrorMessage; // Use PocketBase's general error message if available
+        } else if (fieldErrorString) {
+          detailedMessage = `Validation errors: ${fieldErrorString}`; // Use only field errors if no general message
+        } else if (Object.keys(err.data).length > 0 && detailedMessage === "Failed to create task. Please try again.") {
+            // Fallback if err.data is an object but message/data sub-properties are not as expected
+            try {
+                detailedMessage = `PocketBase error: ${JSON.stringify(err.data)}`;
+            } catch (e) {
+                detailedMessage = `PocketBase error: Could not stringify error data.`;
+            }
+        }
+      } else if (err.message && typeof err.message === 'string') { 
+        // Fallback to the generic error message if err.data is not informative
         detailedMessage = err.message;
       }
       
@@ -159,6 +186,24 @@ export default function NewTaskPage() {
       setIsSubmitting(false);
     }
   };
+
+  if (!pbClient && !isLoadingEmployees) { // Added !isLoadingEmployees to prevent flash of this message if pbClient just takes a moment
+    return (
+      <div className="space-y-6 max-w-2xl mx-auto">
+        <Card className="shadow-md">
+          <CardHeader>
+            <CardTitle className="font-headline">Initializing Task Creation</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex justify-center items-center py-10">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="ml-2 text-muted-foreground">Initializing task creation form...</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
@@ -174,15 +219,6 @@ export default function NewTaskPage() {
           <CardTitle className="font-headline">Task Details</CardTitle>
           <CardDescription>Fill in the information for the new task.</CardDescription>
         </CardHeader>
-        {!pbClient && (
-          <CardContent>
-            <div className="flex justify-center items-center py-10">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="ml-2 text-muted-foreground">Initializing...</p>
-            </div>
-          </CardContent>
-        )}
-        {pbClient && (
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
@@ -337,7 +373,6 @@ export default function NewTaskPage() {
             </div>
           </form>
         </CardContent>
-        )}
       </Card>
     </div>
   );
