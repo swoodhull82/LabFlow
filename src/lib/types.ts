@@ -49,8 +49,6 @@ export interface Employee {
   name: string;
   email: string;
   role: string; // This can be general role description, not necessarily UserRole
-  hireDate: Date | string; // Allow string for PB, convert to Date on client
-  avatar?: string; // Filename from PocketBase
   reportsTo_text?: string;
   department_text?: string;
   userId?: string; // Optional: if employee is also a system user
@@ -60,3 +58,4 @@ export interface Employee {
   collectionName?: string;
   expand?: any;
 }
+

@@ -4,11 +4,9 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { Employee } from "@/lib/types";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, ShieldCheck, Loader2 } from "lucide-react";
-import { format } from "date-fns";
+import { PlusCircle, MoreHorizontal, Edit, Trash2, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { useEffect, useState } from "react";
@@ -116,7 +114,6 @@ export default function EmployeesPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
-                  <TableHead>Hire Date</TableHead>
                   <TableHead>Department</TableHead>
                   <TableHead>Reports To</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -126,20 +123,10 @@ export default function EmployeesPage() {
                 {employees.map((employee) => (
                   <TableRow key={employee.id} className="hover:bg-muted/50 transition-colors">
                     <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar>
-                          <AvatarImage data-ai-hint="person avatar" src={employee.avatar || `https://placehold.co/40x40.png?text=${employee.name[0]}`} alt={employee.name} />
-                          <AvatarFallback>{employee.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                        </Avatar>
-                        <span className="font-medium">{employee.name}</span>
-                        {/* Example: Highlight if linked user is a supervisor in LabFlow */}
-                        {/* This logic would need user.role from a linked 'users' record if employee.userId is set */}
-                        {/* {user && employee.userId === user.id && user.role === 'Supervisor' && <ShieldCheck className="h-4 w-4 text-primary" title="Supervisor User"/>} */}
-                      </div>
+                      <span className="font-medium">{employee.name}</span>
                     </TableCell>
                     <TableCell>{employee.email}</TableCell>
                     <TableCell>{employee.role}</TableCell>
-                    <TableCell>{format(new Date(employee.hireDate), "MMM dd, yyyy")}</TableCell>
                     <TableCell>{employee.department_text || "-"}</TableCell>
                     <TableCell>{employee.reportsTo_text || "-"}</TableCell>
                     <TableCell className="text-right">
@@ -175,3 +162,4 @@ export default function EmployeesPage() {
     </div>
   );
 }
+
