@@ -26,10 +26,8 @@ jobs:
         run: npm ci
 
       - name: Build Next.js app
+        # This step now also handles the static export because 'output: export' is in next.config.js
         run: npm run build
-
-      - name: Export Next.js app
-        run: npm run export
 
       - name: Add .nojekyll file
         # This prevents GitHub Pages from running the exported files through Jekyll.
