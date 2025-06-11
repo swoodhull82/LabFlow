@@ -12,7 +12,7 @@ import { getTasks } from "@/services/taskService";
 import { getEmployees } from "@/services/employeeService";
 import type { Task, TaskStatus, Employee } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
-import { format, isPast, isToday, addDays, startOfDay } from "date-fns";
+import { format, isPast, isToday, addDays, startOfDay, startOfMonth, subMonths } from "date-fns";
 import type PocketBase from "pocketbase";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -29,6 +29,13 @@ interface LiveEmployeeTaskData {
   employee: string;
   activeTasks: number;
   fill?: string;
+}
+
+interface MonthlyCompletionDataPoint {
+  month: string;
+  total: number;
+  completed: number;
+  rate: number;
 }
 
 const initialTaskSummaryData: TaskSummaryItem[] = [
@@ -50,15 +57,6 @@ const taskStatusChartConfig = {
 const employeeTasksChartConfig = {
   activeTasks: { label: "Active Tasks", color: "hsl(var(--chart-2))" },
 } satisfies ChartConfig;
-
-const monthlyTaskCompletionData = [
-  { month: "Jan '24", total: 50, completed: 35, rate: 70 },
-  { month: "Feb '24", total: 45, completed: 30, rate: 66.67 },
-  { month: "Mar '24", total: 60, completed: 50, rate: 83.33 },
-  { month: "Apr '24", total: 55, completed: 40, rate: 72.73 },
-  { month: "May '24", total: 65, completed: 58, rate: 89.23 },
-  { month: "Jun '24", total: 70, completed: 60, rate: 85.71 },
-].map(item => ({ ...item, rate: parseFloat(item.rate.toFixed(1)) }));
 
 const monthlyCompletionChartConfig = {
   rate: { label: "Completion Rate (%)", color: "hsl(var(--chart-2))" },
@@ -123,6 +121,7 @@ export default function DashboardPage() {
   const [taskSummaryData, setTaskSummaryData] = useState<TaskSummaryItem[]>(initialTaskSummaryData);
   const [taskDistributionData, setTaskDistributionData] = useState<{ status: string; count: number; fill: string; }[]>([]);
   const [activeTasksByEmployeeData, setActiveTasksByEmployeeData] = useState<LiveEmployeeTaskData[]>([]);
+  const [liveMonthlyTaskCompletionData, setLiveMonthlyTaskCompletionData] = useState<MonthlyCompletionDataPoint[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -198,7 +197,7 @@ export default function DashboardPage() {
       status: status,
       count: statusCounts[status] || 0,
       fill: chartFills[status] || "hsl(var(--muted))",
-    })).filter(item => item.count > 0); // Filter out statuses with 0 count for cleaner chart
+    })).filter(item => item.count > 0);
     setTaskDistributionData(distribution);
 
     const employeeDataForChart = Object.entries(employeeTaskCounts)
@@ -208,6 +207,48 @@ export default function DashboardPage() {
       }))
       .sort((a,b) => b.activeTasks - a.activeTasks);
     setActiveTasksByEmployeeData(employeeDataForChart);
+
+    // Process Monthly Task Completion Data
+    const monthlyCompletionAgg: { [monthKey: string]: { total: number; completed: number; monthLabel: string } } = {};
+    const numMonthsToShow = 6;
+    const currentMonthStart = startOfMonth(new Date());
+
+    for (let i = 0; i < numMonthsToShow; i++) {
+      const monthToProcess = subMonths(currentMonthStart, i);
+      const monthKey = format(monthToProcess, "yyyy-MM");
+      const monthLabel = format(monthToProcess, "MMM 'yy");
+      if (!monthlyCompletionAgg[monthKey]) {
+        monthlyCompletionAgg[monthKey] = { total: 0, completed: 0, monthLabel };
+      }
+    }
+
+    allTasks.forEach(task => {
+      if (task.dueDate) {
+        const dueDateObj = startOfDay(new Date(task.dueDate));
+        const dueMonthKey = format(startOfMonth(dueDateObj), "yyyy-MM");
+
+        if (monthlyCompletionAgg[dueMonthKey]) {
+          monthlyCompletionAgg[dueMonthKey].total++;
+          if (task.status === "Done") {
+            monthlyCompletionAgg[dueMonthKey].completed++;
+          }
+        }
+      }
+    });
+    
+    const monthlyChartDataPoints: MonthlyCompletionDataPoint[] = [];
+    for (let i = numMonthsToShow - 1; i >= 0; i--) { // Iterate from oldest to newest for chart order
+      const monthToProcess = subMonths(currentMonthStart, i);
+      const monthKey = format(monthToProcess, "yyyy-MM");
+      const data = monthlyCompletionAgg[monthKey] || { total: 0, completed: 0, monthLabel: format(monthToProcess, "MMM 'yy") };
+      monthlyChartDataPoints.push({
+        month: data.monthLabel,
+        total: data.total,
+        completed: data.completed,
+        rate: data.total > 0 ? parseFloat(((data.completed / data.total) * 100).toFixed(1)) : 0,
+      });
+    }
+    setLiveMonthlyTaskCompletionData(monthlyChartDataPoints);
 
   }, [chartFills]);
 
@@ -241,8 +282,6 @@ export default function DashboardPage() {
     if (pbClient) {
       fetchDashboardData(pbClient);
     } else {
-      // If pbClient is not yet available, keep isLoading true.
-      // This handles the case where AuthContext is still initializing.
       setIsLoading(true); 
     }
   }, [pbClient, fetchDashboardData]);
@@ -345,33 +384,33 @@ export default function DashboardPage() {
               </Card>
             )}
 
-            {/* Monthly Task Completion (mock data) - can also be skeletonized if/when it becomes live */}
             {isLoading ? <div className="md:col-span-2"><SkeletonChartCard /></div> : (
                 <Card className="shadow-md md:col-span-2">
                 <CardHeader>
                     <CardTitle className="font-headline flex items-center">
                     <TrendingUp className="mr-2 h-5 w-5 text-primary" />
-                    Monthly Task Completion Rate (Mock Data)
+                    Monthly Task Completion Rate
                     </CardTitle>
-                    <CardDescription>Trend of task completion based on due dates.</CardDescription>
+                    <CardDescription>Trend of task completion based on due dates for the last 6 months.</CardDescription>
                 </CardHeader>
                 <CardContent>
+                  {liveMonthlyTaskCompletionData.length > 0 ? (
                     <ChartContainer config={monthlyCompletionChartConfig} className="h-[300px] w-full">
-                    <RechartsLineChart data={monthlyTaskCompletionData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                    <RechartsLineChart data={liveMonthlyTaskCompletionData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
                         <XAxis dataKey="month" />
                         <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
                         <Tooltip
                         content={({ active, payload, label }) => {
                             if (active && payload && payload.length) {
-                            const data = payload[0].payload; 
+                            const data = payload[0].payload as MonthlyCompletionDataPoint; 
                             return (
                                 <div className="p-2 rounded-md border bg-background shadow-lg">
                                 <p className="font-medium text-sm">{label}</p>
                                 <p className="text-xs text-muted-foreground">
                                     Completed: {data.completed} / {data.total}
                                 </p>
-                                <p className="text-xs" style={{ color: payload[0].color }}>
+                                <p className="text-xs" style={{ color: payload[0].stroke }}>
                                     Rate: {data.rate}%
                                 </p>
                                 </div>
@@ -393,6 +432,11 @@ export default function DashboardPage() {
                         />
                     </RechartsLineChart>
                     </ChartContainer>
+                  ) : (
+                     <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                      No task data available for the selected period.
+                    </div>
+                  )}
                 </CardContent>
                 </Card>
             )}
