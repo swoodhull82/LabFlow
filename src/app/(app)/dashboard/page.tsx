@@ -3,17 +3,17 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { BarChart, CalendarClock, CheckCircle2, ClipboardList, AlertTriangle, Zap, Users, TrendingUp, Loader2 } from "lucide-react";
+import { BarChart, CalendarClock, CheckCircle2, AlertTriangle, Zap, Users, TrendingUp, Loader2 } from "lucide-react";
 import { Bar, BarChart as RechartsBarChart, Line, LineChart as RechartsLineChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { getTasks } from "@/services/taskService";
-import type { Task, TaskStatus } from "@/lib/types";
+import { getEmployees } from "@/services/employeeService"; // Import employee service
+import type { Task, TaskStatus, Employee } from "@/lib/types"; // Import Employee type
 import { useToast } from "@/hooks/use-toast";
-import { format, isPast, isToday, differenceInCalendarDays, startOfDay, endOfDay, addDays } from "date-fns";
+import { format, isPast, isToday, addDays, startOfDay } from "date-fns";
 import type PocketBase from "pocketbase";
-import { TASK_STATUSES } from "@/lib/constants";
 
 interface TaskSummaryItem {
   title: string;
@@ -22,6 +22,12 @@ interface TaskSummaryItem {
   description: string;
   color: string;
   bgColor: string;
+}
+
+interface LiveEmployeeTaskData {
+  employee: string;
+  activeTasks: number;
+  fill?: string; // Optional: if you want to dynamically assign fills later
 }
 
 const initialTaskSummaryData: TaskSummaryItem[] = [
@@ -37,26 +43,13 @@ const taskStatusChartConfig = {
   "In Progress": { label: "In Progress", color: "hsl(var(--chart-2))" },
   "Blocked": { label: "Blocked", color: "hsl(var(--chart-3))" },
   "Done": { label: "Done", color: "hsl(var(--chart-4))" },
-  "Overdue": { label: "Overdue", color: "hsl(var(--chart-5))" }, // Added Overdue for completeness if needed
+  "Overdue": { label: "Overdue", color: "hsl(var(--chart-5))" },
 } satisfies ChartConfig;
 
+// Simplified config for employee tasks chart, color will be driven by the Bar component's fill or theme
 const employeeTasksChartConfig = {
-  activeTasks: { label: "Active Tasks" },
-  'Dr. Vance': { color: "hsl(var(--chart-1))" },
-  'M. Chen': { color: "hsl(var(--chart-2))" },
-  'A. Khan': { color: "hsl(var(--chart-3))" },
-  'J. Smith': { color: "hsl(var(--chart-4))" },
-  'J. Doe': {  color: "hsl(var(--chart-5))" },
+  activeTasks: { label: "Active Tasks", color: "hsl(var(--chart-2))" }, // A single color for all bars
 } satisfies ChartConfig;
-
-// Mock data for charts that are not yet live
-const activeTasksByEmployeeData = [
-  { employee: 'Dr. Vance', activeTasks: 5, fill: "hsl(var(--chart-1))" },
-  { employee: 'M. Chen', activeTasks: 3, fill: "hsl(var(--chart-2))" },
-  { employee: 'A. Khan', activeTasks: 4, fill: "hsl(var(--chart-3))" },
-  { employee: 'J. Smith', activeTasks: 2, fill: "hsl(var(--chart-4))" },
-  { employee: 'J. Doe', activeTasks: 6, fill: "hsl(var(--chart-5))" },
-];
 
 const monthlyTaskCompletionData = [
   { month: "Jan '24", total: 50, completed: 35, rate: 70 },
@@ -73,9 +66,8 @@ const monthlyCompletionChartConfig = {
   total: { label: "Total Due" },
 } satisfies ChartConfig;
 
-
-const getDetailedErrorMessage = (error: any): string => {
-  let message = "An unexpected error occurred while fetching dashboard data.";
+const getDetailedErrorMessage = (error: any, context: string = "dashboard data"): string => {
+  let message = `An unexpected error occurred while fetching ${context}.`;
   if (error && typeof error === 'object') {
     if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
@@ -88,8 +80,9 @@ const getDetailedErrorMessage = (error: any): string => {
     }
     if ('status' in error) {
       const status = error.status;
-      if (status === 404) message = `The 'tasks' collection was not found (404). ${message}`;
-      else if (status === 403) message = `You do not have permission to view tasks (403). ${message}`;
+      const collectionName = context.includes("tasks") ? "tasks" : context.includes("employees") ? "employees" : "data";
+      if (status === 404) message = `The '${collectionName}' collection was not found (404). ${message}`;
+      else if (status === 403) message = `You do not have permission to view ${collectionName} (403). ${message}`;
     }
   } else if (typeof error === 'string') {
     message = error;
@@ -97,14 +90,13 @@ const getDetailedErrorMessage = (error: any): string => {
   return message;
 };
 
-
 export default function DashboardPage() {
   const { pbClient } = useAuth();
   const { toast } = useToast();
 
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [taskSummaryData, setTaskSummaryData] = useState<TaskSummaryItem[]>(initialTaskSummaryData);
   const [taskDistributionData, setTaskDistributionData] = useState<{ status: string; count: number; fill: string; }[]>([]);
+  const [activeTasksByEmployeeData, setActiveTasksByEmployeeData] = useState<LiveEmployeeTaskData[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -117,23 +109,19 @@ export default function DashboardPage() {
     'Overdue': "hsl(var(--chart-5))", 
   };
   
-  const processTasksData = useCallback((allTasks: Task[]) => {
+  const processData = useCallback((allTasks: Task[], allEmployees: Employee[]) => {
     const today = startOfDay(new Date());
-    const endOfToday = endOfDay(new Date());
     const nextSevenDays = addDays(today, 7);
 
-    let activeCount = 0;
-    let overdueCount = 0;
-    let upcomingCount = 0;
-    let completedTodayCount = 0;
+    let activeSummaryCount = 0;
+    let overdueSummaryCount = 0;
+    let upcomingSummaryCount = 0;
+    let completedTodaySummaryCount = 0;
     
-    const statusCounts: Record<TaskStatus, number> = {
-      "To Do": 0,
-      "In Progress": 0,
-      "Blocked": 0,
-      "Done": 0,
-      "Overdue": 0, // This status is for display logic usually; actual tasks might be 'To Do' but overdue
+    const statusCounts: Record<TaskStatus | string, number> = {
+      "To Do": 0, "In Progress": 0, "Blocked": 0, "Done": 0, "Overdue": 0,
     };
+    const employeeTaskCounts: Record<string, number> = {};
 
     allTasks.forEach(task => {
       const dueDate = task.dueDate ? startOfDay(new Date(task.dueDate)) : null;
@@ -147,40 +135,58 @@ export default function DashboardPage() {
          statusCounts[task.status]++;
       }
 
+      // For Employee Task Chart (Active Tasks)
+      if (!taskIsDone && !taskIsOverdue) { // Active if not done and not overdue
+        if (task.assignedTo_text) {
+          employeeTaskCounts[task.assignedTo_text] = (employeeTaskCounts[task.assignedTo_text] || 0) + 1;
+        } else {
+          // Optional: count unassigned active tasks
+          // employeeTaskCounts["Unassigned"] = (employeeTaskCounts["Unassigned"] || 0) + 1;
+        }
+      }
 
       // For Summary Cards
       if (taskIsDone) {
-        const updatedDate = task.updated ? new Date(task.updated) : new Date(task.created); // Fallback to created if updated is null
+        const updatedDate = task.updated ? new Date(task.updated) : new Date(task.created);
         if (isToday(updatedDate)) {
-          completedTodayCount++;
+          completedTodaySummaryCount++;
         }
-      } else { // Not Done
+      } else { 
         if (taskIsOverdue) {
-          overdueCount++;
-        } else { // Not Done and Not Overdue
-          if (task.status === "In Progress" || task.status === "To Do" || task.status === "Blocked") {
-            activeCount++;
-          }
-          if (dueDate && dueDate >= today && dueDate < nextSevenDays) {
-            upcomingCount++;
-          }
+          overdueSummaryCount++;
+        }
+        // Count for "Active Tasks" card (To Do, In Progress, Blocked)
+        if (task.status === "In Progress" || task.status === "To Do" || task.status === "Blocked") {
+          activeSummaryCount++;
+        }
+        // Count for "Upcoming Tasks" card
+        if (dueDate && dueDate >= today && dueDate < nextSevenDays && !taskIsOverdue) { // ensure not overdue also
+          upcomingSummaryCount++;
         }
       }
     });
     
     setTaskSummaryData([
-      { ...initialTaskSummaryData[0], value: activeCount.toString() },
-      { ...initialTaskSummaryData[1], value: overdueCount.toString() },
-      { ...initialTaskSummaryData[2], value: upcomingCount.toString() },
-      { ...initialTaskSummaryData[3], value: completedTodayCount.toString() },
+      { ...initialTaskSummaryData[0], value: activeSummaryCount.toString() },
+      { ...initialTaskSummaryData[1], value: overdueSummaryCount.toString() },
+      { ...initialTaskSummaryData[2], value: upcomingSummaryCount.toString() },
+      { ...initialTaskSummaryData[3], value: completedTodaySummaryCount.toString() },
     ]);
 
-    const distribution = (Object.keys(statusCounts) as TaskStatus[]).map(status => ({
+    const distribution = (Object.keys(statusCounts) as (TaskStatus | string)[]).map(status => ({
       status: status,
       count: statusCounts[status] || 0,
       fill: chartFills[status] || "hsl(var(--muted))",
-    })).filter(item => item.count > 0); // Only include statuses with counts > 0 for cleaner chart
+    })).filter(item => item.count > 0);
     setTaskDistributionData(distribution);
+
+    const employeeDataForChart = Object.entries(employeeTaskCounts)
+      .map(([employeeName, count]) => ({
+        employee: employeeName,
+        activeTasks: count,
+      }))
+      .sort((a,b) => b.activeTasks - a.activeTasks); // Sort by most tasks
+    setActiveTasksByEmployeeData(employeeDataForChart);
 
   }, [chartFills]);
 
@@ -189,32 +195,33 @@ export default function DashboardPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const fetchedTasks = await getTasks(pb);
-      setTasks(fetchedTasks);
-      processTasksData(fetchedTasks);
+      const [fetchedTasks, fetchedEmployees] = await Promise.all([
+        getTasks(pb),
+        getEmployees(pb) // Fetch employees
+      ]);
+      processData(fetchedTasks, fetchedEmployees);
     } catch (err: any) {
-      const isPocketBaseAutocancel = err?.isAbort === true;
-      const isGeneralAutocancelOrNetworkIssue = err?.status === 0;
-      const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
-
-      if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
+      const isAutocancel = err?.isAbort === true || err?.status === 0 || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      if (isAutocancel) {
         console.warn("Dashboard data fetch request was autocancelled or due to a network issue.", err);
       } else {
         console.error("Error fetching dashboard data:", err);
-        const detailedError = getDetailedErrorMessage(err);
+        // Determine context of error (tasks or employees) if possible, or use general
+        const errorContext = err.message?.toLowerCase().includes("employee") ? "employees" : "tasks";
+        const detailedError = getDetailedErrorMessage(err, errorContext);
         setError(detailedError);
         toast({ title: "Error Loading Dashboard Data", description: detailedError, variant: "destructive" });
       }
     } finally {
       setIsLoading(false);
     }
-  }, [toast, processTasksData]);
+  }, [toast, processData]);
 
   useEffect(() => {
     if (pbClient) {
       fetchDashboardData(pbClient);
     } else {
-      setIsLoading(true); // Keep loading if pbClient not ready
+      setIsLoading(true); 
     }
   }, [pbClient, fetchDashboardData]);
 
@@ -298,20 +305,26 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle className="font-headline flex items-center">
               <Users className="mr-2 h-5 w-5 text-primary" />
-              Active Tasks by Employee (Mock Data)
+              Active Tasks by Employee
             </CardTitle>
-            <CardDescription>Breakdown of active tasks per employee.</CardDescription>
+            <CardDescription>Breakdown of active tasks assigned per employee.</CardDescription>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={employeeTasksChartConfig} className="h-[300px] w-full">
-              <RechartsBarChart data={activeTasksByEmployeeData} margin={{top: 5, right: 20, left: 0, bottom: 5}}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="employee" type="category" />
-                <YAxis dataKey="activeTasks" type="number" allowDecimals={false} />
-                <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent />} />
-                <Bar dataKey="activeTasks" radius={[4, 4, 0, 0]} />
-              </RechartsBarChart>
-            </ChartContainer>
+            {activeTasksByEmployeeData.length > 0 ? (
+              <ChartContainer config={employeeTasksChartConfig} className="h-[300px] w-full">
+                <RechartsBarChart data={activeTasksByEmployeeData} margin={{top: 5, right: 20, left: 0, bottom: 5}}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="employee" type="category" />
+                  <YAxis dataKey="activeTasks" type="number" allowDecimals={false} />
+                  <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent />} />
+                  <Bar dataKey="activeTasks" fill="var(--color-activeTasks)" radius={[4, 4, 0, 0]} />
+                </RechartsBarChart>
+              </ChartContainer>
+            ) : (
+               <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                No active tasks assigned to employees or employee data not loaded.
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -366,5 +379,5 @@ export default function DashboardPage() {
       </div>
     </div>
   );
-
+}
     
