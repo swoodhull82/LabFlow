@@ -7,10 +7,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label"; // Keep Label if used elsewhere, or remove if FormLabel covers all.
+// import { Label } from "@/components/ui/label"; // No longer directly used, FormLabel is used
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
-import type { Employee } from "@/lib/types";
+import type { Employee, UserRole } from "@/lib/types";
 import { PlusCircle, MoreHorizontal, Edit, Trash2, Loader2, Save, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -21,11 +21,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import type PocketBase from "pocketbase";
 
 const employeeFormSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
   email: z.string().email({ message: "Please enter a valid email address." }),
-  role: z.string().min(2, { message: "Role must be at least 2 characters." }),
+  role: z.string().min(1, { message: "Role is required." }), // Updated validation
   department_text: z.string().optional(),
   reportsTo_text: z.string().optional(),
 });
@@ -33,6 +34,7 @@ const employeeFormSchema = z.object({
 type EmployeeFormData = z.infer<typeof employeeFormSchema>;
 
 const NONE_REPORTS_TO_VALUE = "__NONE__";
+const AVAILABLE_ROLES: UserRole[] = ["Supervisor", "Team Lead", "Chem I", "Chem II"];
 
 const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred.";
@@ -155,7 +157,7 @@ export default function EmployeesPage() {
         email: editingEmployee.email,
         role: editingEmployee.role,
         department_text: editingEmployee.department_text || "",
-        reportsTo_text: editingEmployee.reportsTo_text || "", // Will show placeholder if empty
+        reportsTo_text: editingEmployee.reportsTo_text || "", 
       });
     }
   }, [editingEmployee, form]);
@@ -388,9 +390,18 @@ export default function EmployeesPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Role / Job Title</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a role" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {AVAILABLE_ROLES.map(roleValue => (
+                             <SelectItem key={roleValue} value={roleValue}>{roleValue}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -452,3 +463,5 @@ export default function EmployeesPage() {
     </div>
   );
 }
+
+    

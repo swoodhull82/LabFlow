@@ -16,20 +16,22 @@ import { createEmployee, getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Save } from "lucide-react";
 import React, { useState, useEffect, useCallback } from "react";
-import type { Employee } from "@/lib/types";
+import type { Employee, UserRole } from "@/lib/types";
 import type PocketBase from "pocketbase";
+import { FormField, FormItem, FormControl, FormMessage } from "@/components/ui/form"; // Added for consistency for future use
 
 const employeeFormSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
   email: z.string().email({ message: "Please enter a valid email address." }),
-  role: z.string().min(2, { message: "Role must be at least 2 characters." }),
+  role: z.string().min(1, { message: "Role is required." }), // Updated validation
   department_text: z.string().optional(),
-  reportsTo_text: z.string().optional(), // This will store the name of the manager
+  reportsTo_text: z.string().optional(),
 });
 
 type EmployeeFormData = z.infer<typeof employeeFormSchema>;
 
 const NONE_REPORTS_TO_VALUE = "__NONE__";
+const AVAILABLE_ROLES: UserRole[] = ["Supervisor", "Team Lead", "Chem I", "Chem II"];
 
 export default function NewEmployeePage() {
   const { pbClient, user } = useAuth();
@@ -48,7 +50,7 @@ export default function NewEmployeePage() {
       email: "",
       role: "",
       department_text: "",
-      reportsTo_text: "", 
+      reportsTo_text: "",
     },
   });
 
@@ -187,13 +189,30 @@ export default function NewEmployeePage() {
                 <p className="text-sm text-destructive mt-1">{form.formState.errors.email.message}</p>
               )}
             </div>
+            
             <div>
-              <Label htmlFor="role">Role / Job Title</Label>
-              <Input id="role" {...form.register("role")} placeholder="e.g., Senior Lab Analyst" />
+              <Label htmlFor="role-select">Role / Job Title</Label>
+              <Controller
+                name="role"
+                control={form.control}
+                render={({ field }) => (
+                  <Select onValueChange={field.onChange} value={field.value || ""} >
+                    <SelectTrigger id="role-select">
+                      <SelectValue placeholder="Select a role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AVAILABLE_ROLES.map(roleValue => (
+                        <SelectItem key={roleValue} value={roleValue}>{roleValue}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
               {form.formState.errors.role && (
                 <p className="text-sm text-destructive mt-1">{form.formState.errors.role.message}</p>
               )}
             </div>
+
             <div>
               <Label htmlFor="department_text">Department (Optional)</Label>
               <Input id="department_text" {...form.register("department_text")} placeholder="e.g., Chemistry" />
@@ -237,3 +256,5 @@ export default function NewEmployeePage() {
     </div>
   );
 }
+
+    
