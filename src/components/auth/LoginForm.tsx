@@ -10,16 +10,17 @@ import {
   FormControl,
   FormField,
   FormItem,
-  FormLabel,
+  FormLabel, // This is RHF's FormLabel for the whole field
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
 import type { UserRole } from "@/lib/types";
-import { useState, useEffect } from "react"; // Changed this line
+import { useState, useEffect } from "react";
 import { Loader2, LogIn } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label"; // Import Radix-based Label for individual items
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
@@ -44,12 +45,9 @@ export function LoginForm() {
     setIsLoading(true);
     await login(values.email, values.password, values.role as UserRole);
     // setLoading(false) is handled in AuthContext or if login fails
-    // For this form, we reset isLoading if the form is no longer submitting
-    // This is handled by the useEffect below.
   }
 
-  // Watch for form submission state to manage button loading
-  useEffect(() => { // Changed this line
+  useEffect(() => {
     if (form.formState.isSubmitting) {
       setIsLoading(true);
     } else {
@@ -102,21 +100,17 @@ export function LoginForm() {
                   <FormControl>
                     <RadioGroup
                       onValueChange={field.onChange}
-                      defaultValue={field.value}
+                      value={field.value} // Use value for controlled component
                       className="flex space-x-4"
                     >
-                      <FormItem className="flex items-center space-x-2 space-y-0">
-                        <FormControl>
-                          <RadioGroupItem value="employee" />
-                        </FormControl>
-                        <FormLabel className="font-normal">Employee</FormLabel>
-                      </FormItem>
-                      <FormItem className="flex items-center space-x-2 space-y-0">
-                        <FormControl>
-                          <RadioGroupItem value="admin" />
-                        </FormControl>
-                        <FormLabel className="font-normal">Admin</FormLabel>
-                      </FormItem>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="employee" id="role-employee" />
+                        <Label htmlFor="role-employee" className="font-normal">Employee</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="admin" id="role-admin" />
+                        <Label htmlFor="role-admin" className="font-normal">Admin</Label>
+                      </div>
                     </RadioGroup>
                   </FormControl>
                   <FormMessage />
