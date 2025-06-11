@@ -20,6 +20,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const VALID_ROLES: UserRole[] = ["Supervisor", "Analyst", "Team Lead"];
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,9 +35,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const pbUser = client.authStore.model;
         let userRole: UserRole = (pbUser as any).role as UserRole;
         
-        if (!userRole || (userRole !== "Supervisor" && userRole !== "Analyst")) {
+        if (!userRole || !VALID_ROLES.includes(userRole)) {
           const storedRole = localStorage.getItem("labflowUserRole") as UserRole | null;
-          userRole = storedRole || "Analyst"; 
+          userRole = (storedRole && VALID_ROLES.includes(storedRole)) ? storedRole : "Analyst"; 
         }
         
         const currentUser: User = {
@@ -64,9 +66,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const pbUser = client.authStore.model;
         
         let determinedRole: UserRole = (pbUser as any).role as UserRole;
-        if (!determinedRole || (determinedRole !== "Supervisor" && determinedRole !== "Analyst")) {
-          console.warn(`User ${pbUser.email} has an invalid or missing role in PocketBase. Defaulting to 'Analyst'.`);
-          determinedRole = "Analyst"; // Default to Analyst if role is missing or invalid
+        if (!determinedRole || !VALID_ROLES.includes(determinedRole)) {
+          console.warn(`User ${pbUser.email} has an invalid or missing role ('${(pbUser as any).role}') in PocketBase. Defaulting to 'Analyst'.`);
+          determinedRole = "Analyst"; 
         }
 
         const currentUser: User = {
@@ -124,3 +126,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

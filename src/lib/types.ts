@@ -1,5 +1,5 @@
 
-export type UserRole = "Supervisor" | "Analyst";
+export type UserRole = "Supervisor" | "Analyst" | "Team Lead";
 
 export interface User {
   id: string;
@@ -64,10 +64,10 @@ export interface ActivityLogEntry {
   user_name: string; // Name of the user who performed the action
   action: string; // Description of the action, e.g., "Created new task"
   details?: string; // Optional additional details about the event
-  target_resource?: string; // Optional, e.g., "Task:xyz123" or "Employee:abc456"
   created: Date | string; // Timestamp of the event
   updated: Date | string;
   collectionId?: string;
   collectionName?: string;
   expand?: any;
 }
+
