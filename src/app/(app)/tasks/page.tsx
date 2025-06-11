@@ -1,19 +1,20 @@
 
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { Task, TaskPriority, TaskStatus } from "@/lib/types";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2 } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { deleteTask, getTasks } from "@/services/taskService";
 import { useToast } from "@/hooks/use-toast";
+import type PocketBase from "pocketbase";
 
 const getPriorityBadgeVariant = (priority?: TaskPriority) => {
   if (!priority) return "default";
@@ -37,6 +38,31 @@ const getStatusBadgeVariant = (status?: TaskStatus) => {
   }
 };
 
+const getDetailedErrorMessage = (error: any): string => {
+  let message = "An unexpected error occurred.";
+  if (error && typeof error === 'object') {
+    if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
+      message = error.data.message;
+    } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
+      message = error.message;
+    } else if (error.originalError && typeof error.originalError.message === 'string') {
+        message = error.originalError.message;
+    } else if (error.message && typeof error.message === 'string') {
+      message = error.message;
+    }
+
+    if ('status' in error) {
+      const status = error.status;
+      if (status === 404) message = `The tasks collection was not found (404). Original: ${message}`;
+      else if (status === 403) message = `You do not have permission to view tasks (403). Original: ${message}`;
+    }
+  } else if (typeof error === 'string') {
+    message = error;
+  }
+  return message;
+};
+
+
 export default function TasksPage() {
   const { pbClient } = useAuth();
   const { toast } = useToast();
@@ -44,37 +70,80 @@ export default function TasksPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchTasks = async () => {
-    if (!pbClient) return;
+  const fetchTasksCallback = useCallback(async (pb: PocketBase | null) => {
+    if (!pb) {
+      setIsLoading(false); // Ensure loading state is handled if pbClient is null
+      return;
+    }
+    let ignore = false;
     setIsLoading(true);
     setError(null);
     try {
-      const fetchedTasks = await getTasks(pbClient);
-      setTasks(fetchedTasks);
-    } catch (err) {
-      console.error("Error fetching tasks:", err);
-      setError("Failed to load tasks. Please try again.");
-      toast({ title: "Error", description: "Failed to load tasks.", variant: "destructive" });
+      const fetchedTasks = await getTasks(pb);
+      if (!ignore) {
+        setTasks(fetchedTasks);
+      }
+    } catch (err: any) {
+      if (!ignore) {
+        const isPocketBaseAutocancel = err?.isAbort === true;
+        const isGeneralAutocancelOrNetworkIssue = err?.status === 0;
+        const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
+        
+        if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
+          console.warn("Tasks fetch request was autocancelled or due to a network issue.", err);
+          // Optionally, do not set error or show toast for these specific cases
+        } else {
+          console.error("Error fetching tasks:", err);
+          const detailedError = getDetailedErrorMessage(err);
+          setError(detailedError);
+          toast({ title: "Error Loading Tasks", description: detailedError, variant: "destructive" });
+        }
+      }
     } finally {
-      setIsLoading(false);
+      if (!ignore) {
+        setIsLoading(false);
+      }
     }
-  };
+    return () => {
+      ignore = true;
+    };
+  }, [toast]);
 
   useEffect(() => {
-    fetchTasks();
-  }, [pbClient]);
+    if (pbClient) {
+      const cleanup = fetchTasksCallback(pbClient);
+      return () => {
+        if (typeof cleanup === 'function') {
+          cleanup();
+        }
+      };
+    } else {
+      setIsLoading(true); // Keep loading if pbClient isn't ready
+    }
+  }, [pbClient, fetchTasksCallback]);
 
   const handleDeleteTask = async (taskId: string) => {
-    if (!pbClient) return;
+    if (!pbClient) {
+        toast({ title: "Error", description: "Client not available.", variant: "destructive" });
+        return;
+    }
+    const originalTasks = [...tasks];
+    setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
     try {
       await deleteTask(pbClient, taskId);
       toast({ title: "Success", description: "Task deleted successfully." });
-      setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
     } catch (err) {
       console.error("Error deleting task:", err);
-      toast({ title: "Error", description: "Failed to delete task.", variant: "destructive" });
+      setTasks(originalTasks);
+      toast({ title: "Error", description: getDetailedErrorMessage(err), variant: "destructive" });
     }
   };
+
+  const refetchTasks = () => {
+    if (pbClient) {
+      fetchTasksCallback(pbClient);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -106,8 +175,10 @@ export default function TasksPage() {
           )}
           {error && !isLoading && (
             <div className="text-center py-10 text-destructive">
-              <p>{error}</p>
-              <Button onClick={fetchTasks} className="mt-4">Try Again</Button>
+              <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
+              <p className="mt-4 text-lg font-semibold">Failed to Load Tasks</p>
+              <p className="text-sm">{error}</p>
+              <Button onClick={refetchTasks} className="mt-6">Try Again</Button>
             </div>
           )}
           {!isLoading && !error && tasks.length === 0 && (
