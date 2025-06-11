@@ -20,7 +20,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const VALID_ROLES: UserRole[] = ["Supervisor", "Analyst", "Team Lead"];
+const VALID_ROLES: UserRole[] = ["Supervisor", "Team Lead", "Chem I", "Chem II"];
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -35,9 +35,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const pbUser = client.authStore.model;
         let userRole: UserRole = (pbUser as any).role as UserRole;
         
+        // Map old "Analyst" role to "Chem I"
+        if (userRole === "Analyst" as any) {
+          userRole = "Chem I";
+        }
+        
         if (!userRole || !VALID_ROLES.includes(userRole)) {
           const storedRole = localStorage.getItem("labflowUserRole") as UserRole | null;
-          userRole = (storedRole && VALID_ROLES.includes(storedRole)) ? storedRole : "Analyst"; 
+          let resolvedStoredRole: UserRole = "Chem I"; // Default to Chem I
+          if (storedRole) {
+            if (storedRole === "Analyst" as any) { // Map old "Analyst" from localStorage
+              resolvedStoredRole = "Chem I";
+            } else if (VALID_ROLES.includes(storedRole)) {
+              resolvedStoredRole = storedRole;
+            }
+          }
+          userRole = resolvedStoredRole;
         }
         
         const currentUser: User = {
@@ -66,9 +79,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const pbUser = client.authStore.model;
         
         let determinedRole: UserRole = (pbUser as any).role as UserRole;
+        // Map old "Analyst" role to "Chem I"
+        if (determinedRole === "Analyst" as any) {
+          determinedRole = "Chem I";
+        }
+
         if (!determinedRole || !VALID_ROLES.includes(determinedRole)) {
-          console.warn(`User ${pbUser.email} has an invalid or missing role ('${(pbUser as any).role}') in PocketBase. Defaulting to 'Analyst'.`);
-          determinedRole = "Analyst"; 
+          console.warn(`User ${pbUser.email} has an invalid or missing role ('${(pbUser as any).role}') in PocketBase. Defaulting to 'Chem I'.`);
+          determinedRole = "Chem I"; 
         }
 
         const currentUser: User = {

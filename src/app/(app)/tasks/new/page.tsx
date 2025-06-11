@@ -20,7 +20,6 @@ import { createTask } from "@/services/taskService";
 import { useToast } from "@/hooks/use-toast";
 import type { TaskPriority, TaskStatus, TaskRecurrence } from "@/lib/types";
 
-// Mock employees for assignment - replace with actual data fetching if needed
 const mockEmployees = [
   // Supervisors
   { id: "empS1", name: "Dr. Evelyn Hayes (Supervisor)" },
@@ -29,15 +28,16 @@ const mockEmployees = [
   { id: "empTL1", name: "Ms. Olivia Carter (Team Lead)" },
   { id: "empTL2", name: "Mr. David Lee (Team Lead)" },
   { id: "empTL3", name: "Dr. Priya Sharma (Team Lead)" },
-  // Analysts
-  { id: "empA1", name: "Alice Johnson (Analyst)" },
-  { id: "empA2", name: "Bob Williams (Analyst)" },
-  { id: "empA3", name: "Carol Davis (Analyst)" },
-  { id: "empA4", name: "Daniel Miller (Analyst)" },
-  { id: "empA5", name: "Emily Wilson (Analyst)" },
-  { id: "empA6", name: "Frank Garcia (Analyst)" },
-  { id: "empA7", name: "Grace Rodriguez (Analyst)" },
-  { id: "empA8", name: "Henry Martinez (Analyst)" },
+  // Chem I
+  { id: "empCI1", name: "Alice Johnson (Chem I)" },
+  { id: "empCI2", name: "Bob Williams (Chem I)" },
+  { id: "empCI3", name: "Carol Davis (Chem I)" },
+  { id: "empCI4", name: "Daniel Miller (Chem I)" },
+  // Chem II
+  { id: "empCII1", name: "Emily Wilson (Chem II)" },
+  { id: "empCII2", name: "Frank Garcia (Chem II)" },
+  { id: "empCII3", name: "Grace Rodriguez (Chem II)" },
+  { id: "empCII4", name: "Henry Martinez (Chem II)" },
 ];
 
 
@@ -245,3 +245,4 @@ export default function NewTaskPage() {
     </div>
   );
 }
+
