@@ -11,10 +11,10 @@ const pbRecordToEmployee = (record: any): Employee => {
     id: record.id,
     name: record.name,
     email: record.email,
-    role: record.role,
+    role: record.role, // This is the job title/role within the company
     reportsTo_text: record.reportsTo_text,
     department_text: record.department_text,
-    userId: record.userId,
+    userId: record.userId, // This would link to a User record in PocketBase's 'users' collection
     created: record.created ? new Date(record.created) : undefined,
     updated: record.updated ? new Date(record.updated) : undefined,
     collectionId: record.collectionId,
@@ -26,7 +26,7 @@ const pbRecordToEmployee = (record: any): Employee => {
 export const getEmployees = async (pb: PocketBase): Promise<Employee[]> => {
   try {
     const records = await pb.collection(COLLECTION_NAME).getFullList({
-      sort: 'name', // Sort by name or any other preferred field
+      sort: 'name', 
     });
     return records.map(pbRecordToEmployee);
   } catch (error) {
@@ -35,7 +35,8 @@ export const getEmployees = async (pb: PocketBase): Promise<Employee[]> => {
   }
 };
 
-export const createEmployee = async (pb: PocketBase, employeeData: FormData | Partial<Omit<Employee, 'id' | 'created' | 'updated'>>): Promise<Employee> => {
+// Updated to clarify that employeeData can be an object or FormData
+export const createEmployee = async (pb: PocketBase, employeeData: Partial<Omit<Employee, 'id' | 'created' | 'updated'>> | FormData): Promise<Employee> => {
   try {
     const record = await pb.collection(COLLECTION_NAME).create(employeeData);
     return pbRecordToEmployee(record);
@@ -45,7 +46,7 @@ export const createEmployee = async (pb: PocketBase, employeeData: FormData | Pa
   }
 };
 
-export const updateEmployee = async (pb: PocketBase, id: string, employeeData: FormData | Partial<Employee>): Promise<Employee> => {
+export const updateEmployee = async (pb: PocketBase, id: string, employeeData: Partial<Employee> | FormData): Promise<Employee> => {
   try {
     const record = await pb.collection(COLLECTION_NAME).update(id, employeeData);
     return pbRecordToEmployee(record);
@@ -76,4 +77,3 @@ export const getEmployeeById = async (pb: PocketBase, id: string): Promise<Emplo
     throw error;
   }
 };
-
