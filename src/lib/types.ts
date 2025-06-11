@@ -19,11 +19,11 @@ export interface Task {
   description?: string;
   status: TaskStatus;
   priority: TaskPriority;
-  dueDate?: Date | string; 
-  assignedTo_text?: string; 
+  dueDate?: Date | string;
+  assignedTo_text?: string;
   recurrence: TaskRecurrence;
-  attachments?: File[] | string[]; 
-  userId: string; 
+  attachments?: File[] | string[];
+  userId: string;
   created: Date | string;
   updated: Date | string;
   collectionId?: string;
@@ -48,7 +48,15 @@ export interface Employee {
   id: string;
   name: string;
   email: string;
-  role: string; 
-  hireDate: Date;
-  userId: string; 
+  role: string;
+  hireDate: Date | string; // Allow string for PB, convert to Date on client
+  avatar?: string; // Filename from PocketBase
+  reportsTo_text?: string;
+  department_text?: string;
+  userId?: string; // Optional: if employee is also a system user
+  created?: Date | string;
+  updated?: Date | string;
+  collectionId?: string;
+  collectionName?: string;
+  expand?: any;
 }

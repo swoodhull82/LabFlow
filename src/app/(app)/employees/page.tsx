@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -6,39 +7,74 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { Employee } from "@/lib/types";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, ShieldCheck } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Edit, Trash2, ShieldCheck, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-
-const mockEmployees: Employee[] = [
-  { id: "1", name: "Dr. Eleanor Vance", email: "e.vance@labflow.dev", role: "Senior Researcher", hireDate: new Date(2020, 0, 15), userId: "user1" },
-  { id: "2", name: "Marcus Chen", email: "m.chen@labflow.dev", role: "Lab Technician", hireDate: new Date(2021, 5, 1), userId: "user2" },
-  { id: "3", name: "Aisha Khan", email: "a.khan@labflow.dev", role: "Junior Researcher", hireDate: new Date(2022, 8, 20), userId: "user3" },
-  { id: "4", name: "Robert Downy", email: "r.downy@labflow.dev", role: "Lab Manager (Admin)", hireDate: new Date(2019, 3, 10), userId: "user4" },
-];
-
+import { getEmployees, deleteEmployee } from "@/services/employeeService";
+import { useToast } from "@/hooks/use-toast";
 
 export default function EmployeesPage() {
-  const { user } = useAuth();
+  const { user, pbClient } = useAuth();
   const router = useRouter();
+  const { toast } = useToast();
+
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchEmployees = async () => {
+    if (!pbClient || (user && user.role !== 'admin')) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const fetchedEmployees = await getEmployees(pbClient);
+      setEmployees(fetchedEmployees);
+    } catch (err) {
+      console.error("Error fetching employees:", err);
+      setError("Failed to load employees. Please try again.");
+      toast({ title: "Error", description: "Failed to load employees.", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (user && user.role !== 'admin') {
       router.push('/dashboard'); // Or an unauthorized page
+    } else if (pbClient) {
+      fetchEmployees();
     }
-  }, [user, router]);
+  }, [user, pbClient, router]);
+
+  const handleDeleteEmployee = async (employeeId: string) => {
+    if (!pbClient) return;
+    // Optional: Add a confirmation dialog here
+    try {
+      await deleteEmployee(pbClient, employeeId);
+      toast({ title: "Success", description: "Employee deleted successfully." });
+      setEmployees(prevEmployees => prevEmployees.filter(emp => emp.id !== employeeId));
+    } catch (err) {
+      console.error("Error deleting employee:", err);
+      toast({ title: "Error", description: "Failed to delete employee.", variant: "destructive" });
+    }
+  };
 
   if (!user || user.role !== 'admin') {
+    // This should ideally be handled by the redirect, but as a fallback
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-destructive">Access Denied. This page is for administrators only.</p>
+        {user === null && isLoading ? (
+             <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        ) : (
+            <p className="text-destructive">Access Denied. This page is for administrators only.</p>
+        )}
       </div>
     );
   }
-  
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -56,55 +92,84 @@ export default function EmployeesPage() {
           <CardDescription>Manage employee information and access.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Hire Date</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {mockEmployees.map((employee) => (
-                <TableRow key={employee.id} className="hover:bg-muted/50 transition-colors">
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Avatar>
-                        <AvatarImage src={`https://placehold.co/40x40.png?text=${employee.name[0]}`} alt={employee.name} />
-                        <AvatarFallback>{employee.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                      </Avatar>
-                      <span className="font-medium">{employee.name}</span>
-                      {employee.email === 'r.downy@labflow.dev' && <ShieldCheck className="h-4 w-4 text-primary" title="Admin User"/>}
-                    </div>
-                  </TableCell>
-                  <TableCell>{employee.email}</TableCell>
-                  <TableCell>{employee.role}</TableCell>
-                  <TableCell>{format(employee.hireDate, "MMM dd, yyyy")}</TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
-                          <Link href={`/employees/${employee.id}/edit`} className="flex items-center w-full">
-                            <Edit className="mr-2 h-4 w-4" /> Edit
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10">
-                          <Trash2 className="mr-2 h-4 w-4" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
+          {isLoading && (
+            <div className="flex justify-center items-center py-10">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="ml-2">Loading employees...</p>
+            </div>
+          )}
+          {error && !isLoading && (
+            <div className="text-center py-10 text-destructive">
+              <p>{error}</p>
+              <Button onClick={fetchEmployees} className="mt-4">Try Again</Button>
+            </div>
+          )}
+          {!isLoading && !error && employees.length === 0 && (
+             <div className="text-center py-10 text-muted-foreground">
+              <p>No employees found. Get started by adding a new employee!</p>
+            </div>
+          )}
+          {!isLoading && !error && employees.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Hire Date</TableHead>
+                  <TableHead>Department</TableHead>
+                  <TableHead>Reports To</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {employees.map((employee) => (
+                  <TableRow key={employee.id} className="hover:bg-muted/50 transition-colors">
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar>
+                          <AvatarImage data-ai-hint="person avatar" src={employee.avatar || `https://placehold.co/40x40.png?text=${employee.name[0]}`} alt={employee.name} />
+                          <AvatarFallback>{employee.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium">{employee.name}</span>
+                        {/* Example: Highlight if linked user is an admin in LabFlow */}
+                        {/* This logic would need user.role from a linked 'users' record if employee.userId is set */}
+                        {/* {user && employee.userId === user.id && user.role === 'admin' && <ShieldCheck className="h-4 w-4 text-primary" title="Admin User"/>} */}
+                      </div>
+                    </TableCell>
+                    <TableCell>{employee.email}</TableCell>
+                    <TableCell>{employee.role}</TableCell>
+                    <TableCell>{format(new Date(employee.hireDate), "MMM dd, yyyy")}</TableCell>
+                    <TableCell>{employee.department_text || "-"}</TableCell>
+                    <TableCell>{employee.reportsTo_text || "-"}</TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                           <DropdownMenuItem asChild>
+                            {/* TODO: Implement Edit Employee Page: /employees/[id]/edit */}
+                            <Link href={`/employees/${employee.id}/edit`} className="flex items-center w-full cursor-not-allowed opacity-50">
+                              <Edit className="mr-2 h-4 w-4" /> Edit
+                            </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                            onClick={() => handleDeleteEmployee(employee.id)}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>
