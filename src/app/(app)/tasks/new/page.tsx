@@ -86,6 +86,8 @@ export default function NewTaskPage() {
       if (statusNames.length > 0) {
         const defaultStatus = statusNames.find(s => s.toLowerCase() === 'to do') || statusNames[0];
         setStatus(defaultStatus);
+      } else {
+        setStatus('');
       }
 
       const priorityNames = prioritiesData.map(p => p.name);
@@ -93,6 +95,8 @@ export default function NewTaskPage() {
       if (priorityNames.length > 0) {
         const defaultPriority = priorityNames.find(p => p.toLowerCase() === 'medium') || priorityNames[0];
         setPriority(defaultPriority);
+      } else {
+        setPriority('');
       }
 
       const recurrenceNames = recurrencesData.map(r => r.name);
@@ -100,6 +104,8 @@ export default function NewTaskPage() {
       if (recurrenceNames.length > 0) {
         const defaultRecurrence = recurrenceNames.find(r => r.toLowerCase() === 'none') || recurrenceNames[0];
         setRecurrence(defaultRecurrence);
+      } else {
+        setRecurrence('');
       }
 
     } catch (err: any) {
@@ -185,17 +191,15 @@ export default function NewTaskPage() {
       
       if (err?.data?.message) {
         detailedMessage = `Error: ${err.data.message}`;
+      } else if (err?.data?.data) { // Check for field-specific errors
+         const fieldErrors = Object.entries(err.data.data)
+          .map(([key, val]: [string, any]) => `${key}: ${val.message}`)
+          .join(" \n");
+        if (fieldErrors) {
+          detailedMessage = `Validation errors: ${fieldErrors}`;
+        }
       } else if (err?.message) {
         detailedMessage = err.message;
-      }
-      
-      if (err?.data?.data) {
-        const fieldErrors = Object.entries(err.data.data)
-          .map(([key, val]: [string, any]) => `${key}: ${val.message}`)
-          .join(" \n"); 
-        if (fieldErrors) {
-          detailedMessage += ` Details: ${fieldErrors}`;
-        }
       }
       
       toast({
@@ -228,6 +232,15 @@ export default function NewTaskPage() {
           <CardTitle className="font-headline">Task Details</CardTitle>
           <CardDescription>Fill in the information for the new task.</CardDescription>
         </CardHeader>
+        {!pbClient && (
+          <CardContent>
+            <div className="flex justify-center items-center py-10">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="ml-2 text-muted-foreground">Initializing task creation form...</p>
+            </div>
+          </CardContent>
+        )}
+        {pbClient && (
         <CardContent>
           {fetchConfigError && (
             <div className="mb-4 p-4 border border-destructive/50 bg-destructive/10 text-destructive rounded-md">
@@ -394,6 +407,7 @@ export default function NewTaskPage() {
             </div>
           </form>
         </CardContent>
+        )}
       </Card>
     </div>
   );
