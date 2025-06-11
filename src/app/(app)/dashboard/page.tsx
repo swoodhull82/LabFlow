@@ -125,42 +125,47 @@ export default function DashboardPage() {
 
     allTasks.forEach(task => {
       const dueDate = task.dueDate ? startOfDay(new Date(task.dueDate)) : null;
-      const taskIsDone = task.status === "Done";
-      const taskIsOverdue = dueDate && isPast(dueDate) && !isToday(dueDate) && !taskIsDone;
+      const isTaskMarkedDone = task.status === "Done";
+      const isTaskDateBasedOverdue = dueDate && isPast(dueDate) && !isToday(dueDate) && !isTaskMarkedDone;
+
+      // Determine if the task is effectively overdue for consistent logic
+      const isEffectivelyOverdue = task.status === "Overdue" || isTaskDateBasedOverdue;
 
       // For Status Distribution Chart
-      if (taskIsOverdue) {
-        statusCounts["Overdue"] = (statusCounts["Overdue"] || 0 ) + 1;
-      } else if (task.status && statusCounts.hasOwnProperty(task.status)) {
-         statusCounts[task.status]++;
+      if (task.status === "Overdue") {
+        statusCounts["Overdue"]++;
+      } else if (isTaskDateBasedOverdue) { // If date-based overdue AND not already status "Overdue"
+        statusCounts["Overdue"]++;
+      } else if (task.status && statusCounts.hasOwnProperty(task.status)) { // For all other non-overdue statuses
+        statusCounts[task.status]++;
       }
 
       // For Employee Task Chart (Active Tasks)
-      if (!taskIsDone && !taskIsOverdue) { // Active if not done and not overdue
+      // Active means not Done, and not Effectively Overdue
+      if (!isTaskMarkedDone && !isEffectivelyOverdue) {
         if (task.assignedTo_text) {
           employeeTaskCounts[task.assignedTo_text] = (employeeTaskCounts[task.assignedTo_text] || 0) + 1;
-        } else {
-          // Optional: count unassigned active tasks
-          // employeeTaskCounts["Unassigned"] = (employeeTaskCounts["Unassigned"] || 0) + 1;
         }
       }
 
       // For Summary Cards
-      if (taskIsDone) {
+      if (isTaskMarkedDone) {
         const updatedDate = task.updated ? new Date(task.updated) : new Date(task.created);
         if (isToday(updatedDate)) {
           completedTodaySummaryCount++;
         }
-      } else { 
-        if (taskIsOverdue) {
+      } else { // Task is not marked as Done
+        if (isEffectivelyOverdue) {
           overdueSummaryCount++;
         }
-        // Count for "Active Tasks" card (To Do, In Progress, Blocked)
-        if (task.status === "In Progress" || task.status === "To Do" || task.status === "Blocked") {
+
+        // "Active Tasks" for summary card: "To Do", "In Progress", "Blocked" AND NOT effectively overdue
+        if (!isEffectivelyOverdue && (task.status === "In Progress" || task.status === "To Do" || task.status === "Blocked")) {
           activeSummaryCount++;
         }
-        // Count for "Upcoming Tasks" card
-        if (dueDate && dueDate >= today && dueDate < nextSevenDays && !taskIsOverdue) { // ensure not overdue also
+
+        // "Upcoming Tasks" for summary card: Due in next 7 days AND NOT effectively overdue
+        if (!isEffectivelyOverdue && dueDate && dueDate >= today && dueDate < nextSevenDays) {
           upcomingSummaryCount++;
         }
       }
