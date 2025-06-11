@@ -9,7 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { TASK_PRIORITIES, TASK_RECURRENCES, TASK_STATUSES } from "@/lib/constants";
 import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import React, { useState, useEffect, useCallback } from "react";
@@ -19,7 +18,7 @@ import { useAuth } from "@/context/AuthContext";
 import { createTask } from "@/services/taskService";
 import { getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
-import type { TaskPriority, TaskStatus, TaskRecurrence, Employee } from "@/lib/types";
+import type { Employee } from "@/lib/types";
 import type PocketBase from "pocketbase";
 
 export default function NewTaskPage() {
@@ -29,11 +28,11 @@ export default function NewTaskPage() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [status, setStatus] = useState<TaskStatus>("To Do");
-  const [priority, setPriority] = useState<TaskPriority>("Medium");
+  const [status, setStatus] = useState<string>("");
+  const [priority, setPriority] = useState<string>("");
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [dueDate, setDueDate] = useState<Date | undefined>();
-  const [recurrence, setRecurrence] = useState<TaskRecurrence>("None");
+  const [recurrence, setRecurrence] = useState<string>("");
   const [assignedToText, setAssignedToText] = useState<string | undefined>();
   const [attachments, setAttachments] = useState<FileList | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -41,6 +40,12 @@ export default function NewTaskPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [fetchEmployeesError, setFetchEmployeesError] = useState<string | null>(null);
+
+  const [statusOptions, setStatusOptions] = useState<string[]>([]);
+  const [priorityOptions, setPriorityOptions] = useState<string[]>([]);
+  const [recurrenceOptions, setRecurrenceOptions] = useState<string[]>([]);
+  const [isLoadingConfig, setIsLoadingConfig] = useState(true);
+  const [fetchConfigError, setFetchConfigError] = useState<string | null>(null);
 
   const fetchAndSetEmployees = useCallback(async (pb: PocketBase) => {
     setIsLoadingEmployees(true);
@@ -66,11 +71,54 @@ export default function NewTaskPage() {
     }
   }, [toast]);
 
+  const fetchTaskConfigOptions = useCallback(async (pbInstance: PocketBase) => {
+    setIsLoadingConfig(true);
+    setFetchConfigError(null);
+    try {
+      const [statusesData, prioritiesData, recurrencesData] = await Promise.all([
+        pbInstance.collection('task_config_statuses').getFullList({ fields: "name", sort: "name" }),
+        pbInstance.collection('task_config_priorities').getFullList({ fields: "name", sort: "name" }),
+        pbInstance.collection('task_config_recurrences').getFullList({ fields: "name", sort: "name" })
+      ]);
+
+      const statusNames = statusesData.map(s => s.name);
+      setStatusOptions(statusNames);
+      if (statusNames.length > 0) {
+        const defaultStatus = statusNames.find(s => s.toLowerCase() === 'to do') || statusNames[0];
+        setStatus(defaultStatus);
+      }
+
+      const priorityNames = prioritiesData.map(p => p.name);
+      setPriorityOptions(priorityNames);
+      if (priorityNames.length > 0) {
+        const defaultPriority = priorityNames.find(p => p.toLowerCase() === 'medium') || priorityNames[0];
+        setPriority(defaultPriority);
+      }
+
+      const recurrenceNames = recurrencesData.map(r => r.name);
+      setRecurrenceOptions(recurrenceNames);
+      if (recurrenceNames.length > 0) {
+        const defaultRecurrence = recurrenceNames.find(r => r.toLowerCase() === 'none') || recurrenceNames[0];
+        setRecurrence(defaultRecurrence);
+      }
+
+    } catch (err: any) {
+      console.error("Error fetching task configuration options:", err);
+      const errorMessage = err.message || "Could not load task configuration options.";
+      setFetchConfigError(errorMessage);
+      toast({ title: "Error Loading Task Options", description: errorMessage, variant: "destructive" });
+    } finally {
+      setIsLoadingConfig(false);
+    }
+  }, [toast]);
+
+
   useEffect(() => {
     if (pbClient) {
       fetchAndSetEmployees(pbClient);
+      fetchTaskConfigOptions(pbClient);
     }
-  }, [pbClient, fetchAndSetEmployees]);
+  }, [pbClient, fetchAndSetEmployees, fetchTaskConfigOptions]);
 
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -87,6 +135,18 @@ export default function NewTaskPage() {
     }
     if (!title.trim()) {
       toast({ title: "Validation Error", description: "Task title is required.", variant: "destructive" });
+      return;
+    }
+    if (!status) {
+      toast({ title: "Validation Error", description: "Task status is required.", variant: "destructive" });
+      return;
+    }
+    if (!priority) {
+      toast({ title: "Validation Error", description: "Task priority is required.", variant: "destructive" });
+      return;
+    }
+     if (!recurrence) {
+      toast({ title: "Validation Error", description: "Task recurrence is required.", variant: "destructive" });
       return;
     }
 
@@ -132,7 +192,7 @@ export default function NewTaskPage() {
       if (err?.data?.data) {
         const fieldErrors = Object.entries(err.data.data)
           .map(([key, val]: [string, any]) => `${key}: ${val.message}`)
-          .join(" \n"); // Use newline for better readability in toast if possible, or ;
+          .join(" \n"); 
         if (fieldErrors) {
           detailedMessage += ` Details: ${fieldErrors}`;
         }
@@ -147,6 +207,12 @@ export default function NewTaskPage() {
       setIsSubmitting(false);
     }
   };
+
+  const refetchConfigOptions = () => {
+    if (pbClient) {
+      fetchTaskConfigOptions(pbClient);
+    }
+  }
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
@@ -163,6 +229,18 @@ export default function NewTaskPage() {
           <CardDescription>Fill in the information for the new task.</CardDescription>
         </CardHeader>
         <CardContent>
+          {fetchConfigError && (
+            <div className="mb-4 p-4 border border-destructive/50 bg-destructive/10 text-destructive rounded-md">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5" />
+                <span className="font-semibold">Error loading task options</span>
+              </div>
+              <p className="text-sm mt-1">{fetchConfigError}</p>
+              <Button onClick={refetchConfigOptions} variant="outline" size="sm" className="mt-2">
+                Retry loading options
+              </Button>
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <Label htmlFor="title">Title</Label>
@@ -175,12 +253,12 @@ export default function NewTaskPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <Label htmlFor="status">Status</Label>
-                <Select value={status} onValueChange={(value: TaskStatus) => setStatus(value)}>
+                <Select value={status} onValueChange={(value: string) => setStatus(value)} disabled={isLoadingConfig || !!fetchConfigError}>
                   <SelectTrigger id="status">
-                    <SelectValue placeholder="Select status" />
+                    <SelectValue placeholder={isLoadingConfig ? "Loading statuses..." : "Select status"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {TASK_STATUSES.map(s => (
+                    {statusOptions.map(s => (
                       <SelectItem key={s} value={s}>{s}</SelectItem>
                     ))}
                   </SelectContent>
@@ -188,12 +266,12 @@ export default function NewTaskPage() {
               </div>
               <div>
                 <Label htmlFor="priority">Priority</Label>
-                <Select value={priority} onValueChange={(value: TaskPriority) => setPriority(value)}>
+                <Select value={priority} onValueChange={(value: string) => setPriority(value)} disabled={isLoadingConfig || !!fetchConfigError}>
                   <SelectTrigger id="priority">
-                    <SelectValue placeholder="Select priority" />
+                    <SelectValue placeholder={isLoadingConfig ? "Loading priorities..." : "Select priority"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {TASK_PRIORITIES.map(p => (
+                    {priorityOptions.map(p => (
                       <SelectItem key={p} value={p}>{p}</SelectItem>
                     ))}
                   </SelectContent>
@@ -249,12 +327,12 @@ export default function NewTaskPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <Label htmlFor="recurrence">Recurrence</Label>
-                <Select value={recurrence} onValueChange={(value: TaskRecurrence) => setRecurrence(value)}>
+                <Select value={recurrence} onValueChange={(value: string) => setRecurrence(value)} disabled={isLoadingConfig || !!fetchConfigError}>
                   <SelectTrigger id="recurrence">
-                    <SelectValue placeholder="Select recurrence" />
+                    <SelectValue placeholder={isLoadingConfig ? "Loading recurrences..." : "Select recurrence"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {TASK_RECURRENCES.map(r => (
+                    {recurrenceOptions.map(r => (
                       <SelectItem key={r} value={r}>{r}</SelectItem>
                     ))}
                   </SelectContent>
@@ -309,7 +387,7 @@ export default function NewTaskPage() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button type="submit" disabled={isSubmitting || isLoadingEmployees}>
+              <Button type="submit" disabled={isSubmitting || isLoadingEmployees || isLoadingConfig || !!fetchConfigError}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Save Task
               </Button>

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import type { Task, TaskPriority, TaskStatus } from "@/lib/types";
+import type { Task } from "@/lib/types";
 import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
@@ -16,25 +16,28 @@ import { deleteTask, getTasks } from "@/services/taskService";
 import { useToast } from "@/hooks/use-toast";
 import type PocketBase from "pocketbase";
 
-const getPriorityBadgeVariant = (priority?: TaskPriority) => {
+const getPriorityBadgeVariant = (priority?: string) => {
   if (!priority) return "default";
-  switch (priority) {
-    case "Urgent": return "destructive";
-    case "High": return "destructive";
-    case "Medium": return "secondary";
-    case "Low": return "outline";
+  const lowerPriority = priority.toLowerCase();
+  switch (lowerPriority) {
+    case "urgent": return "destructive";
+    case "high": return "destructive";
+    case "medium": return "secondary";
+    case "low": return "outline";
     default: return "default";
   }
 };
 
-const getStatusBadgeVariant = (status?: TaskStatus) => {
+const getStatusBadgeVariant = (status?: string) => {
   if (!status) return "default";
-  switch (status) {
-    case "Done": return "default";
-    case "In Progress": return "secondary";
-    case "Overdue": return "destructive";
-    case "Blocked": return "destructive";
-    default: return "outline";
+  const lowerStatus = status.toLowerCase();
+  switch (lowerStatus) {
+    case "done": return "default";
+    case "in progress": return "secondary";
+    case "overdue": return "destructive";
+    case "blocked": return "destructive";
+    case "to do": return "outline"; // Assuming 'To Do' is a common status
+    default: return "outline"; // Default to outline if status is not specifically handled
   }
 };
 
@@ -72,7 +75,7 @@ export default function TasksPage() {
 
   const fetchTasksCallback = useCallback(async (pb: PocketBase | null) => {
     if (!pb) {
-      setIsLoading(false); // Ensure loading state is handled if pbClient is null
+      setIsLoading(false); 
       return;
     }
     let ignore = false;
@@ -91,7 +94,6 @@ export default function TasksPage() {
         
         if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
           console.warn("Tasks fetch request was autocancelled or due to a network issue.", err);
-          // Optionally, do not set error or show toast for these specific cases
         } else {
           console.error("Error fetching tasks:", err);
           const detailedError = getDetailedErrorMessage(err);
@@ -118,7 +120,7 @@ export default function TasksPage() {
         }
       };
     } else {
-      setIsLoading(true); // Keep loading if pbClient isn't ready
+      setIsLoading(true); 
     }
   }, [pbClient, fetchTasksCallback]);
 
@@ -243,3 +245,4 @@ export default function TasksPage() {
     </div>
   );
 }
+
