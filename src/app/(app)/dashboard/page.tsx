@@ -2,8 +2,8 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { BarChart, CalendarClock, CheckCircle2, ClipboardList, AlertTriangle, Zap, Users } from "lucide-react";
-import { Bar, BarChart as RechartsBarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
+import { BarChart, CalendarClock, CheckCircle2, ClipboardList, AlertTriangle, Zap, Users, TrendingUp } from "lucide-react";
+import { Bar, BarChart as RechartsBarChart, Line, LineChart as RechartsLineChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
@@ -83,13 +83,29 @@ const employeeTasksChartConfig = {
   activeTasks: {
     label: "Active Tasks",
   },
-  // The 'fill' color is provided directly in the activeTasksByEmployeeData.
-  // We can map employee names to colors if needed for legend consistency
   'Dr. Vance': { color: "hsl(var(--chart-1))" },
   'M. Chen': { color: "hsl(var(--chart-2))" },
   'A. Khan': { color: "hsl(var(--chart-3))" },
   'J. Smith': { color: "hsl(var(--chart-4))" },
   'J. Doe': {  color: "hsl(var(--chart-5))" },
+} satisfies ChartConfig;
+
+const monthlyTaskCompletionData = [
+  { month: "Jan '24", total: 50, completed: 35, rate: 70 },
+  { month: "Feb '24", total: 45, completed: 30, rate: 66.67 },
+  { month: "Mar '24", total: 60, completed: 50, rate: 83.33 },
+  { month: "Apr '24", total: 55, completed: 40, rate: 72.73 },
+  { month: "May '24", total: 65, completed: 58, rate: 89.23 },
+  { month: "Jun '24", total: 70, completed: 60, rate: 85.71 },
+].map(item => ({ ...item, rate: parseFloat(item.rate.toFixed(1)) })); // Ensure rate is a number
+
+const monthlyCompletionChartConfig = {
+  rate: {
+    label: "Completion Rate (%)",
+    color: "hsl(var(--chart-2))", // Using a different chart color
+  },
+  completed: { label: "Completed" }, // For tooltip
+  total: { label: "Total Due" }, // For tooltip
 } satisfies ChartConfig;
 
 
@@ -146,21 +162,67 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <ChartContainer config={employeeTasksChartConfig} className="h-[300px] w-full">
-              {/* Removed layout="vertical" to make bars vertical */}
               <RechartsBarChart data={activeTasksByEmployeeData} margin={{top: 5, right: 20, left: 0, bottom: 5}}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="employee" type="category" />
                 <YAxis dataKey="activeTasks" type="number" allowDecimals={false} />
                 <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent />} />
-                {/* Legend might be useful if bars were stacked or grouped by another dimension */}
-                {/* <Legend />  */}
                 <Bar dataKey="activeTasks" radius={[4, 4, 0, 0]} />
               </RechartsBarChart>
             </ChartContainer>
           </CardContent>
         </Card>
 
-        <Card className="shadow-md md:col-span-2 lg:col-span-1"> {/* Adjust span for layout preference */}
+        <Card className="shadow-md md:col-span-2">
+          <CardHeader>
+            <CardTitle className="font-headline flex items-center">
+              <TrendingUp className="mr-2 h-5 w-5 text-primary" />
+              Monthly Task Completion Rate
+            </CardTitle>
+            <CardDescription>Trend of task completion based on due dates.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={monthlyCompletionChartConfig} className="h-[300px] w-full">
+              <RechartsLineChart data={monthlyTaskCompletionData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="month" />
+                <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      const data = payload[0].payload; // Access the full data point
+                      return (
+                        <div className="p-2 rounded-md border bg-background shadow-lg">
+                          <p className="font-medium text-sm">{label}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Completed: {data.completed} / {data.total}
+                          </p>
+                          <p className="text-xs" style={{ color: payload[0].color }}>
+                            Rate: {data.rate}%
+                          </p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                  cursor={{fill: 'hsl(var(--muted))'}}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="rate" 
+                  stroke="hsl(var(--chart-2))" 
+                  strokeWidth={2} 
+                  dot={{ r: 4, fill: "hsl(var(--chart-2))" }} 
+                  activeDot={{ r: 6, fill: "hsl(var(--chart-2))"}} 
+                  name="Completion Rate" 
+                />
+              </RechartsLineChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-md md:col-span-2"> {/* Updated to md:col-span-2 */}
           <CardHeader>
             <CardTitle className="font-headline flex items-center">
               <ClipboardList className="mr-2 h-5 w-5 text-primary" />
@@ -191,3 +253,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
