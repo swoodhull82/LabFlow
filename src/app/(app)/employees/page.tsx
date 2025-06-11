@@ -5,14 +5,30 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { Employee } from "@/lib/types";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, Loader2 } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Edit, Trash2, Loader2, Save } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { getEmployees, deleteEmployee } from "@/services/employeeService";
+import { getEmployees, deleteEmployee, updateEmployee } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+
+const employeeFormSchema = z.object({
+  name: z.string().min(2, { message: "Name must be at least 2 characters." }),
+  email: z.string().email({ message: "Please enter a valid email address." }),
+  role: z.string().min(2, { message: "Role must be at least 2 characters." }),
+  department_text: z.string().optional(),
+  reportsTo_text: z.string().optional(),
+});
+
+type EmployeeFormData = z.infer<typeof employeeFormSchema>;
 
 const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred.";
@@ -54,29 +70,35 @@ export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
-  const fetchEmployees = useCallback(async (pb: PocketBase, signal?: AbortSignal) => {
+  const form = useForm<EmployeeFormData>({
+    resolver: zodResolver(employeeFormSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      role: "",
+      department_text: "",
+      reportsTo_text: "",
+    },
+  });
+
+  const fetchEmployees = useCallback(async (pb: PocketBase) => {
     setIsLoading(true);
     setError(null);
     try {
-      // Pass AbortSignal to getEmployees if your service supports it.
-      // For now, PocketBase SDK handles autocancellation internally based on new requests.
       const fetchedEmployees = await getEmployees(pb);
       setEmployees(fetchedEmployees);
     } catch (err: any) {
-        // Check if it's an autocancelled error from PocketBase
         const isPocketBaseAutocancel = err && typeof err === 'object' && err.isAbort === true;
-        // Broader check for general autocancel/network issues (status 0)
         const isGeneralAutocancelOrNetworkIssue = err && err.status === 0;
         const isMessageAutocancel = err && typeof err.message === 'string' && err.message.toLowerCase().includes("autocancelled");
 
       if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-        console.warn("Employees fetch request was autocancelled or due to a network issue. This can occur if the request was rapidly re-initiated (e.g., in React StrictMode) or due to navigation/network problems.", err);
-        // Do NOT set a user-facing error for these cases if a retry is expected or it's a common dev scenario.
-        // If `isLoading` is true, it will remain true until a successful fetch or a non-autocancel error on a subsequent attempt.
-        // If no subsequent attempt succeeds, the UI will remain in loading or the last valid state.
-        // If it was the *only* attempt and it was a network error (status 0, not isAbort), then an error message might be suitable.
-        // For now, we are suppressing setError for all status 0 / isAbort cases.
+        console.warn("Employees fetch request was autocancelled or due to a network issue.", err);
       } else {
         console.error("Error fetching employees:", err);
         const detailedError = getDetailedErrorMessage(err);
@@ -84,10 +106,6 @@ export default function EmployeesPage() {
         toast({ title: "Error Loading Employees", description: detailedError || "An unknown error occurred.", variant: "destructive" });
       }
     } finally {
-      // Only set loading to false if it wasn't an abort that might be retried by StrictMode's second call.
-      // However, the `ignore` flag pattern handles unmounted state updates better.
-      // For simplicity here, always setting loading to false in finally if not ignored by cleanup.
-      // The `useEffect` cleanup with `ignore` handles the unmounted component scenario.
        setIsLoading(false);
     }
   }, [toast]);
@@ -95,9 +113,6 @@ export default function EmployeesPage() {
 
   useEffect(() => {
     if (!pbClient || !user) {
-      // User or pbClient not ready, AuthContext might be loading or user not logged in.
-      // If user is null and AuthContext is not loading, AppLayout will redirect.
-      // Set loading true here to show loading indicator until auth status is resolved.
       setIsLoading(true);
       return;
     }
@@ -107,19 +122,20 @@ export default function EmployeesPage() {
       router.push('/dashboard');
       return;
     }
-
-    let ignore = false;
-
-    // Call the memoized fetchEmployees function
     fetchEmployees(pbClient);
-    
-    return () => {
-      ignore = true;
-      // If your `getEmployees` or `pbClient.collection.getFullList` supported AbortController,
-      // you would call controller.abort() here. PocketBase handles this internally.
-    };
   }, [user, pbClient, router, toast, fetchEmployees]);
 
+  useEffect(() => {
+    if (editingEmployee) {
+      form.reset({
+        name: editingEmployee.name,
+        email: editingEmployee.email,
+        role: editingEmployee.role,
+        department_text: editingEmployee.department_text || "",
+        reportsTo_text: editingEmployee.reportsTo_text || "",
+      });
+    }
+  }, [editingEmployee, form]);
 
   const handleDeleteEmployee = async (employeeId: string) => {
     if (!pbClient) return;
@@ -131,6 +147,41 @@ export default function EmployeesPage() {
       console.error("Error deleting employee:", err);
       const detailedError = getDetailedErrorMessage(err);
       toast({ title: "Error Deleting Employee", description: detailedError, variant: "destructive" });
+    }
+  };
+  
+  const handleEditClick = (employee: Employee) => {
+    setEditingEmployee(employee);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleEditDialogClose = () => {
+    setIsEditDialogOpen(false);
+    setEditingEmployee(null);
+    form.reset(); // Reset form on close
+  };
+
+  const onEditSubmit = async (data: EmployeeFormData) => {
+    if (!pbClient || !editingEmployee) return;
+    setIsSubmittingEdit(true);
+    try {
+      const updatedData: Partial<Employee> = {
+        name: data.name,
+        email: data.email,
+        role: data.role,
+        department_text: data.department_text || undefined,
+        reportsTo_text: data.reportsTo_text || undefined,
+      };
+      const updatedRecord = await updateEmployee(pbClient, editingEmployee.id, updatedData);
+      setEmployees(prev => prev.map(emp => emp.id === updatedRecord.id ? updatedRecord : emp));
+      toast({ title: "Success", description: "Employee details updated." });
+      handleEditDialogClose();
+    } catch (err) {
+      console.error("Error updating employee:", err);
+      const detailedError = getDetailedErrorMessage(err);
+      toast({ title: "Error Updating Employee", description: detailedError, variant: "destructive" });
+    } finally {
+      setIsSubmittingEdit(false);
     }
   };
   
@@ -150,8 +201,6 @@ export default function EmployeesPage() {
   }
   
   if (user && user.role !== 'Supervisor' && !isLoading) { 
-    // This case should ideally be caught by the useEffect redirect,
-    // but as a fallback UI if redirection is slow or fails.
     return (
       <div className="flex items-center justify-center h-full p-4">
         <Card className="w-full max-w-md shadow-lg">
@@ -236,12 +285,9 @@ export default function EmployeesPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                           <DropdownMenuItem asChild>
-                            {/* TODO: Implement Edit Employee Page: /employees/[id]/edit */}
-                            <Link href={`/employees/${employee.id}/edit`} className="flex items-center w-full cursor-not-allowed opacity-50">
+                           <DropdownMenuItem onClick={() => handleEditClick(employee)} className="flex items-center w-full">
                               <Edit className="mr-2 h-4 w-4" /> Edit
-                            </Link>
-                          </DropdownMenuItem>
+                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive focus:bg-destructive/10"
                             onClick={() => handleDeleteEmployee(employee.id)}
@@ -258,6 +304,61 @@ export default function EmployeesPage() {
           )}
         </CardContent>
       </Card>
+
+      {editingEmployee && (
+        <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleEditDialogClose(); else setIsEditDialogOpen(true); }}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle className="font-headline">Edit Employee: {editingEmployee.name}</DialogTitle>
+              <DialogDescription>Make changes to the employee's details below.</DialogDescription>
+            </DialogHeader>
+            <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-4 py-4">
+              <div>
+                <Label htmlFor="edit-name">Full Name</Label>
+                <Input id="edit-name" {...form.register("name")} />
+                {form.formState.errors.name && (
+                  <p className="text-sm text-destructive mt-1">{form.formState.errors.name.message}</p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="edit-email">Email Address</Label>
+                <Input id="edit-email" type="email" {...form.register("email")} />
+                {form.formState.errors.email && (
+                  <p className="text-sm text-destructive mt-1">{form.formState.errors.email.message}</p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="edit-role">Role / Job Title</Label>
+                <Input id="edit-role" {...form.register("role")} />
+                {form.formState.errors.role && (
+                  <p className="text-sm text-destructive mt-1">{form.formState.errors.role.message}</p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="edit-department_text">Department (Optional)</Label>
+                <Input id="edit-department_text" {...form.register("department_text")} />
+              </div>
+              <div>
+                <Label htmlFor="edit-reportsTo_text">Reports To (Optional)</Label>
+                <Input id="edit-reportsTo_text" {...form.register("reportsTo_text")} />
+              </div>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline" onClick={handleEditDialogClose} disabled={isSubmittingEdit}>
+                    Cancel
+                  </Button>
+                </DialogClose>
+                <Button type="submit" disabled={isSubmittingEdit}>
+                  {isSubmittingEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Save Changes
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
+
+    
