@@ -23,6 +23,7 @@ import {
   LogOut,
   ChevronsLeft,
   ChevronsRight,
+  History, // Added History icon
 } from "lucide-react";
 import { useSidebar } from "@/components/ui/sidebar"; // Import useSidebar
 
@@ -38,6 +39,7 @@ const navItems: NavItem[] = [
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/tasks", label: "Tasks", icon: ClipboardList },
   { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true },
+  { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true }, // Added Activity Log
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
