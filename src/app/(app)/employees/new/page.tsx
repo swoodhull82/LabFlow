@@ -18,12 +18,11 @@ import { Loader2, Save } from "lucide-react";
 import React, { useState, useEffect, useCallback } from "react";
 import type { Employee, UserRole } from "@/lib/types";
 import type PocketBase from "pocketbase";
-import { FormField, FormItem, FormControl, FormMessage } from "@/components/ui/form"; // Added for consistency for future use
 
 const employeeFormSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
   email: z.string().email({ message: "Please enter a valid email address." }),
-  role: z.string().min(1, { message: "Role is required." }), // Updated validation
+  role: z.string().min(1, { message: "Role is required." }),
   department_text: z.string().optional(),
   reportsTo_text: z.string().optional(),
 });
@@ -32,6 +31,7 @@ type EmployeeFormData = z.infer<typeof employeeFormSchema>;
 
 const NONE_REPORTS_TO_VALUE = "__NONE__";
 const AVAILABLE_ROLES: UserRole[] = ["Supervisor", "Team Lead", "Chem I", "Chem II"];
+const AVAILABLE_DEPARTMENTS = ["Trace Metals", "Automated", "Air & Grav", "Organics", "BacT", "Radiation", "MAU", "SpecOp"];
 
 export default function NewEmployeePage() {
   const { pbClient, user } = useAuth();
@@ -215,7 +215,26 @@ export default function NewEmployeePage() {
 
             <div>
               <Label htmlFor="department_text">Department (Optional)</Label>
-              <Input id="department_text" {...form.register("department_text")} placeholder="e.g., Chemistry" />
+              <Controller
+                name="department_text"
+                control={form.control}
+                render={({ field }) => (
+                  <Select onValueChange={field.onChange} value={field.value || ""}>
+                    <SelectTrigger id="department_text">
+                      <SelectValue placeholder="Select a department (Optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {AVAILABLE_DEPARTMENTS.map(dept => (
+                        <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+               {form.formState.errors.department_text && (
+                <p className="text-sm text-destructive mt-1">{form.formState.errors.department_text.message}</p>
+              )}
             </div>
             
             <div>
@@ -256,5 +275,6 @@ export default function NewEmployeePage() {
     </div>
   );
 }
+    
 
     

@@ -7,7 +7,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-// import { Label } from "@/components/ui/label"; // No longer directly used, FormLabel is used
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import type { Employee, UserRole } from "@/lib/types";
@@ -26,7 +25,7 @@ import type PocketBase from "pocketbase";
 const employeeFormSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
   email: z.string().email({ message: "Please enter a valid email address." }),
-  role: z.string().min(1, { message: "Role is required." }), // Updated validation
+  role: z.string().min(1, { message: "Role is required." }),
   department_text: z.string().optional(),
   reportsTo_text: z.string().optional(),
 });
@@ -35,6 +34,8 @@ type EmployeeFormData = z.infer<typeof employeeFormSchema>;
 
 const NONE_REPORTS_TO_VALUE = "__NONE__";
 const AVAILABLE_ROLES: UserRole[] = ["Supervisor", "Team Lead", "Chem I", "Chem II"];
+const AVAILABLE_DEPARTMENTS = ["Trace Metals", "Automated", "Air & Grav", "Organics", "BacT", "Radiation", "MAU", "SpecOp"];
+
 
 const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred.";
@@ -412,9 +413,19 @@ export default function EmployeesPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Department (Optional)</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+                       <Select onValueChange={field.onChange} value={field.value || ""}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a department (Optional)" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="">None</SelectItem>
+                          {AVAILABLE_DEPARTMENTS.map(dept => (
+                            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -463,5 +474,6 @@ export default function EmployeesPage() {
     </div>
   );
 }
+    
 
     
