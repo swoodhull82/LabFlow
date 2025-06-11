@@ -1,5 +1,5 @@
 
-export type UserRole = "admin" | "employee";
+export type UserRole = "Supervisor" | "Analyst";
 
 export interface User {
   id: string;
@@ -48,7 +48,7 @@ export interface Employee {
   id: string;
   name: string;
   email: string;
-  role: string;
+  role: string; // This can be general role description, not necessarily UserRole
   hireDate: Date | string; // Allow string for PB, convert to Date on client
   avatar?: string; // Filename from PocketBase
   reportsTo_text?: string;

@@ -30,14 +30,14 @@ interface NavItem {
   href: string;
   label: string;
   icon: React.ElementType;
-  adminOnly?: boolean;
+  supervisorOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/tasks", label: "Tasks", icon: ClipboardList },
-  { href: "/employees", label: "Employees", icon: Users, adminOnly: true },
+  { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -47,7 +47,7 @@ export function SidebarNav() {
   const { toggleSidebar, state } = useSidebar(); // Get toggleSidebar and state from context
 
   const filteredNavItems = navItems.filter(item => 
-    !item.adminOnly || (user && user.role === "admin")
+    !item.supervisorOnly || (user && user.role === "Supervisor")
   );
 
   return (
@@ -84,4 +84,3 @@ export function SidebarNav() {
     </>
   );
 }
-

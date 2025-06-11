@@ -26,7 +26,7 @@ export default function EmployeesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchEmployees = async () => {
-    if (!pbClient || (user && user.role !== 'admin')) return;
+    if (!pbClient || (user && user.role !== 'Supervisor')) return;
     setIsLoading(true);
     setError(null);
     try {
@@ -42,7 +42,7 @@ export default function EmployeesPage() {
   };
 
   useEffect(() => {
-    if (user && user.role !== 'admin') {
+    if (user && user.role !== 'Supervisor') {
       router.push('/dashboard'); // Or an unauthorized page
     } else if (pbClient) {
       fetchEmployees();
@@ -62,14 +62,14 @@ export default function EmployeesPage() {
     }
   };
 
-  if (!user || user.role !== 'admin') {
+  if (!user || user.role !== 'Supervisor') {
     // This should ideally be handled by the redirect, but as a fallback
     return (
       <div className="flex items-center justify-center h-full">
         {user === null && isLoading ? (
              <Loader2 className="h-8 w-8 animate-spin text-primary" />
         ) : (
-            <p className="text-destructive">Access Denied. This page is for administrators only.</p>
+            <p className="text-destructive">Access Denied. This page is for Supervisors only.</p>
         )}
       </div>
     );
@@ -132,9 +132,9 @@ export default function EmployeesPage() {
                           <AvatarFallback>{employee.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
                         </Avatar>
                         <span className="font-medium">{employee.name}</span>
-                        {/* Example: Highlight if linked user is an admin in LabFlow */}
+                        {/* Example: Highlight if linked user is a supervisor in LabFlow */}
                         {/* This logic would need user.role from a linked 'users' record if employee.userId is set */}
-                        {/* {user && employee.userId === user.id && user.role === 'admin' && <ShieldCheck className="h-4 w-4 text-primary" title="Admin User"/>} */}
+                        {/* {user && employee.userId === user.id && user.role === 'Supervisor' && <ShieldCheck className="h-4 w-4 text-primary" title="Supervisor User"/>} */}
                       </div>
                     </TableCell>
                     <TableCell>{employee.email}</TableCell>

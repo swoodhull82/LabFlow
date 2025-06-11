@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -95,7 +96,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {user?.role === 'admin' && (
+          {user?.role === 'Supervisor' && (
             <Card className="shadow-md">
               <CardHeader>
                 <CardTitle className="font-headline">Workspace Settings</CardTitle>

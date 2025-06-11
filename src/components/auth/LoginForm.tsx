@@ -25,7 +25,7 @@ import { Label } from "@/components/ui/label"; // Import Radix-based Label for i
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
   password: z.string().min(1, { message: "Password is required." }),
-  role: z.enum(["admin", "employee"], { required_error: "You need to select a role." }),
+  role: z.enum(["Supervisor", "Analyst"], { required_error: "You need to select a role." }),
 });
 
 export function LoginForm() {
@@ -37,7 +37,7 @@ export function LoginForm() {
     defaultValues: {
       email: "",
       password: "",
-      role: "employee",
+      role: "Analyst",
     },
   });
 
@@ -104,12 +104,12 @@ export function LoginForm() {
                       className="flex space-x-4"
                     >
                       <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="employee" id="role-employee" />
-                        <Label htmlFor="role-employee" className="font-normal">Employee</Label>
+                        <RadioGroupItem value="Analyst" id="role-analyst" />
+                        <Label htmlFor="role-analyst" className="font-normal">Analyst</Label>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="admin" id="role-admin" />
-                        <Label htmlFor="role-admin" className="font-normal">Admin</Label>
+                        <RadioGroupItem value="Supervisor" id="role-supervisor" />
+                        <Label htmlFor="role-supervisor" className="font-normal">Supervisor</Label>
                       </div>
                     </RadioGroup>
                   </FormControl>

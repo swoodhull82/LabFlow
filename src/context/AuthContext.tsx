@@ -34,9 +34,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // PocketBase SDK automatically refreshes the token if needed
         // For role, prioritize PB record, then localStorage, then default
         let userRole: UserRole = (pbUser as any).role as UserRole; // Type assertion
-        if (!userRole) {
+        if (!userRole || (userRole !== "Supervisor" && userRole !== "Analyst")) {
           const storedRole = localStorage.getItem("labflowUserRole") as UserRole | null;
-          userRole = storedRole || "employee";
+          userRole = storedRole || "Analyst"; // Default to Analyst
         }
         
         const currentUser: User = {
@@ -58,12 +58,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     
     restoreSession().finally(() => setLoading(false));
 
-    // Optional: Listen for auth store changes if needed for real-time updates from other tabs (advanced)
-    // const unsubscribe = client.authStore.onChange(() => {
-    //   setUser(client.authStore.model ? { ... } : null);
-    // });
-    // return () => unsubscribe();
-
   }, []);
 
   const login = async (email: string, password: string, roleFromForm: UserRole) => {
@@ -73,13 +67,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (client.authStore.model) {
         const pbUser = client.authStore.model;
         
-        // Determine role: prioritize PB, then form, then default to 'employee'
         let determinedRole: UserRole = (pbUser as any).role as UserRole;
-        if (!determinedRole) {
+        if (!determinedRole || (determinedRole !== "Supervisor" && determinedRole !== "Analyst")) {
           determinedRole = roleFromForm;
         }
         if (!determinedRole) {
-            determinedRole = "employee"; // Fallback if somehow still not set
+            determinedRole = "Analyst"; // Fallback if somehow still not set
         }
 
         const currentUser: User = {
