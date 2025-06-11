@@ -14,6 +14,45 @@ import { useRouter } from "next/navigation";
 import { getEmployees, deleteEmployee } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
 
+const getDetailedErrorMessage = (error: any): string => {
+  let message = "An unexpected error occurred.";
+
+  // Check for PocketBase ClientResponseError structure or similar error objects
+  if (error && typeof error === 'object') {
+    if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
+      // Use the detailed message from PocketBase's response data
+      message = error.data.message;
+    } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
+      // Use the error's own message if it's not the generic PocketBase wrapper and more specific
+      message = error.message;
+    } else if (error.message && typeof error.message === 'string') {
+        // Fallback to generic error.message if it exists
+        message = error.message;
+    }
+
+
+    // Add more context based on status if the message isn't already informative
+    if ('status' in error) {
+      const status = error.status;
+      if (status === 404 && !message.toLowerCase().includes("found") && !message.toLowerCase().includes("exist")) {
+        message = `The required resource was not found (404). Collection or record might be missing. Original: ${message}`;
+      } else if (status === 403 && !message.toLowerCase().includes("forbidden") && !message.toLowerCase().includes("permission")) {
+        message = `You do not have permission for this action (403). Please check API rules. Original: ${message}`;
+      } else if (status === 401 && !message.toLowerCase().includes("unauthorized") && !message.toLowerCase().includes("failed to authenticate")) {
+        message = `Authentication failed or is required (401). Original: ${message}`;
+      } else if (status === 0 && !(message.toLowerCase().includes("autocancelled") || message.toLowerCase().includes("network error"))) {
+         // This case is usually handled by the autocancelled logic, but as a fallback:
+        message = `Network error or request cancelled. Please check your connection. Original: ${message}`;
+      }
+    }
+  } else if (typeof error === 'string') {
+    message = error;
+  }
+  
+  return message;
+};
+
+
 export default function EmployeesPage() {
   const { user, pbClient } = useAuth();
   const router = useRouter();
@@ -26,12 +65,11 @@ export default function EmployeesPage() {
   useEffect(() => {
     if (user && user.role !== 'Supervisor') {
       router.push('/dashboard');
-      return; // Exit early if redirecting
+      return; 
     }
 
-    // This condition ensures fetching only happens when user is a Supervisor and pbClient is available.
     if (pbClient && user && user.role === 'Supervisor') {
-      let ignore = false; // Flag to prevent state updates if component unmounts or effect re-runs
+      let ignore = false; 
       
       setIsLoading(true);
       setError(null);
@@ -44,15 +82,13 @@ export default function EmployeesPage() {
         })
         .catch(err => {
           if (!ignore) {
-            // PocketBase ClientResponseError for auto-cancellation often has status 0 or a specific message
             if (err && (err.status === 0 || (err.message && err.message.toLowerCase().includes("autocancelled")))) {
               console.warn("Employees fetch request was autocancelled. This can occur if the request was rapidly re-initiated (e.g., in React StrictMode) or due to navigation.", err);
-              // If employees array is empty after this, the UI will show "No employees found".
-              // We might not want to show a disruptive error toast for this specific case.
             } else {
               console.error("Error fetching employees:", err);
-              setError("Failed to load employees. Please try again.");
-              toast({ title: "Error", description: "Failed to load employees.", variant: "destructive" });
+              const detailedError = getDetailedErrorMessage(err);
+              setError(`${detailedError} Please try again.`);
+              toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
             }
           }
         })
@@ -63,28 +99,24 @@ export default function EmployeesPage() {
         });
 
       return () => {
-        ignore = true; // Set ignore to true on cleanup (e.g., component unmount, or before StrictMode's second run)
+        ignore = true; 
       };
     } else if (!user && !pbClient && router) { 
-        // If user and pbClient are not yet available, we are likely in an initial app loading phase.
-        // AppLayout usually shows a loader. We ensure this page also shows loading.
         setIsLoading(true); 
     }
-    // If user exists but is not supervisor, the redirect at the top handles it.
-    // If user is supervisor but pbClient isn't ready, effect will re-run when pbClient becomes available.
   }, [user, pbClient, router, toast]);
 
 
   const handleDeleteEmployee = async (employeeId: string) => {
     if (!pbClient) return;
-    // Optional: Add a confirmation dialog here
     try {
       await deleteEmployee(pbClient, employeeId);
       toast({ title: "Success", description: "Employee deleted successfully." });
       setEmployees(prevEmployees => prevEmployees.filter(emp => emp.id !== employeeId));
     } catch (err) {
       console.error("Error deleting employee:", err);
-      toast({ title: "Error", description: "Failed to delete employee.", variant: "destructive" });
+      const detailedError = getDetailedErrorMessage(err);
+      toast({ title: "Error Deleting Employee", description: detailedError, variant: "destructive" });
     }
   };
   
@@ -98,8 +130,9 @@ export default function EmployeesPage() {
             })
             .catch(err_retry => {
                 console.error("Error refetching employees:", err_retry);
-                setError("Failed to load employees. Please try again.");
-                toast({ title: "Error", description: "Failed to load employees.", variant: "destructive" });
+                const detailedError = getDetailedErrorMessage(err_retry);
+                setError(`${detailedError} Please try again.`);
+                toast({ title: "Error Refetching Employees", description: detailedError, variant: "destructive" });
             })
             .finally(() => {
                 setIsLoading(false);
@@ -108,7 +141,7 @@ export default function EmployeesPage() {
   };
 
 
-  if (!user && isLoading) { // Still determining user auth state or initial load
+  if (!user && isLoading) { 
      return (
       <div className="flex items-center justify-center h-full p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -117,7 +150,7 @@ export default function EmployeesPage() {
     );
   }
   
-  if (user && user.role !== 'Supervisor') { // User loaded, but not a supervisor
+  if (user && user.role !== 'Supervisor') { 
     return (
       <div className="flex items-center justify-center h-full p-4">
         <Card className="w-full max-w-md shadow-lg">
@@ -227,3 +260,4 @@ export default function EmployeesPage() {
     </div>
   );
 }
+
