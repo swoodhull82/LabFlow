@@ -1,6 +1,7 @@
 
 "use client";
 
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,10 +17,49 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useTheme } from "next-themes";
+import { useToast } from "@/hooks/use-toast";
+import { Save } from "lucide-react";
+
+const LOCAL_STORAGE_KEYS = {
+  emailNotifications: "labflow-emailNotificationsEnabled",
+  pushNotifications: "labflow-pushNotificationsEnabled",
+};
 
 export default function SettingsPage() {
   const { user } = useAuth();
-  const canManageWorkspace = user?.role === 'Supervisor' || user?.role === 'Team Lead';
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { toast } = useToast();
+
+  const [mounted, setMounted] = useState(false);
+  const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(true);
+  const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    const storedEmailPref = localStorage.getItem(LOCAL_STORAGE_KEYS.emailNotifications);
+    if (storedEmailPref !== null) {
+      setEmailNotificationsEnabled(JSON.parse(storedEmailPref));
+    }
+    const storedPushPref = localStorage.getItem(LOCAL_STORAGE_KEYS.pushNotifications);
+    if (storedPushPref !== null) {
+      setPushNotificationsEnabled(JSON.parse(storedPushPref));
+    }
+  }, []);
+
+  const handleSavePreferences = () => {
+    localStorage.setItem(LOCAL_STORAGE_KEYS.emailNotifications, JSON.stringify(emailNotificationsEnabled));
+    localStorage.setItem(LOCAL_STORAGE_KEYS.pushNotifications, JSON.stringify(pushNotificationsEnabled));
+    toast({
+      title: "Preferences Saved",
+      description: "Your notification and theme preferences have been updated.",
+    });
+  };
+  
+  // Avoid rendering theme-dependent UI until mounted on client
+  if (!mounted) {
+    return null; 
+  }
 
   return (
     <div className="space-y-6">
@@ -40,19 +80,19 @@ export default function SettingsPage() {
                     <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
                     <AvatarFallback className="text-3xl">{user.name ? user.name.split(' ').map(n=>n[0]).join('') : user.email[0].toUpperCase()}</AvatarFallback>
                   </Avatar>
-                  <Button variant="outline" size="sm">Change Photo</Button>
+                  <Button variant="outline" size="sm" disabled>Change Photo</Button>
                   </>
                 )}
               </div>
               <div>
                 <Label htmlFor="name">Name</Label>
-                <Input id="name" defaultValue={user?.name || ""} />
+                <Input id="name" defaultValue={user?.name || ""} disabled />
               </div>
               <div>
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" defaultValue={user?.email || ""} readOnly />
+                <Input id="email" type="email" defaultValue={user?.email || ""} readOnly disabled />
               </div>
-              <Button className="w-full">Save Profile</Button>
+              <Button className="w-full" disabled>Save Profile</Button>
             </CardContent>
           </Card>
         </div>
@@ -64,27 +104,11 @@ export default function SettingsPage() {
               <CardDescription>Customize your LabFlow experience.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label htmlFor="notifications-email" className="font-medium">Email Notifications</Label>
-                  <p className="text-sm text-muted-foreground">Receive updates via email.</p>
-                </div>
-                <Switch id="notifications-email" defaultChecked />
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label htmlFor="notifications-push" className="font-medium">Push Notifications</Label>
-                  <p className="text-sm text-muted-foreground">Get real-time alerts in the app.</p>
-                </div>
-                <Switch id="notifications-push" />
-              </div>
-              <Separator />
-               <div>
-                <Label htmlFor="theme" className="font-medium">Theme</Label>
-                 <p className="text-sm text-muted-foreground mb-2">Choose your preferred interface theme.</p>
-                <Select defaultValue="system">
-                  <SelectTrigger id="theme" className="w-[180px]">
+              <div className="space-y-2">
+                <Label htmlFor="theme-select" className="font-medium">Interface Theme</Label>
+                 <p className="text-sm text-muted-foreground">Choose your preferred interface theme.</p>
+                <Select value={theme} onValueChange={setTheme}>
+                  <SelectTrigger id="theme-select" className="w-[180px]">
                     <SelectValue placeholder="Select theme" />
                   </SelectTrigger>
                   <SelectContent>
@@ -94,24 +118,38 @@ export default function SettingsPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="notifications-email" className="font-medium">Email Notifications</Label>
+                  <p className="text-sm text-muted-foreground">Receive updates via email.</p>
+                </div>
+                <Switch 
+                  id="notifications-email" 
+                  checked={emailNotificationsEnabled}
+                  onCheckedChange={setEmailNotificationsEnabled}
+                />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="notifications-push" className="font-medium">Push Notifications</Label>
+                  <p className="text-sm text-muted-foreground">Get real-time alerts in the app.</p>
+                </div>
+                <Switch 
+                  id="notifications-push"
+                  checked={pushNotificationsEnabled}
+                  onCheckedChange={setPushNotificationsEnabled}
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={handleSavePreferences}>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save Preferences
+                </Button>
+              </div>
             </CardContent>
           </Card>
-
-          {canManageWorkspace && (
-            <Card className="shadow-md">
-              <CardHeader>
-                <CardTitle className="font-headline">Workspace Settings</CardTitle>
-                <CardDescription>Manage global settings for your LabFlow workspace.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="workspace-name">Workspace Name</Label>
-                  <Input id="workspace-name" defaultValue="My Laboratory" />
-                </div>
-                <Button>Save Workspace Settings</Button>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
     </div>
