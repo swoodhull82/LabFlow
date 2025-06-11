@@ -22,10 +22,24 @@ import type { TaskPriority, TaskStatus, TaskRecurrence } from "@/lib/types";
 
 // Mock employees for assignment - replace with actual data fetching if needed
 const mockEmployees = [
-  { id: "emp1", name: "Dr. Eleanor Vance" },
-  { id: "emp2", name: "Marcus Chen" },
-  { id: "emp3", name: "Aisha Khan" },
+  // Supervisors
+  { id: "empS1", name: "Dr. Evelyn Hayes (Supervisor)" },
+  { id: "empS2", name: "Mr. Samuel Green (Supervisor)" },
+  // Team Leads
+  { id: "empTL1", name: "Ms. Olivia Carter (Team Lead)" },
+  { id: "empTL2", name: "Mr. David Lee (Team Lead)" },
+  { id: "empTL3", name: "Dr. Priya Sharma (Team Lead)" },
+  // Analysts
+  { id: "empA1", name: "Alice Johnson (Analyst)" },
+  { id: "empA2", name: "Bob Williams (Analyst)" },
+  { id: "empA3", name: "Carol Davis (Analyst)" },
+  { id: "empA4", name: "Daniel Miller (Analyst)" },
+  { id: "empA5", name: "Emily Wilson (Analyst)" },
+  { id: "empA6", name: "Frank Garcia (Analyst)" },
+  { id: "empA7", name: "Grace Rodriguez (Analyst)" },
+  { id: "empA8", name: "Henry Martinez (Analyst)" },
 ];
+
 
 export default function NewTaskPage() {
   const { pbClient, user } = useAuth();
