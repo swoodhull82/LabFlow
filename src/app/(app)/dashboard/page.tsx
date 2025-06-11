@@ -1,7 +1,8 @@
+
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { BarChart, CalendarClock, CheckCircle2, ClipboardList, AlertTriangle, Zap } from "lucide-react";
+import { BarChart, CalendarClock, CheckCircle2, ClipboardList, AlertTriangle, Zap, Users } from "lucide-react";
 import { Bar, BarChart as RechartsBarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -48,7 +49,7 @@ const taskDistributionData = [
   { status: 'Done', count: 58, fill: "hsl(var(--chart-4))" },
 ];
 
-const chartConfig = {
+const taskStatusChartConfig = {
   count: {
     label: "Tasks",
   },
@@ -68,6 +69,23 @@ const chartConfig = {
     label: "Done",
     color: "hsl(var(--chart-4))",
   },
+} satisfies ChartConfig;
+
+const activeTasksByEmployeeData = [
+  { employee: 'Dr. Eleanor Vance', activeTasks: 5, fill: "hsl(var(--chart-1))" },
+  { employee: 'Marcus Chen', activeTasks: 3, fill: "hsl(var(--chart-2))" },
+  { employee: 'Aisha Khan', activeTasks: 4, fill: "hsl(var(--chart-3))" },
+  { employee: 'John Smith', activeTasks: 2, fill: "hsl(var(--chart-4))" },
+  { employee: 'Jane Doe', activeTasks: 6, fill: "hsl(var(--chart-5))" },
+];
+
+const employeeTasksChartConfig = {
+  activeTasks: {
+    label: "Active Tasks",
+  },
+  // Individual employee names could be keys here if we wanted specific icons/labels per employee
+  // but for a dynamic list driven by data, this simpler config is fine.
+  // The 'fill' color is provided directly in the activeTasksByEmployeeData.
 } satisfies ChartConfig;
 
 
@@ -101,7 +119,7 @@ export default function DashboardPage() {
             <CardDescription>Overview of tasks by their current status.</CardDescription>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={chartConfig} className="h-[300px] w-full">
+            <ChartContainer config={taskStatusChartConfig} className="h-[300px] w-full">
               <RechartsBarChart data={taskDistributionData} layout="vertical" margin={{left:10, right:30}}>
                 <CartesianGrid horizontal={false} />
                 <XAxis type="number" dataKey="count" />
@@ -115,6 +133,28 @@ export default function DashboardPage() {
         </Card>
 
         <Card className="shadow-md">
+          <CardHeader>
+            <CardTitle className="font-headline flex items-center">
+              <Users className="mr-2 h-5 w-5 text-primary" />
+              Active Tasks by Employee
+            </CardTitle>
+            <CardDescription>Breakdown of active tasks per employee.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={employeeTasksChartConfig} className="h-[300px] w-full">
+              <RechartsBarChart data={activeTasksByEmployeeData} layout="vertical" margin={{left:20, right:30}}>
+                <CartesianGrid horizontal={false} />
+                <XAxis type="number" dataKey="activeTasks" />
+                <YAxis dataKey="employee" type="category" tickLine={false} axisLine={false} width={120} />
+                <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent />} />
+                 {/* Legend might be redundant if colors are distinct and Y-axis labels are clear */}
+                <Bar dataKey="activeTasks" radius={4} />
+              </RechartsBarChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-md md:col-span-2 lg:col-span-1"> {/* Adjust span for layout preference */}
           <CardHeader>
             <CardTitle className="font-headline flex items-center">
               <ClipboardList className="mr-2 h-5 w-5 text-primary" />
@@ -145,3 +185,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
