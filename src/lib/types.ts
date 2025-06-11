@@ -71,4 +71,3 @@ export interface ActivityLogEntry {
   collectionName?: string;
   expand?: any;
 }
-
