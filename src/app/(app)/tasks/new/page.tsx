@@ -31,6 +31,7 @@ export default function NewTaskPage() {
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<TaskStatus>("To Do");
   const [priority, setPriority] = useState<TaskPriority>("Medium");
+  const [startDate, setStartDate] = useState<Date | undefined>();
   const [dueDate, setDueDate] = useState<Date | undefined>();
   const [recurrence, setRecurrence] = useState<TaskRecurrence>("None");
   const [assignedToText, setAssignedToText] = useState<string | undefined>();
@@ -96,6 +97,9 @@ export default function NewTaskPage() {
     formData.append("description", description);
     formData.append("status", status);
     formData.append("priority", priority);
+    if (startDate) {
+      formData.append("startDate", startDate.toISOString());
+    }
     if (dueDate) {
       formData.append("dueDate", dueDate.toISOString());
     }
@@ -177,6 +181,28 @@ export default function NewTaskPage() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
+                <Label htmlFor="startDate">Start Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={"outline"}
+                      className="w-full justify-start text-left font-normal"
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {startDate ? format(startDate, "PPP") : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <Calendar
+                      mode="single"
+                      selected={startDate}
+                      onSelect={setStartDate}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div>
                 <Label htmlFor="dueDate">Due Date</Label>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -198,6 +224,8 @@ export default function NewTaskPage() {
                   </PopoverContent>
                 </Popover>
               </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <Label htmlFor="recurrence">Recurrence</Label>
                 <Select value={recurrence} onValueChange={(value: TaskRecurrence) => setRecurrence(value)}>
@@ -211,29 +239,29 @@ export default function NewTaskPage() {
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-            <div>
-              <Label htmlFor="assignedTo">Assigned To</Label>
-              <Select 
-                onValueChange={(value: string) => setAssignedToText(value === "__NONE__" ? undefined : value)} 
-                value={assignedToText || "__NONE__"}
-                disabled={isLoadingEmployees || !!fetchEmployeesError}
-              >
-                <SelectTrigger id="assignedTo_text">
-                  <SelectValue placeholder={isLoadingEmployees ? "Loading employees..." : (fetchEmployeesError ? "Error loading" : "Select employee (Optional)")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__NONE__">None</SelectItem>
-                  {employees.map(emp => (
-                    <SelectItem key={emp.id} value={emp.name}>{emp.name} ({emp.role})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {fetchEmployeesError && !isLoadingEmployees && (
-                 <p className="text-sm text-destructive mt-1 flex items-center">
-                   <AlertTriangle className="h-4 w-4 mr-1" /> {fetchEmployeesError}
-                 </p>
-              )}
+              <div>
+                <Label htmlFor="assignedTo">Assigned To</Label>
+                <Select 
+                  onValueChange={(value: string) => setAssignedToText(value === "__NONE__" ? undefined : value)} 
+                  value={assignedToText || "__NONE__"}
+                  disabled={isLoadingEmployees || !!fetchEmployeesError}
+                >
+                  <SelectTrigger id="assignedTo_text">
+                    <SelectValue placeholder={isLoadingEmployees ? "Loading employees..." : (fetchEmployeesError ? "Error loading" : "Select employee (Optional)")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__NONE__">None</SelectItem>
+                    {employees.map(emp => (
+                      <SelectItem key={emp.id} value={emp.name}>{emp.name} ({emp.role})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {fetchEmployeesError && !isLoadingEmployees && (
+                   <p className="text-sm text-destructive mt-1 flex items-center">
+                     <AlertTriangle className="h-4 w-4 mr-1" /> {fetchEmployeesError}
+                   </p>
+                )}
+              </div>
             </div>
             <div>
               <Label htmlFor="attachments">Attachments</Label>

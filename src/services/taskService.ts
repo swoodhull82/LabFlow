@@ -10,9 +10,10 @@ const COLLECTION_NAME = "tasks";
 const pbRecordToTask = (record: any): Task => {
   return {
     ...record,
+    startDate: record.startDate ? new Date(record.startDate) : undefined,
     dueDate: record.dueDate ? new Date(record.dueDate) : undefined,
-    createdAt: new Date(record.created),
-    updatedAt: new Date(record.updated),
+    created: new Date(record.created), // Ensure created is a Date object
+    updated: new Date(record.updated), // Ensure updated is a Date object
     // attachments are handled as URLs from PB, or File objects on client
     // If attachments are file tokens from PB, this needs more complex handling
   } as Task;
@@ -78,3 +79,4 @@ export const deleteTask = async (pb: PocketBase, id: string): Promise<void> => {
     throw error;
   }
 };
+

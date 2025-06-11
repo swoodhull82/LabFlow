@@ -19,6 +19,7 @@ export interface Task {
   description?: string;
   status: TaskStatus;
   priority: TaskPriority;
+  startDate?: Date | string;
   dueDate?: Date | string;
   assignedTo_text?: string;
   recurrence: TaskRecurrence;
