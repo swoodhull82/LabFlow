@@ -1,12 +1,12 @@
 
 import type { SVGProps } from 'react';
 import { APP_NAME } from '@/lib/constants';
-import { Beaker } from 'lucide-react';
+import { FlaskConical } from 'lucide-react';
 
 export function Logo(props: SVGProps<SVGSVGElement>) {
   return (
     <div className="flex items-center gap-2">
-      <Beaker
+      <FlaskConical
         className="h-8 w-8 text-primary"
         aria-label={`${APP_NAME} Logo Icon`}
         {...props}
