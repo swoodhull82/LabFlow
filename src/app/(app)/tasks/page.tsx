@@ -36,8 +36,8 @@ const getStatusBadgeVariant = (status?: string) => {
     case "in progress": return "secondary";
     case "overdue": return "destructive";
     case "blocked": return "destructive";
-    case "to do": return "outline"; // Assuming 'To Do' is a common status
-    default: return "outline"; // Default to outline if status is not specifically handled
+    case "to do": return "outline";
+    default: return "outline";
   }
 };
 
@@ -93,7 +93,7 @@ export default function TasksPage() {
         const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
         
         if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-          console.warn("Tasks fetch request was autocancelled or due to a network issue.", err);
+          console.warn("Tasks fetch request was automatically cancelled (this is expected in some cases, e.g., navigation or quick re-fetch). UI should not be affected.", err);
         } else {
           console.error("Error fetching tasks:", err);
           const detailedError = getDetailedErrorMessage(err);
@@ -245,4 +245,3 @@ export default function TasksPage() {
     </div>
   );
 }
-
