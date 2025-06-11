@@ -8,11 +8,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import type { Employee } from "@/lib/types";
 import { PlusCircle, MoreHorizontal, Edit, Trash2, Loader2, Save, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { getEmployees, deleteEmployee, updateEmployee } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
@@ -118,7 +120,7 @@ export default function EmployeesPage() {
 
   useEffect(() => {
     if (!pbClient || !user) {
-      setIsLoading(true); // Still loading if pbClient or user is not ready
+      setIsLoading(true); 
       return;
     }
 
@@ -128,8 +130,20 @@ export default function EmployeesPage() {
       return;
     }
     
-    fetchEmployees(pbClient);
+    const cleanup = fetchEmployees(pbClient);
+    return () => {
+      if (typeof cleanup === 'function') {
+        cleanup();
+      }
+    }
   }, [user, pbClient, router, toast, fetchEmployees, canManageEmployees]);
+
+  const potentialManagersForEdit = useMemo(() => {
+    if (!editingEmployee) return [];
+    return employees.filter(
+      (emp) => (emp.role === "Supervisor" || emp.role === "Team Lead") && emp.id !== editingEmployee.id
+    );
+  }, [employees, editingEmployee]);
 
 
   useEffect(() => {
@@ -188,8 +202,10 @@ export default function EmployeesPage() {
       };
 
     try {
-        const updatedEmployee = await updateEmployee(pbClient, editingEmployee.id, employeePayload);
-        setEmployees(prev => prev.map(emp => emp.id === editingEmployee.id ? updatedEmployee : emp));
+        const updatedRecord = await updateEmployee(pbClient, editingEmployee.id, employeePayload);
+        // Ensure the updatedRecord is correctly typed if updateEmployee returns a generic record
+        const updatedEmp = updatedRecord as Employee; 
+        setEmployees(prev => prev.map(emp => emp.id === editingEmployee.id ? updatedEmp : emp));
         toast({ title: "Success", description: "Employee details updated successfully." });
         handleEditDialogClose();
     } catch (error) {
@@ -333,53 +349,101 @@ export default function EmployeesPage() {
               <DialogTitle className="font-headline">Edit Employee: {editingEmployee.name}</DialogTitle>
               <DialogDescription>Make changes to the employee's details below.</DialogDescription>
             </DialogHeader>
-            <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-4 py-4">
-              <div>
-                <Label htmlFor="edit-name">Full Name</Label>
-                <Input id="edit-name" {...form.register("name")} />
-                {form.formState.errors.name && (
-                  <p className="text-sm text-destructive mt-1">{form.formState.errors.name.message}</p>
-                )}
-              </div>
-              <div>
-                <Label htmlFor="edit-email">Email Address</Label>
-                <Input id="edit-email" type="email" {...form.register("email")} />
-                {form.formState.errors.email && (
-                  <p className="text-sm text-destructive mt-1">{form.formState.errors.email.message}</p>
-                )}
-              </div>
-              <div>
-                <Label htmlFor="edit-role">Role / Job Title</Label>
-                <Input id="edit-role" {...form.register("role")} />
-                {form.formState.errors.role && (
-                  <p className="text-sm text-destructive mt-1">{form.formState.errors.role.message}</p>
-                )}
-              </div>
-              <div>
-                <Label htmlFor="edit-department_text">Department (Optional)</Label>
-                <Input id="edit-department_text" {...form.register("department_text")} />
-              </div>
-              <div>
-                <Label htmlFor="edit-reportsTo_text">Reports To (Optional)</Label>
-                <Input id="edit-reportsTo_text" {...form.register("reportsTo_text")} placeholder="Supervisor or Team Lead Name" />
-              </div>
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button type="button" variant="outline" onClick={handleEditDialogClose} disabled={isSubmittingEdit}>
-                    Cancel
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-4 py-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Full Name</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email Address</FormLabel>
+                      <FormControl>
+                        <Input type="email" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="role"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Role / Job Title</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="department_text"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Department (Optional)</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                 <FormField
+                  control={form.control}
+                  name="reportsTo_text"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Reports To (Optional)</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a manager" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                           <SelectItem value="">None</SelectItem>
+                          {potentialManagersForEdit.map((manager) => (
+                            <SelectItem key={manager.id} value={manager.name}>
+                              {manager.name} ({manager.role})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button type="button" variant="outline" onClick={handleEditDialogClose} disabled={isSubmittingEdit}>
+                      Cancel
+                    </Button>
+                  </DialogClose>
+                  <Button type="submit" disabled={isSubmittingEdit}>
+                    {isSubmittingEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    Save Changes
                   </Button>
-                </DialogClose>
-                <Button type="submit" disabled={isSubmittingEdit}>
-                  {isSubmittingEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Save Changes
-                </Button>
-              </DialogFooter>
-            </form>
+                </DialogFooter>
+              </form>
+            </Form>
           </DialogContent>
         </Dialog>
       )}
     </div>
   );
 }
-
-    

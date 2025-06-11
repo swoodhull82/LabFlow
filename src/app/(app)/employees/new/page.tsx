@@ -5,13 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useForm } from "react-hook-form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { createEmployee } from "@/services/employeeService";
+import { createEmployee, getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Save } from "lucide-react";
 import React, { useState, useEffect } from "react";
@@ -22,7 +23,7 @@ const employeeFormSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email address." }),
   role: z.string().min(2, { message: "Role must be at least 2 characters." }),
   department_text: z.string().optional(),
-  reportsTo_text: z.string().optional(),
+  reportsTo_text: z.string().optional(), // This will store the name of the manager
 });
 
 type EmployeeFormData = z.infer<typeof employeeFormSchema>;
@@ -32,6 +33,8 @@ export default function NewEmployeePage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [potentialManagers, setPotentialManagers] = useState<Employee[]>([]);
+  const [isLoadingManagers, setIsLoadingManagers] = useState(false);
 
   const canManageEmployees = user?.role === 'Supervisor' || user?.role === 'Team Lead';
 
@@ -52,6 +55,27 @@ export default function NewEmployeePage() {
       router.push("/dashboard");
     }
   }, [user, router, toast, canManageEmployees]);
+
+  useEffect(() => {
+    const fetchManagers = async () => {
+      if (!pbClient || !canManageEmployees) return;
+      setIsLoadingManagers(true);
+      try {
+        const allEmployees = await getEmployees(pbClient);
+        const managers = allEmployees.filter(
+          (emp) => emp.role === "Supervisor" || emp.role === "Team Lead"
+        );
+        setPotentialManagers(managers);
+      } catch (error) {
+        console.error("Failed to fetch potential managers:", error);
+        toast({ title: "Error", description: "Could not load list of managers.", variant: "destructive" });
+      } finally {
+        setIsLoadingManagers(false);
+      }
+    };
+
+    fetchManagers();
+  }, [pbClient, toast, canManageEmployees]);
 
 
   const onSubmit = async (data: EmployeeFormData) => {
@@ -87,7 +111,7 @@ export default function NewEmployeePage() {
     }
   };
   
-  if (!user) {
+  if (!user && !isLoadingManagers && !isSubmitting) { // Check isLoadingManagers as well
      return (
       <div className="flex items-center justify-center h-full p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -158,15 +182,35 @@ export default function NewEmployeePage() {
               <Label htmlFor="department_text">Department (Optional)</Label>
               <Input id="department_text" {...form.register("department_text")} placeholder="e.g., Chemistry" />
             </div>
+            
             <div>
               <Label htmlFor="reportsTo_text">Reports To (Optional)</Label>
-              <Input id="reportsTo_text" {...form.register("reportsTo_text")} placeholder="e.g., Dr. John Smith (Supervisor) or Ms. Ada Wong (Team Lead)" />
+              <Controller
+                name="reportsTo_text"
+                control={form.control}
+                render={({ field }) => (
+                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value || ""}>
+                    <SelectTrigger id="reportsTo_text" disabled={isLoadingManagers}>
+                      <SelectValue placeholder={isLoadingManagers ? "Loading managers..." : "Select a manager"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {potentialManagers.map((manager) => (
+                        <SelectItem key={manager.id} value={manager.name}>
+                          {manager.name} ({manager.role})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
             </div>
+
             <div className="flex justify-end space-x-2">
               <Button type="button" variant="outline" onClick={() => router.push("/employees")} disabled={isSubmitting}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting || isLoadingManagers}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Save Employee
               </Button>
