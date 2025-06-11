@@ -10,36 +10,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { TASK_PRIORITIES, TASK_RECURRENCES, TASK_STATUSES } from "@/lib/constants";
-import { CalendarIcon, Save, UploadCloud, Loader2 } from "lucide-react";
+import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { createTask } from "@/services/taskService";
+import { getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
-import type { TaskPriority, TaskStatus, TaskRecurrence } from "@/lib/types";
-
-const mockEmployees = [
-  // Supervisors
-  { id: "empS1", name: "Dr. Evelyn Hayes (Supervisor)" },
-  { id: "empS2", name: "Mr. Samuel Green (Supervisor)" },
-  // Team Leads
-  { id: "empTL1", name: "Ms. Olivia Carter (Team Lead)" },
-  { id: "empTL2", name: "Mr. David Lee (Team Lead)" },
-  { id: "empTL3", name: "Dr. Priya Sharma (Team Lead)" },
-  // Chem I
-  { id: "empCI1", name: "Alice Johnson (Chem I)" },
-  { id: "empCI2", name: "Bob Williams (Chem I)" },
-  { id: "empCI3", name: "Carol Davis (Chem I)" },
-  { id: "empCI4", name: "Daniel Miller (Chem I)" },
-  // Chem II
-  { id: "empCII1", name: "Emily Wilson (Chem II)" },
-  { id: "empCII2", name: "Frank Garcia (Chem II)" },
-  { id: "empCII3", name: "Grace Rodriguez (Chem II)" },
-  { id: "empCII4", name: "Henry Martinez (Chem II)" },
-];
-
+import type { TaskPriority, TaskStatus, TaskRecurrence, Employee } from "@/lib/types";
+import type PocketBase from "pocketbase";
 
 export default function NewTaskPage() {
   const { pbClient, user } = useAuth();
@@ -55,6 +36,41 @@ export default function NewTaskPage() {
   const [assignedToText, setAssignedToText] = useState<string | undefined>();
   const [attachments, setAttachments] = useState<FileList | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
+  const [fetchEmployeesError, setFetchEmployeesError] = useState<string | null>(null);
+
+  const fetchAndSetEmployees = useCallback(async (pb: PocketBase) => {
+    setIsLoadingEmployees(true);
+    setFetchEmployeesError(null);
+    try {
+      const fetchedEmployees = await getEmployees(pb);
+      setEmployees(fetchedEmployees);
+    } catch (err: any) {
+      const isPocketBaseAutocancel = err?.isAbort === true;
+      const isGeneralAutocancelOrNetworkIssue = err?.status === 0;
+      const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
+
+      if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
+        console.warn("Fetch employees request for task assignment was autocancelled or due to a network issue.", err);
+      } else {
+        console.error("Error fetching employees for task assignment:", err);
+        const errorMessage = err.message || "Could not load employees for assignment.";
+        setFetchEmployeesError(errorMessage);
+        toast({ title: "Error Loading Employees", description: errorMessage, variant: "destructive" });
+      }
+    } finally {
+      setIsLoadingEmployees(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    if (pbClient) {
+      fetchAndSetEmployees(pbClient);
+    }
+  }, [pbClient, fetchAndSetEmployees]);
+
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
@@ -87,7 +103,7 @@ export default function NewTaskPage() {
     if (assignedToText) {
       formData.append("assignedTo_text", assignedToText);
     }
-    formData.append("userId", user.id); // Link task to current user
+    formData.append("userId", user.id); 
 
     if (attachments) {
       for (let i = 0; i < attachments.length; i++) {
@@ -198,16 +214,26 @@ export default function NewTaskPage() {
             </div>
             <div>
               <Label htmlFor="assignedTo">Assigned To</Label>
-              <Select onValueChange={(value: string) => setAssignedToText(value)} value={assignedToText}>
+              <Select 
+                onValueChange={(value: string) => setAssignedToText(value === "__NONE__" ? undefined : value)} 
+                value={assignedToText || "__NONE__"}
+                disabled={isLoadingEmployees || !!fetchEmployeesError}
+              >
                 <SelectTrigger id="assignedTo_text">
-                  <SelectValue placeholder="Select employee" />
+                  <SelectValue placeholder={isLoadingEmployees ? "Loading employees..." : (fetchEmployeesError ? "Error loading" : "Select employee (Optional)")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {mockEmployees.map(emp => (
-                    <SelectItem key={emp.id} value={emp.name}>{emp.name}</SelectItem>
+                  <SelectItem value="__NONE__">None</SelectItem>
+                  {employees.map(emp => (
+                    <SelectItem key={emp.id} value={emp.name}>{emp.name} ({emp.role})</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {fetchEmployeesError && !isLoadingEmployees && (
+                 <p className="text-sm text-destructive mt-1 flex items-center">
+                   <AlertTriangle className="h-4 w-4 mr-1" /> {fetchEmployeesError}
+                 </p>
+              )}
             </div>
             <div>
               <Label htmlFor="attachments">Attachments</Label>
@@ -234,7 +260,7 @@ export default function NewTaskPage() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting || isLoadingEmployees}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Save Task
               </Button>
