@@ -104,11 +104,15 @@ export default function NewEmployeePage() {
         ? undefined 
         : data.reportsTo_text;
 
+      const finalDepartment = data.department_text === NONE_REPORTS_TO_VALUE || !data.department_text
+        ? undefined
+        : data.department_text;
+
       const employeePayload: Partial<Omit<Employee, 'id' | 'created' | 'updated'>> = {
         name: data.name,
         email: data.email,
         role: data.role,
-        department_text: data.department_text || undefined,
+        department_text: finalDepartment,
         reportsTo_text: finalReportsTo,
       };
 
@@ -224,7 +228,7 @@ export default function NewEmployeePage() {
                       <SelectValue placeholder="Select a department (Optional)" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value={NONE_REPORTS_TO_VALUE}>None</SelectItem>
                       {AVAILABLE_DEPARTMENTS.map(dept => (
                         <SelectItem key={dept} value={dept}>{dept}</SelectItem>
                       ))}
