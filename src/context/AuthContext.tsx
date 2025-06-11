@@ -12,7 +12,7 @@ const client = new PocketBase(POCKETBASE_URL);
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string, roleFromForm: UserRole) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   loading: boolean;
   pbClient: PocketBase;
@@ -31,12 +31,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const restoreSession = async () => {
       if (client.authStore.isValid && client.authStore.model) {
         const pbUser = client.authStore.model;
-        // PocketBase SDK automatically refreshes the token if needed
-        // For role, prioritize PB record, then localStorage, then default
-        let userRole: UserRole = (pbUser as any).role as UserRole; // Type assertion
+        let userRole: UserRole = (pbUser as any).role as UserRole;
+        
         if (!userRole || (userRole !== "Supervisor" && userRole !== "Analyst")) {
           const storedRole = localStorage.getItem("labflowUserRole") as UserRole | null;
-          userRole = storedRole || "Analyst"; // Default to Analyst
+          userRole = storedRole || "Analyst"; 
         }
         
         const currentUser: User = {
@@ -49,10 +48,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             : `https://placehold.co/100x100.png?text=${((pbUser as any).name || pbUser.email || "U")[0].toUpperCase()}`,
         };
         setUser(currentUser);
-        // Persist the role if it was determined from localStorage or default, to keep it consistent
-        if (userRole && userRole !== (pbUser as any).role) {
-            localStorage.setItem("labflowUserRole", userRole);
-        }
+        localStorage.setItem("labflowUserRole", userRole);
       }
     };
     
@@ -60,7 +56,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   }, []);
 
-  const login = async (email: string, password: string, roleFromForm: UserRole) => {
+  const login = async (email: string, password: string) => {
     setLoading(true);
     try {
       await client.collection('users').authWithPassword(email, password);
@@ -69,10 +65,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         
         let determinedRole: UserRole = (pbUser as any).role as UserRole;
         if (!determinedRole || (determinedRole !== "Supervisor" && determinedRole !== "Analyst")) {
-          determinedRole = roleFromForm;
-        }
-        if (!determinedRole) {
-            determinedRole = "Analyst"; // Fallback if somehow still not set
+          console.warn(`User ${pbUser.email} has an invalid or missing role in PocketBase. Defaulting to 'Analyst'.`);
+          determinedRole = "Analyst"; // Default to Analyst if role is missing or invalid
         }
 
         const currentUser: User = {
@@ -85,7 +79,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             : `https://placehold.co/100x100.png?text=${((pbUser as any).name || pbUser.email || "U")[0].toUpperCase()}`,
         };
         setUser(currentUser);
-        localStorage.setItem("labflowUserRole", currentUser.role); // Persist determined role
+        localStorage.setItem("labflowUserRole", currentUser.role); 
         
         toast({ title: "Login Successful", description: `Welcome back, ${currentUser.name}!` });
         router.push("/dashboard");
@@ -102,7 +96,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         errorMessage = error.message;
       }
       toast({ title: "Login Failed", description: errorMessage, variant: "destructive" });
-      setUser(null); // Ensure user is cleared on failed login
+      setUser(null);
     } finally {
       setLoading(false);
     }

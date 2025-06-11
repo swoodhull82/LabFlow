@@ -10,22 +10,18 @@ import {
   FormControl,
   FormField,
   FormItem,
-  FormLabel, // This is RHF's FormLabel for the whole field
+  FormLabel,
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
-import type { UserRole } from "@/lib/types";
 import { useState, useEffect } from "react";
 import { Loader2, LogIn } from "lucide-react";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Label } from "@/components/ui/label"; // Import Radix-based Label for individual items
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
   password: z.string().min(1, { message: "Password is required." }),
-  role: z.enum(["Supervisor", "Analyst"], { required_error: "You need to select a role." }),
 });
 
 export function LoginForm() {
@@ -37,13 +33,12 @@ export function LoginForm() {
     defaultValues: {
       email: "",
       password: "",
-      role: "Analyst",
     },
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
-    await login(values.email, values.password, values.role as UserRole);
+    await login(values.email, values.password);
     // setLoading(false) is handled in AuthContext or if login fails
   }
 
@@ -86,32 +81,6 @@ export function LoginForm() {
                   <FormLabel>Password</FormLabel>
                   <FormControl>
                     <Input type="password" placeholder="••••••••" {...field} autoComplete="current-password" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="role"
-              render={({ field }) => (
-                <FormItem className="space-y-3">
-                  <FormLabel>Sign in as</FormLabel>
-                  <FormControl>
-                    <RadioGroup
-                      onValueChange={field.onChange}
-                      value={field.value} // Use value for controlled component
-                      className="flex space-x-4"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="Analyst" id="role-analyst" />
-                        <Label htmlFor="role-analyst" className="font-normal">Analyst</Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="Supervisor" id="role-supervisor" />
-                        <Label htmlFor="role-supervisor" className="font-normal">Supervisor</Label>
-                      </div>
-                    </RadioGroup>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
