@@ -151,35 +151,46 @@ export default function DashboardPage() {
     allTasks.forEach(task => {
       const dueDate = task.dueDate ? startOfDay(new Date(task.dueDate)) : null;
       const isTaskMarkedDone = task.status === "Done";
-      const isTaskDateBasedOverdue = dueDate && isPast(dueDate) && !isToday(dueDate) && !isTaskMarkedDone;
-      const isEffectivelyOverdue = task.status === "Overdue" || isTaskDateBasedOverdue;
+      
+      const isDateBasedOverdue = dueDate && isPast(dueDate) && !isToday(dueDate) && !isTaskMarkedDone;
+      const isEffectivelyOverdue = task.status === "Overdue" || isDateBasedOverdue;
 
+      // For Task Status Distribution Chart
       if (task.status === "Overdue") {
         statusCounts["Overdue"]++;
-      } else if (isTaskDateBasedOverdue) { 
+      } else if (isDateBasedOverdue) { 
         statusCounts["Overdue"]++;
       } else if (task.status && statusCounts.hasOwnProperty(task.status)) {
         statusCounts[task.status]++;
+      } else {
+        // Default to "To Do" for chart if status is null, empty, or unrecognized
+        // and not otherwise date-overdue.
+        statusCounts["To Do"]++;
       }
 
+      // For Employee Task Counts (Active tasks by employee)
       if (!isTaskMarkedDone && !isEffectivelyOverdue) {
         if (task.assignedTo_text) {
           employeeTaskCounts[task.assignedTo_text] = (employeeTaskCounts[task.assignedTo_text] || 0) + 1;
         }
       }
 
+      // For Summary Cards
       if (isTaskMarkedDone) {
         const updatedDate = task.updated ? new Date(task.updated) : new Date(task.created);
         if (isToday(updatedDate)) {
           completedTodaySummaryCount++;
         }
       } else { 
+        // Task is NOT Done
         if (isEffectivelyOverdue) {
           overdueSummaryCount++;
         }
+        // An active task is not done, not effectively overdue, and has an active status
         if (!isEffectivelyOverdue && (task.status === "In Progress" || task.status === "To Do" || task.status === "Blocked")) {
           activeSummaryCount++;
         }
+        // An upcoming task is not done, not effectively overdue, and due within 7 days
         if (!isEffectivelyOverdue && dueDate && dueDate >= today && dueDate < nextSevenDays) {
           upcomingSummaryCount++;
         }
@@ -196,7 +207,7 @@ export default function DashboardPage() {
     const distribution = (Object.keys(statusCounts) as (TaskStatus | string)[]).map(status => ({
       status: status,
       count: statusCounts[status] || 0,
-      fill: chartFills[status] || "hsl(var(--muted))",
+      fill: chartFills[status as TaskStatus] || "hsl(var(--muted))", // Ensure 'status' key exists in chartFills or use fallback
     })).filter(item => item.count > 0);
     setTaskDistributionData(distribution);
 
