@@ -1,6 +1,6 @@
 
 'use client';
-import type { CalendarEvent, Task } from "@/lib/types";
+import type { CalendarEvent, Task, TaskStatus } from "@/lib/types";
 import type PocketBase from 'pocketbase';
 
 const TASK_COLLECTION_NAME = "tasks";
@@ -15,6 +15,7 @@ const pbTaskToCalendarEvent = (taskRecord: any): CalendarEvent => {
     title: task.title,
     eventDate: task.dueDate ? new Date(task.dueDate) : new Date(), // Default to now if dueDate is missing, though filter should prevent this
     description: task.description,
+    status: task.status as TaskStatus, // Map the status
     userId: task.userId, // The user who created the task
     created: task.created ? new Date(task.created) : new Date(),
     updated: task.updated ? new Date(task.updated) : new Date(),
@@ -45,4 +46,5 @@ export const getCalendarEvents = async (pb: PocketBase): Promise<CalendarEvent[]
 // export const createCalendarEvent = async (pb: PocketBase, eventData: Partial<Omit<CalendarEvent, 'id' | 'created' | 'updated'>>): Promise<CalendarEvent> => { ... }
 // export const updateCalendarEvent = async (pb: PocketBase, id: string, eventData: Partial<CalendarEvent>): Promise<CalendarEvent> => { ... }
 // export const deleteCalendarEvent = async (pb: PocketBase, id: string): Promise<void> => { ... }
+
 

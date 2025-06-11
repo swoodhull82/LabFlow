@@ -37,6 +37,7 @@ export interface CalendarEvent {
   title: string;
   eventDate: Date | string; // Date of the event
   description?: string;
+  status?: TaskStatus; // Added status for tasks displayed on calendar
   userId?: string; // Optional: if events are user-specific
   created: Date | string;
   updated: Date | string;
@@ -71,3 +72,4 @@ export interface ActivityLogEntry {
   collectionName?: string;
   expand?: any;
 }
+

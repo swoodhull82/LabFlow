@@ -4,7 +4,7 @@
 import { Calendar as ShadcnCalendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { format } from "date-fns";
+import { format, isPast, isSameDay, isFuture, differenceInCalendarDays, startOfDay } from "date-fns";
 import type { CalendarEvent } from "@/lib/types"; 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
@@ -61,6 +61,7 @@ const getDetailedErrorMessage = (error: any): string => {
   return message;
 };
 
+const ALMOST_DUE_DAYS = 3; // Tasks due in 3 days or less (including today)
 
 export default function CalendarPage() {
   const { pbClient } = useAuth();
@@ -128,9 +129,41 @@ export default function CalendarPage() {
     );
   }, [date, allEvents]);
 
-  const eventDates = useMemo(() => { 
-    return allEvents.map(event => event.eventDate ? new Date(event.eventDate) : null).filter(Boolean) as Date[];
+  const { overdueEventDates, completedEventDates, almostDueEventDates, activeEventDates } = useMemo(() => {
+    const today = startOfDay(new Date());
+  
+    const overdue: Date[] = [];
+    const completed: Date[] = [];
+    const almostDue: Date[] = [];
+    const active: Date[] = [];
+  
+    allEvents.forEach(event => {
+      if (!event.eventDate || !event.status) return;
+      const eventDateObj = startOfDay(new Date(event.eventDate));
+  
+      if (event.status === "Done") {
+        completed.push(eventDateObj);
+      } else if (isPast(eventDateObj) && !isSameDay(eventDateObj, today)) {
+        overdue.push(eventDateObj);
+      } else {
+        const diffDays = differenceInCalendarDays(eventDateObj, today);
+        if (diffDays >= 0 && diffDays < ALMOST_DUE_DAYS) { // strictly less than ALMOST_DUE_DAYS for 'almost due' if today is day 0
+          almostDue.push(eventDateObj);
+        } else if (isFuture(eventDateObj) || isSameDay(eventDateObj, today)) { 
+          active.push(eventDateObj);
+        }
+      }
+    });
+    
+    // Remove duplicates by converting to time, then back to Date objects
+    return {
+      overdueEventDates: [...new Set(overdue.map(d => d.getTime()))].map(t => new Date(t)),
+      completedEventDates: [...new Set(completed.map(d => d.getTime()))].map(t => new Date(t)),
+      almostDueEventDates: [...new Set(almostDue.map(d => d.getTime()))].map(t => new Date(t)),
+      activeEventDates: [...new Set(active.map(d => d.getTime()))].map(t => new Date(t)),
+    };
   }, [allEvents]);
+
 
   const refetchEvents = () => {
     if (pbClient) {
@@ -164,8 +197,18 @@ export default function CalendarPage() {
                 selected={date}
                 onSelect={setDate}
                 className="rounded-md"
-                modifiers={{ eventDay: eventDates }} 
-                modifiersClassNames={{ eventDay: "bg-accent/30 rounded-full !text-accent-foreground" }} 
+                modifiers={{ 
+                  completed: completedEventDates,
+                  overdue: overdueEventDates,
+                  almostDue: almostDueEventDates,
+                  active: activeEventDates,
+                }} 
+                modifiersClassNames={{ 
+                  completed: "!bg-green-100 !text-green-800 dark:!bg-green-800/30 dark:!text-green-200 border !border-green-300 dark:!border-green-700 rounded-md",
+                  overdue: "!bg-red-100 !text-red-800 dark:!bg-red-800/30 dark:!text-red-200 border !border-red-300 dark:!border-red-700 rounded-md",
+                  almostDue: "!bg-yellow-100 !text-yellow-800 dark:!bg-yellow-700/30 dark:!text-yellow-200 border !border-yellow-300 dark:!border-yellow-600 rounded-md",
+                  active: "!bg-blue-100 !text-blue-800 dark:!bg-blue-800/30 dark:!text-blue-200 border !border-blue-300 dark:!border-blue-700 rounded-md",
+                }} 
               />
             </CardContent>
           </Card>
