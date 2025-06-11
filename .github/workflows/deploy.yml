@@ -1,0 +1,50 @@
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - master # Changed from main to master
+
+permissions:
+  contents: write # Required to push to the gh-pages branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Use a Long Term Support (LTS) version. Adjust if your project needs a different version.
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Next.js app
+        run: npm run build
+
+      - name: Export Next.js app
+        run: npm run export
+
+      - name: Add .nojekyll file
+        # This prevents GitHub Pages from running the exported files through Jekyll.
+        # It's important for many SPA frameworks and Next.js static exports.
+        run: touch ./out/.nojekyll
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./out
+          # The default publish_branch is gh-pages, so this line is optional.
+          # publish_branch: gh-pages
+          # If you are using a custom domain, uncomment and set the CNAME.
+          # cname: your.custom.domain.com
+          # User and email for commit, defaults to github-actions[bot]
+          # user_name: 'github-actions[bot]'
+          # user_email: 'github-actions[bot]@users.noreply.github.com'
