@@ -18,7 +18,8 @@ const pbRecordToTask = (record: any): Task => {
     startDate: record.startDate ? new Date(record.startDate) : undefined,
     dueDate: record.dueDate ? new Date(record.dueDate) : undefined,
     created: new Date(record.created), 
-    updated: new Date(record.updated), 
+    updated: new Date(record.updated),
+    dependencies: Array.isArray(record.dependencies) ? record.dependencies : [], 
   } as Task;
 };
 
@@ -62,6 +63,13 @@ export const createTask = async (pb: PocketBase, taskData: FormData): Promise<Ta
 
 export const updateTask = async (pb: PocketBase, id: string, taskData: FormData | Partial<Task>): Promise<Task> => {
   try {
+     // If taskData is an object and has dependencies, ensure it's stringified for PocketBase JSON field
+    if (!(taskData instanceof FormData) && taskData.dependencies && Array.isArray(taskData.dependencies)) {
+      // PocketBase SDK typically handles JS arrays for JSON fields correctly,
+      // but if direct API calls were made or issues persist, stringifying might be needed.
+      // For the SDK, direct array assignment should be fine.
+      // taskData.dependencies = JSON.stringify(taskData.dependencies) as any; // No longer needed, PB handles arrays for JSON fields
+    }
     const record = await pb.collection(COLLECTION_NAME).update(id, taskData);
     return pbRecordToTask(record);
   } catch (error) {
@@ -78,3 +86,4 @@ export const deleteTask = async (pb: PocketBase, id: string): Promise<void> => {
     throw error;
   }
 };
+
