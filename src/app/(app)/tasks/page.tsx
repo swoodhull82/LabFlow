@@ -58,24 +58,62 @@ const getStatusBadgeVariant = (status?: string) => {
 
 const getDetailedErrorMessage = (error: any, context: string = "tasks"): string => {
   let message = `An unexpected error occurred while managing ${context}.`;
+
   if (error && typeof error === 'object') {
+    const errorContext = error.context || context;
+
+    // New Circuit Breaker Error Handling
+    if (error.isCircuitOpenError === true) {
+      const openUntil = error.openUntil;
+      if (openUntil && Date.now() < openUntil) {
+        const remainingSeconds = Math.ceil((openUntil - Date.now()) / 1000);
+        const timeString = remainingSeconds > 60
+          ? `${Math.ceil(remainingSeconds / 60)} minute(s)`
+          : `${remainingSeconds} second(s)`;
+        return `Too many recent connection issues with '${errorContext}'. Access is temporarily paused. Please try again in about ${timeString}.`;
+      }
+      return `Access to '${errorContext}' is temporarily paused due to repeated connection issues. Please try again in a few moments.`;
+    }
+
+    if (error.circuitJustOpened === true) {
+      return `Failed to connect to '${errorContext}' after multiple attempts. To allow the service to recover, further attempts will be paused for a short period. Please try again in a few moments.`;
+    }
+
+    // Existing error handling logic follows
     if ('status' in error && error.status === 0) {
-      message = `Failed to load ${context}: Could not connect to the server. Please check your internet connection and try again.`;
+      message = `Failed to load ${errorContext}: Could not connect to the server. Please check your internet connection and try again.`;
     } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
       message = error.message;
     } else if (error.originalError && typeof error.originalError.message === 'string') {
         message = error.originalError.message;
-    } else if (error.message && typeof error.message === 'string') {
+    } else if (error.message && typeof error.message === 'string') { // Fallback for general error messages
       message = error.message;
     }
 
+    // Refine message based on status if it's not already a specific circuit/connection message
     if ('status' in error && error.status !== 0) {
-      const status = error.status;
-      const collectionName = context.includes("employee") ? "employees" : context.includes("dependency") ? "tasks" : "tasks";
-      if (status === 404) message = `The ${collectionName} collection was not found (404). Original: ${message}`;
-      else if (status === 403) message = `You do not have permission to manage ${collectionName} (403). Original: ${message}`;
+        const status = error.status;
+        // Use errorContext for collection name determination, but keep it generic if not clearly one type
+        let collectionTypeForStatusMsg = "items";
+        if (errorContext.includes("task")) collectionTypeForStatusMsg = "tasks";
+        else if (errorContext.includes("employee")) collectionTypeForStatusMsg = "employees";
+
+        // Avoid overwriting more specific messages (like from error.data.message) unless it's generic
+        const isGenericMessage = message.startsWith("An unexpected error occurred") || message.startsWith("PocketBase_ClientResponseError") || message === error.message;
+
+        if (status === 404 && isGenericMessage) {
+            message = `The requested ${collectionTypeForStatusMsg} could not be found (404).`;
+        } else if (status === 403 && isGenericMessage) {
+            message = `You do not have permission to access or modify these ${collectionTypeForStatusMsg} (403).`;
+        } else if (isGenericMessage && message.startsWith("PocketBase_ClientResponseError")) {
+            // Provide a slightly more user-friendly message for generic PocketBase errors if no other details were parsed
+            message = `A server error occurred (${status}) while managing ${collectionTypeForStatusMsg}. If this persists, please contact support.`;
+        } else if (isGenericMessage) {
+            // Append status to generic messages if not already covered
+            message = `${message} (Status: ${status})`;
+        }
     }
   } else if (typeof error === 'string') {
     message = error;
@@ -103,6 +141,7 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryStatusMessage, setRetryStatusMessage] = useState<string | null>(null);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
@@ -111,6 +150,7 @@ export default function TasksPage() {
   const [allTasksForSelection, setAllTasksForSelection] = useState<Task[]>([]);
   const [isLoadingTasksForSelection, setIsLoadingTasksForSelection] = useState(true);
   const [fetchTasksErrorEdit, setFetchTasksErrorEdit] = useState<string | null>(null);
+  const [dependenciesRetryMessage, setDependenciesRetryMessage] = useState<string | null>(null);
   const [isDependenciesPopoverOpenEdit, setIsDependenciesPopoverOpenEdit] = useState(false);
 
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -132,12 +172,26 @@ export default function TasksPage() {
     
     setIsLoading(true);
     setError(null);
+    setRetryStatusMessage(null); // Clear previous retry message
+
+    const handleRetryAttempt = (attempt: number, maxAttempts: number, err: any) => {
+      const isNetworkError = err && err.status === 0;
+      const isRetryableServerError = err && [502, 503, 504].includes(err.status);
+      if (isNetworkError || isRetryableServerError) {
+        setRetryStatusMessage(`Connection issues, retrying... Attempt ${attempt} of ${maxAttempts}`);
+      } else {
+        setRetryStatusMessage(`Attempting to recover... Attempt ${attempt} of ${maxAttempts}`);
+      }
+    };
+
     try {
-      const fetchedTasks = await getTasks(pb, { signal });
+      const fetchedTasks = await getTasks(pb, { signal, onRetry: handleRetryAttempt });
       setTasks(fetchedTasks);
+      setRetryStatusMessage(null); // Clear on success
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+      setRetryStatusMessage(null); // Clear on final failure
 
       if (isAutocancel) {
         console.warn(`Tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
@@ -164,10 +218,25 @@ export default function TasksPage() {
     }
     setIsLoadingEmployees(true);
     setFetchEmployeesError(null);
+    // Using main retryStatusMessage for this loader as per simplified plan
+    // If a separate message is desired, a new state like `employeeRetryMessage` would be needed.
+    // setRetryStatusMessage(null); // Clear if using main message, or setEmployeeRetryMsg(null) for specific one
+
+    const handleEmployeeRetry = (attempt: number, maxAttempts: number, error: any) => {
+        // This will use the main retryStatusMessage. If employees load separately
+        // and have their own visual indicator, a dedicated state is better.
+        setRetryStatusMessage(`Retrying employee data... Attempt ${attempt} of ${maxAttempts}`);
+    };
+
     try {
-      const fetchedEmployees = await getEmployees(pb, { signal });
+      const fetchedEmployees = await getEmployees(pb, { signal, onRetry: handleEmployeeRetry });
       setEmployees(fetchedEmployees);
+      // Clear the message if it was specifically for employees and tasks are still loading/retrying
+      // This logic might need refinement based on how combined loading is presented.
+      // For now, let fetchTasksCallback handle clearing it on its success/failure.
+      // if (retryStatusMessage && retryStatusMessage.includes("employee")) setRetryStatusMessage(null);
     } catch (err: any) {
+      // if (retryStatusMessage && retryStatusMessage.includes("employee")) setRetryStatusMessage(null); // Clear on final failure
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       if (isAutocancel) {
          console.warn(`Fetch employees for task edit request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
@@ -185,7 +254,7 @@ export default function TasksPage() {
     } finally {
       setIsLoadingEmployees(false);
     }
-  }, [toast]);
+  }, [toast, /* retryStatusMessage, setRetryStatusMessage */]); // Add them if setRetryStatusMessage is directly used for clearing here
 
   const fetchAllTasksForDependencySelectionEdit = useCallback(async (pb: PocketBase | null, currentTaskId: string | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -194,10 +263,18 @@ export default function TasksPage() {
     }
     setIsLoadingTasksForSelection(true);
     setFetchTasksErrorEdit(null);
+    setDependenciesRetryMessage(null); // Clear previous message
+
+    const handleDepRetry = (attempt: number, maxAttempts: number, error: any) => {
+      setDependenciesRetryMessage(`Retrying tasks for selection... Attempt ${attempt} of ${maxAttempts}`);
+    };
+
     try {
-      const fetchedTasks = await getTasks(pb, { signal });
+      const fetchedTasks = await getTasks(pb, { signal, onRetry: handleDepRetry });
       setAllTasksForSelection(currentTaskId ? fetchedTasks.filter(t => t.id !== currentTaskId) : fetchedTasks);
+      setDependenciesRetryMessage(null); // Clear on success
     } catch (err: any) {
+      setDependenciesRetryMessage(null); // Clear on final failure
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
 
@@ -382,10 +459,10 @@ export default function TasksPage() {
           {isLoadingInitialData && (
             <div className="flex justify-center items-center py-10">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="ml-2">Loading tasks and employee data...</p>
+              <p className="ml-2">{retryStatusMessage || 'Loading tasks and employee data...'}</p>
             </div>
           )}
-          {error && !isLoadingInitialData && (
+          {error && !isLoadingInitialData && !retryStatusMessage && ( // Ensure retry message isn't active when showing final error
             <div className="text-center py-10 text-destructive">
               <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
               <p className="mt-4 text-lg font-semibold">Failed to Load Tasks</p>
@@ -682,13 +759,16 @@ export default function TasksPage() {
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                           {isLoadingTasksForSelection ? (
+                           {dependenciesRetryMessage && (
+                             <div className="p-4 text-center text-sm text-orange-600">{dependenciesRetryMessage}</div>
+                           )}
+                           {isLoadingTasksForSelection && !dependenciesRetryMessage ? ( // Hide default loading if retry message is shown
                                 <div className="p-4 text-center text-sm">Loading tasks...</div>
-                            ) : fetchTasksErrorEdit ? (
+                            ) : fetchTasksErrorEdit && !dependenciesRetryMessage ? ( // Hide error if retry message is shown (though retry should stop on error)
                                 <div className="p-4 text-center text-sm text-destructive">{fetchTasksErrorEdit}</div>
-                            ) : allTasksForSelection.length === 0 ? (
+                            ) : !isLoadingTasksForSelection && !fetchTasksErrorEdit && allTasksForSelection.length === 0 && !dependenciesRetryMessage ? (
                                 <div className="p-4 text-center text-sm">No other tasks available to select.</div>
-                            ) : (
+                            ) : !dependenciesRetryMessage && !fetchTasksErrorEdit && ( // Only show scroll area if not showing retry message or error
                                 <ScrollArea className="h-48">
                                     <div className="p-4 space-y-2">
                                     {allTasksForSelection.map(task => (
@@ -715,11 +795,13 @@ export default function TasksPage() {
                                     </div>
                                 </ScrollArea>
                             )}
-                            <div className="p-2 border-t">
-                                <Button size="sm" className="w-full" onClick={() => setIsDependenciesPopoverOpenEdit(false)}>
-                                    Done
-                                </Button>
-                            </div>
+                            {(!dependenciesRetryMessage && !isLoadingTasksForSelection) && ( // Show "Done" button only if not loading/retrying
+                                <div className="p-2 border-t">
+                                    <Button size="sm" className="w-full" onClick={() => setIsDependenciesPopoverOpenEdit(false)}>
+                                        Done
+                                    </Button>
+                                </div>
+                            )}
                         </PopoverContent>
                       </Popover>
                       <FormMessage />
