@@ -24,16 +24,19 @@ import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
 import { getTasks } from "@/services/taskService";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import { Button as ShadcnButton } from "@/components/ui/button";
 import type PocketBase from "pocketbase";
 
-const DAY_CELL_WIDTH = 30;
 const ROW_HEIGHT = 48;
 const SIDEBAR_WIDTH = 450;
 const TASK_BAR_VERTICAL_PADDING = 8;
 const GANTT_VIEW_MONTHS = 3;
 const MILESTONE_SIZE = 16; // px
+
+const MIN_DAY_CELL_WIDTH = 15;
+const MAX_DAY_CELL_WIDTH = 60;
+const DEFAULT_DAY_CELL_WIDTH = 30;
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => {
   if (isMilestone) return 'bg-purple-500 hover:bg-purple-600';
@@ -88,6 +91,7 @@ const GanttChart: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewStartDate, setViewStartDate] = useState<Date>(startOfMonth(new Date()));
+  const [dayCellWidth, setDayCellWidth] = useState<number>(DEFAULT_DAY_CELL_WIDTH);
 
   const fetchTimelineTasks = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -166,10 +170,10 @@ const GanttChart: React.FC = () => {
         startDate: taskStartDateObj,
         dueDate: taskDueDateObj,
         progress: typeof task.progress === 'number' && task.progress >= 0 && task.progress <= 100 ? task.progress : 0,
-        isMilestone: task.isMilestone === true || // Explicitly marked
-                     (task.isMilestone !== false && // Not explicitly NOT a milestone
-                      isValid(taskStartDateObj) && isValid(taskDueDateObj) && // Both dates must be valid
-                      isSameDay(taskStartDateObj, taskDueDateObj)), // And on the same day
+        isMilestone: task.isMilestone === true ||
+                     (task.isMilestone !== false &&
+                      isValid(taskStartDateObj) && isValid(taskDueDateObj) &&
+                      isSameDay(taskStartDateObj, taskDueDateObj)),
         dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
       };
     });
@@ -186,7 +190,7 @@ const GanttChart: React.FC = () => {
 
     const weeksInView = totalDaysInView > 0 ? eachWeekOfInterval(
       { start: currentChartStartDate, end: currentChartEndDate },
-      { weekStartsOn: 1 }
+      { weekStartsOn: 1 } // Assuming Monday is the start of the week
     ) : [];
 
     const getMonthYear = (date: Date) => format(date, 'MMM yyyy');
@@ -227,6 +231,14 @@ const GanttChart: React.FC = () => {
 
   const handleNextMonth = () => {
     setViewStartDate(prev => addMonths(prev, 1));
+  };
+
+  const handleZoomIn = () => {
+    setDayCellWidth(prev => Math.min(MAX_DAY_CELL_WIDTH, prev + 5));
+  };
+
+  const handleZoomOut = () => {
+    setDayCellWidth(prev => Math.max(MIN_DAY_CELL_WIDTH, prev - 5));
   };
 
   const refetchTasks = () => {
@@ -290,10 +302,10 @@ const GanttChart: React.FC = () => {
   const today = startOfDay(new Date());
   const showTodayLine = isWithinInterval(today, { start: chartStartDate, end: chartEndDate });
   const todayLineLeftPosition = showTodayLine && totalDaysInView > 0
-    ? (differenceInDays(today, chartStartDate) * DAY_CELL_WIDTH)
+    ? (differenceInDays(today, chartStartDate) * dayCellWidth)
     : 0;
 
-  const timelineGridWidth = weeksInView.length * 7 * DAY_CELL_WIDTH;
+  const timelineGridWidth = weeksInView.length * 7 * dayCellWidth;
 
 
   return (
@@ -302,6 +314,12 @@ const GanttChart: React.FC = () => {
       <div className="flex justify-between items-center p-2 border-b border-border bg-card sticky top-0 z-30">
          <h2 className="text-lg font-semibold text-card-foreground">Project Timeline</h2>
          <div className="flex items-center gap-2">
+            <ShadcnButton variant="outline" size="icon" onClick={handleZoomOut} disabled={dayCellWidth <= MIN_DAY_CELL_WIDTH} title="Zoom Out">
+                <ZoomOut className="h-4 w-4" />
+            </ShadcnButton>
+            <ShadcnButton variant="outline" size="icon" onClick={handleZoomIn} disabled={dayCellWidth >= MAX_DAY_CELL_WIDTH} title="Zoom In">
+                <ZoomIn className="h-4 w-4" />
+            </ShadcnButton>
             <ShadcnButton variant="outline" size="sm" onClick={handlePrevMonth}>
                 <ChevronLeft className="h-4 w-4 mr-1" />
                 Prev
@@ -331,7 +349,7 @@ const GanttChart: React.FC = () => {
         {/* Month and Week Headers */}
         <div className="overflow-hidden">
           {/* Month Headers */}
-          <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${weeksInView.length}, ${DAY_CELL_WIDTH * 7}px)`}}>
+          <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${weeksInView.length}, ${dayCellWidth * 7}px)`}}>
             {monthHeaders.map((month, index) => (
               <div
                 key={index}
@@ -346,7 +364,7 @@ const GanttChart: React.FC = () => {
             )}
           </div>
           {/* Day Headers */}
-          <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${weeksInView.length * 7}, ${DAY_CELL_WIDTH}px)`}}>
+          <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${weeksInView.length * 7}, ${dayCellWidth}px)`}}>
             {weeksInView.flatMap((weekStart, weekIndex) =>
               Array.from({ length: 7 }).map((_, dayIndex) => {
                 const day = addDays(weekStart, dayIndex);
@@ -393,20 +411,19 @@ const GanttChart: React.FC = () => {
           const taskStartInView = max([taskStartActual, chartStartDate]);
           const taskEndInView = min([taskEndActual, chartEndDate]);
 
-          if (taskStartInView > taskEndInView && !task.isMilestone) return null; // Milestones can render if their single day is in view
+          if (taskStartInView > taskEndInView && !task.isMilestone) return null;
 
           const taskStartDayOffset = differenceInDays(taskStartInView, chartStartDate);
           const taskDurationInViewDays = task.isMilestone ? 1 : differenceInDays(taskEndInView, taskStartInView) + 1;
 
           if (taskDurationInViewDays <= 0 && !task.isMilestone) return null;
 
-          // For milestones, barLeftPosition should center it on the day. For tasks, it's the start.
-          let barLeftPosition = taskStartDayOffset * DAY_CELL_WIDTH;
+          let barLeftPosition = taskStartDayOffset * dayCellWidth;
           if (task.isMilestone) {
-            barLeftPosition += (DAY_CELL_WIDTH / 2) - (MILESTONE_SIZE / 2);
+            barLeftPosition += (dayCellWidth / 2) - (MILESTONE_SIZE / 2);
           }
 
-          const barWidth = task.isMilestone ? MILESTONE_SIZE : taskDurationInViewDays * DAY_CELL_WIDTH;
+          const barWidth = task.isMilestone ? MILESTONE_SIZE : taskDurationInViewDays * dayCellWidth;
           
           const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING - 4;
           const taskBarTop = (ROW_HEIGHT - taskBarHeight) / 2;
@@ -419,7 +436,6 @@ const GanttChart: React.FC = () => {
             tooltipText += ` | Depends on: ${task.dependencies.join(', ')}`;
           }
           
-          // Ensure milestone is within view for rendering
           if (task.isMilestone && !isWithinInterval(taskStartActual, { start: chartStartDate, end: chartEndDate })) {
             return null;
           }
@@ -451,7 +467,7 @@ const GanttChart: React.FC = () => {
                     className={cn(
                       "absolute transition-all duration-150 ease-in-out group cursor-pointer",
                       getTaskBarColor(task.status, task.isMilestone),
-                      !task.isMilestone && "rounded-sm" // Milestones are not rounded
+                      !task.isMilestone && "rounded-sm"
                     )}
                     style={{
                       left: `${barLeftPosition}px`,
@@ -462,7 +478,7 @@ const GanttChart: React.FC = () => {
                   >
                     {!task.isMilestone && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && (
                        <div
-                          className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" // Progress bar can remain rounded
+                          className="absolute top-0 left-0 h-full bg-black/40 rounded-sm"
                           style={{ width: `${task.progress}%`}}
                        />
                     )}
@@ -473,7 +489,7 @@ const GanttChart: React.FC = () => {
                          </svg>
                        </div>
                     )}
-                    {!task.isMilestone && barWidth > (DAY_CELL_WIDTH * 0.75) && (
+                    {!task.isMilestone && barWidth > (dayCellWidth * 0.75) && (
                       <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden pr-1">
                         {task.title}
                       </span>
