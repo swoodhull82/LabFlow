@@ -30,6 +30,9 @@ export interface Task {
   collectionId?: string;
   collectionName?: string;
   expand?: any;
+  progress?: number; // Percentage 0-100
+  isMilestone?: boolean;
+  dependencies?: string[]; // Array of task IDs
 }
 
 export interface CalendarEvent {
@@ -72,4 +75,3 @@ export interface ActivityLogEntry {
   collectionName?: string;
   expand?: any;
 }
-
