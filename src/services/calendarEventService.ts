@@ -2,13 +2,9 @@
 'use client';
 import type { CalendarEvent, Task, TaskStatus } from "@/lib/types";
 import type PocketBase from 'pocketbase';
+import { withRetry } from '@/lib/retry';
 
 const TASK_COLLECTION_NAME = "tasks";
-const ARTIFICIAL_DELAY_MS = 200;
-
-async function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 // Helper to convert a Task record from PocketBase to a CalendarEvent type
 const pbTaskToCalendarEvent = (taskRecord: any): CalendarEvent => {
@@ -32,12 +28,12 @@ const pbTaskToCalendarEvent = (taskRecord: any): CalendarEvent => {
 
 export const getCalendarEvents = async (pb: PocketBase): Promise<CalendarEvent[]> => {
   try {
-    await delay(ARTIFICIAL_DELAY_MS);
-    // Fetch tasks that have a due date
-    const records = await pb.collection(TASK_COLLECTION_NAME).getFullList({
-      filter: 'dueDate != null && dueDate != ""', // Filter for tasks with a non-empty dueDate
-      sort: '-dueDate', // Sort by due date
-    });
+    const records = await withRetry(() => 
+      pb.collection(TASK_COLLECTION_NAME).getFullList({
+        filter: 'dueDate != null && dueDate != ""', // Filter for tasks with a non-empty dueDate
+        sort: '-dueDate', // Sort by due date
+      })
+    );
     // Map task records to CalendarEvent objects
     return records.map(pbTaskToCalendarEvent).filter(event => event.eventDate); // Ensure eventDate is valid
   } catch (error) {
@@ -51,5 +47,3 @@ export const getCalendarEvents = async (pb: PocketBase): Promise<CalendarEvent[]
 // export const createCalendarEvent = async (pb: PocketBase, eventData: Partial<Omit<CalendarEvent, 'id' | 'created' | 'updated'>>): Promise<CalendarEvent> => { ... }
 // export const updateCalendarEvent = async (pb: PocketBase, id: string, eventData: Partial<CalendarEvent>): Promise<CalendarEvent> => { ... }
 // export const deleteCalendarEvent = async (pb: PocketBase, id: string): Promise<void> => { ... }
-
-
