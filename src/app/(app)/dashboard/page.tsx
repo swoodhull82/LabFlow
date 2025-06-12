@@ -68,7 +68,7 @@ const getDetailedErrorMessage = (error: any, context: string = "dashboard data")
   let message = `An unexpected error occurred while fetching ${context}.`;
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      message = `Network error: Failed to communicate with the server while fetching ${context}. Please check your connection and try again.`;
+      message = `Failed to communicate with the server while fetching ${context}. Please check your connection and try again.`;
     } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
@@ -257,7 +257,11 @@ export default function DashboardPage() {
   }, [chartFills]);
 
 
-  const fetchDashboardData = useCallback(async (pb: PocketBase) => {
+  const fetchDashboardData = useCallback(async (pb: PocketBase | null) => {
+    if (!pb) {
+      setIsLoading(true);
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -275,14 +279,14 @@ export default function DashboardPage() {
       } else if (isNetworkErrorNotAutocancel) {
         const detailedError = getDetailedErrorMessage(err, "dashboard data");
         setError(detailedError);
-        toast({ title: "Network Error", description: detailedError, variant: "destructive" });
+        toast({ title: "Error Loading Data", description: detailedError, variant: "destructive" });
         console.warn("Dashboard data fetch (network error):", detailedError, err);
       } else {
-        console.warn("Error fetching dashboard data (after retries):", err); // Changed from console.error
         const errorContext = err.message?.toLowerCase().includes("employee") ? "employees" : "tasks";
         const detailedError = getDetailedErrorMessage(err, errorContext);
         setError(detailedError);
-        toast({ title: "Error Loading Dashboard Data", description: detailedError, variant: "destructive" });
+        toast({ title: "Error Loading Data", description: detailedError, variant: "destructive" });
+        console.warn("Error fetching dashboard data (after retries):", detailedError, err);
       }
     } finally {
       setIsLoading(false);
@@ -321,7 +325,7 @@ export default function DashboardPage() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {isLoading
               ? Array.from({ length: 4 }).map((_, index) => <SkeletonSummaryCard key={index} />)
-              : taskSummaryData.map((item) => (
+              : (!error && taskSummaryData.map((item) => (
                   <Card key={item.title} className="shadow-md hover:shadow-lg transition-shadow duration-300">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="text-sm font-medium">{item.title}</CardTitle>
@@ -332,124 +336,130 @@ export default function DashboardPage() {
                       <p className="text-xs text-muted-foreground">{item.description}</p>
                     </CardContent>
                   </Card>
-                ))}
+                )))}
           </div>
 
           <div className="grid gap-6 md:grid-cols-2">
             {isLoading ? <SkeletonChartCard /> : (
-              <Card className="shadow-md">
-                <CardHeader>
-                  <CardTitle className="font-headline flex items-center">
-                    <BarChart className="mr-2 h-5 w-5 text-primary" />
-                    Task Status Distribution
-                  </CardTitle>
-                  <CardDescription>Overview of tasks by their current status.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {taskDistributionData.length > 0 ? (
-                    <ChartContainer config={taskStatusChartConfig} className="h-[300px] w-full">
-                      <RechartsBarChart data={taskDistributionData} layout="vertical" margin={{left:10, right:30}}>
-                        <CartesianGrid horizontal={false} />
-                        <XAxis type="number" dataKey="count" allowDecimals={false} />
-                        <YAxis dataKey="status" type="category" tickLine={false} axisLine={false} width={80} />
-                        <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent hideLabel />} />
-                        <Legend />
-                        <Bar dataKey="count" radius={4} />
-                      </RechartsBarChart>
-                    </ChartContainer>
-                  ) : (
-                    <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                      No task data available for distribution chart.
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              !error && (
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="font-headline flex items-center">
+                      <BarChart className="mr-2 h-5 w-5 text-primary" />
+                      Task Status Distribution
+                    </CardTitle>
+                    <CardDescription>Overview of tasks by their current status.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {taskDistributionData.length > 0 ? (
+                      <ChartContainer config={taskStatusChartConfig} className="h-[300px] w-full">
+                        <RechartsBarChart data={taskDistributionData} layout="vertical" margin={{left:10, right:30}}>
+                          <CartesianGrid horizontal={false} />
+                          <XAxis type="number" dataKey="count" allowDecimals={false} />
+                          <YAxis dataKey="status" type="category" tickLine={false} axisLine={false} width={80} />
+                          <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent hideLabel />} />
+                          <Legend />
+                          <Bar dataKey="count" radius={4} />
+                        </RechartsBarChart>
+                      </ChartContainer>
+                    ) : (
+                      <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                        No task data available for distribution chart.
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )
             )}
 
             {isLoading ? <SkeletonChartCard /> : (
-              <Card className="shadow-md">
-                <CardHeader>
-                  <CardTitle className="font-headline flex items-center">
-                    <Users className="mr-2 h-5 w-5 text-primary" />
-                    Active Tasks by Employee
-                  </CardTitle>
-                  <CardDescription>Breakdown of active tasks assigned per employee.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {activeTasksByEmployeeData.length > 0 ? (
-                    <ChartContainer config={employeeTasksChartConfig} className="h-[300px] w-full">
-                      <RechartsBarChart data={activeTasksByEmployeeData} margin={{top: 5, right: 20, left: 0, bottom: 5}}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="employee" type="category" />
-                        <YAxis dataKey="activeTasks" type="number" allowDecimals={false} />
-                        <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent />} />
-                        <Bar dataKey="activeTasks" fill="var(--color-activeTasks)" radius={[4, 4, 0, 0]} />
-                      </RechartsBarChart>
-                    </ChartContainer>
-                  ) : (
-                    <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                      No active tasks assigned to employees or employee data not loaded.
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              !error && (
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="font-headline flex items-center">
+                      <Users className="mr-2 h-5 w-5 text-primary" />
+                      Active Tasks by Employee
+                    </CardTitle>
+                    <CardDescription>Breakdown of active tasks assigned per employee.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {activeTasksByEmployeeData.length > 0 ? (
+                      <ChartContainer config={employeeTasksChartConfig} className="h-[300px] w-full">
+                        <RechartsBarChart data={activeTasksByEmployeeData} margin={{top: 5, right: 20, left: 0, bottom: 5}}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="employee" type="category" />
+                          <YAxis dataKey="activeTasks" type="number" allowDecimals={false} />
+                          <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent />} />
+                          <Bar dataKey="activeTasks" fill="var(--color-activeTasks)" radius={[4, 4, 0, 0]} />
+                        </RechartsBarChart>
+                      </ChartContainer>
+                    ) : (
+                      <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                        No active tasks assigned to employees or employee data not loaded.
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )
             )}
 
             {isLoading ? <div className="md:col-span-2"><SkeletonChartCard /></div> : (
-                <Card className="shadow-md md:col-span-2">
-                <CardHeader>
-                    <CardTitle className="font-headline flex items-center">
-                    <TrendingUp className="mr-2 h-5 w-5 text-primary" />
-                    Monthly Task Completion Rate
-                    </CardTitle>
-                    <CardDescription>Trend of task completion based on due dates for the last 6 months.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {liveMonthlyTaskCompletionData.length > 0 ? (
-                    <ChartContainer config={monthlyCompletionChartConfig} className="h-[300px] w-full">
-                    <RechartsLineChart data={liveMonthlyTaskCompletionData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="month" />
-                        <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
-                        <Tooltip
-                        content={({ active, payload, label }) => {
-                            if (active && payload && payload.length) {
-                            const data = payload[0].payload as MonthlyCompletionDataPoint; 
-                            return (
-                                <div className="p-2 rounded-md border bg-background shadow-lg">
-                                <p className="font-medium text-sm">{label}</p>
-                                <p className="text-xs text-muted-foreground">
-                                    Completed: {data.completed} / {data.total}
-                                </p>
-                                <p className="text-xs" style={{ color: payload[0].stroke }}>
-                                    Rate: {data.rate}%
-                                </p>
-                                </div>
-                            );
-                            }
-                            return null;
-                        }}
-                        cursor={{fill: 'hsl(var(--muted))'}}
-                        />
-                        <Legend />
-                        <Line 
-                        type="monotone" 
-                        dataKey="rate" 
-                        stroke="hsl(var(--chart-2))" 
-                        strokeWidth={2} 
-                        dot={{ r: 4, fill: "hsl(var(--chart-2))" }} 
-                        activeDot={{ r: 6, fill: "hsl(var(--chart-2))"}} 
-                        name="Completion Rate" 
-                        />
-                    </RechartsLineChart>
-                    </ChartContainer>
-                  ) : (
-                     <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                      No task data available for the selected period.
-                    </div>
-                  )}
-                </CardContent>
-                </Card>
+              !error && (
+                  <Card className="shadow-md md:col-span-2">
+                  <CardHeader>
+                      <CardTitle className="font-headline flex items-center">
+                      <TrendingUp className="mr-2 h-5 w-5 text-primary" />
+                      Monthly Task Completion Rate
+                      </CardTitle>
+                      <CardDescription>Trend of task completion based on due dates for the last 6 months.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {liveMonthlyTaskCompletionData.length > 0 ? (
+                      <ChartContainer config={monthlyCompletionChartConfig} className="h-[300px] w-full">
+                      <RechartsLineChart data={liveMonthlyTaskCompletionData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="month" />
+                          <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+                          <Tooltip
+                          content={({ active, payload, label }) => {
+                              if (active && payload && payload.length) {
+                              const data = payload[0].payload as MonthlyCompletionDataPoint; 
+                              return (
+                                  <div className="p-2 rounded-md border bg-background shadow-lg">
+                                  <p className="font-medium text-sm">{label}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                      Completed: {data.completed} / {data.total}
+                                  </p>
+                                  <p className="text-xs" style={{ color: payload[0].stroke }}>
+                                      Rate: {data.rate}%
+                                  </p>
+                                  </div>
+                              );
+                              }
+                              return null;
+                          }}
+                          cursor={{fill: 'hsl(var(--muted))'}}
+                          />
+                          <Legend />
+                          <Line 
+                          type="monotone" 
+                          dataKey="rate" 
+                          stroke="hsl(var(--chart-2))" 
+                          strokeWidth={2} 
+                          dot={{ r: 4, fill: "hsl(var(--chart-2))" }} 
+                          activeDot={{ r: 6, fill: "hsl(var(--chart-2))"}} 
+                          name="Completion Rate" 
+                          />
+                      </RechartsLineChart>
+                      </ChartContainer>
+                    ) : (
+                       <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                        No task data available for the selected period.
+                      </div>
+                    )}
+                  </CardContent>
+                  </Card>
+              )
             )}
           </div>
         </>
@@ -460,3 +470,4 @@ export default function DashboardPage() {
     
 
     
+
