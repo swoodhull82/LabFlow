@@ -257,7 +257,7 @@ export default function DashboardPage() {
   }, [chartFills]);
 
 
-  const fetchDashboardData = useCallback(async (pb: PocketBase | null) => {
+  const fetchDashboardData = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
       setIsLoading(true);
       return;
@@ -266,8 +266,8 @@ export default function DashboardPage() {
     setError(null);
     try {
       const [fetchedTasks, fetchedEmployees] = await Promise.all([
-        getTasks(pb),
-        getEmployees(pb)
+        getTasks(pb, { signal }),
+        getEmployees(pb, { signal })
       ]);
       processData(fetchedTasks, fetchedEmployees);
     } catch (err: any) {
@@ -294,15 +294,21 @@ export default function DashboardPage() {
   }, [toast, processData]);
 
   useEffect(() => {
+    const controller = new AbortController();
     if (pbClient) {
-      fetchDashboardData(pbClient);
+      fetchDashboardData(pbClient, controller.signal);
     } else {
       setIsLoading(true); 
     }
+    return () => {
+      controller.abort();
+    };
   }, [pbClient, fetchDashboardData]);
 
   const refetchData = () => {
     if (pbClient) {
+      // Note: refetchData might need its own AbortController if called rapidly
+      // For a simple button click, it's usually fine without one here.
       fetchDashboardData(pbClient);
     }
   };
@@ -470,4 +476,5 @@ export default function DashboardPage() {
     
 
     
+
 

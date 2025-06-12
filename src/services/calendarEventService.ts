@@ -6,44 +6,40 @@ import { withRetry } from '@/lib/retry';
 
 const TASK_COLLECTION_NAME = "tasks";
 
-// Helper to convert a Task record from PocketBase to a CalendarEvent type
+interface PocketBaseRequestOptions {
+  signal?: AbortSignal;
+  [key: string]: any;
+}
+
 const pbTaskToCalendarEvent = (taskRecord: any): CalendarEvent => {
-  // Ensure taskRecord is treated as a Task-like structure
   const task = taskRecord as Task; 
 
   return {
     id: task.id,
     title: task.title,
-    eventDate: task.dueDate ? new Date(task.dueDate) : new Date(), // Default to now if dueDate is missing, though filter should prevent this
+    eventDate: task.dueDate ? new Date(task.dueDate) : new Date(), 
     description: task.description,
-    status: task.status as TaskStatus, // Map the status
-    userId: task.userId, // The user who created the task
+    status: task.status as TaskStatus, 
+    userId: task.userId, 
     created: task.created ? new Date(task.created) : new Date(),
     updated: task.updated ? new Date(task.updated) : new Date(),
     collectionId: task.collectionId,
-    collectionName: task.collectionName, // This will be 'tasks'
+    collectionName: task.collectionName, 
     expand: task.expand,
   };
 };
 
-export const getCalendarEvents = async (pb: PocketBase): Promise<CalendarEvent[]> => {
+export const getCalendarEvents = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<CalendarEvent[]> => {
   try {
     const records = await withRetry(() => 
       pb.collection(TASK_COLLECTION_NAME).getFullList({
-        filter: 'dueDate != null && dueDate != ""', // Filter for tasks with a non-empty dueDate
-        sort: '-dueDate', // Sort by due date
+        filter: 'dueDate != null && dueDate != ""', 
+        sort: '-dueDate', 
+        ...options,
       })
     );
-    // Map task records to CalendarEvent objects
-    return records.map(pbTaskToCalendarEvent).filter(event => event.eventDate); // Ensure eventDate is valid
+    return records.map(pbTaskToCalendarEvent).filter(event => event.eventDate); 
   } catch (error) {
     throw error;
   }
 };
-
-// Optional: Add create, update, delete functions for calendar events if needed later
-// These would likely operate on the tasks collection if events are derived from tasks
-// or a separate collection if manual calendar events are re-introduced.
-// export const createCalendarEvent = async (pb: PocketBase, eventData: Partial<Omit<CalendarEvent, 'id' | 'created' | 'updated'>>): Promise<CalendarEvent> => { ... }
-// export const updateCalendarEvent = async (pb: PocketBase, id: string, eventData: Partial<CalendarEvent>): Promise<CalendarEvent> => { ... }
-// export const deleteCalendarEvent = async (pb: PocketBase, id: string): Promise<void> => { ... }

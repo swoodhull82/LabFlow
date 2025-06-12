@@ -75,59 +75,49 @@ export default function TasksPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchTasksCallback = useCallback(async (pb: PocketBase | null) => {
+  const fetchTasksCallback = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
       setIsLoading(false); 
       return;
     }
-    let ignore = false;
+    
     setIsLoading(true);
     setError(null);
     try {
-      const fetchedTasks = await getTasks(pb);
-      if (!ignore) {
-        setTasks(fetchedTasks);
-      }
+      const fetchedTasks = await getTasks(pb, { signal });
+      setTasks(fetchedTasks);
     } catch (err: any) {
-      if (!ignore) {
-        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
-        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
-        
-        if (isAutocancel) {
-          console.warn(`Tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
-        } else if (isNetworkErrorNotAutocancel) {
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Error Loading Tasks", description: detailedError, variant: "destructive" });
-          console.warn("Tasks fetch (network error):", detailedError, err);
-        } else {
-          console.warn("Error fetching tasks (after retries):", err); 
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Error Loading Tasks", description: detailedError, variant: "destructive" });
-        }
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+      
+      if (isAutocancel) {
+        console.warn(`Tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Tasks", description: detailedError, variant: "destructive" });
+        console.warn("Tasks fetch (network error):", detailedError, err);
+      } else {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Tasks", description: detailedError, variant: "destructive" });
+        console.warn("Error fetching tasks (after retries):", detailedError, err); 
       }
     } finally {
-      if (!ignore) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
-    return () => {
-      ignore = true;
-    };
   }, [toast]);
 
   useEffect(() => {
+    const controller = new AbortController();
     if (pbClient) {
-      const cleanup = fetchTasksCallback(pbClient);
-      return () => {
-        if (typeof cleanup === 'function') {
-          cleanup();
-        }
-      };
+      fetchTasksCallback(pbClient, controller.signal);
     } else {
       setIsLoading(true); 
     }
+    return () => {
+      controller.abort();
+    };
   }, [pbClient, fetchTasksCallback]);
 
   const handleToggleTaskStatus = async (taskId: string, currentStatus: TaskStatus) => {
@@ -174,7 +164,7 @@ export default function TasksPage() {
 
   const refetchTasks = () => {
     if (pbClient) {
-      fetchTasksCallback(pbClient);
+      fetchTasksCallback(pbClient); // Consider AbortController if this can be rapid-clicked
     }
   }
 

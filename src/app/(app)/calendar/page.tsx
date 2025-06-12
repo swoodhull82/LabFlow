@@ -71,59 +71,48 @@ export default function CalendarPage() {
     setDate(new Date());
   }, []);
 
-  const fetchEvents = useCallback(async (pb: PocketBase | null) => {
+  const fetchEvents = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
       setIsLoading(true); 
       return;
     }
-    let ignore = false;
     setIsLoading(true);
     setError(null);
     try {
-      const fetchedEvents = await getCalendarEvents(pb); 
-      if (!ignore) {
-        setAllEvents(fetchedEvents);
-      }
+      const fetchedEvents = await getCalendarEvents(pb, { signal }); 
+      setAllEvents(fetchedEvents);
     } catch (err: any) {
-      if (!ignore) {
-        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
-        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
 
-        if (isAutocancel) {
-          console.warn(`Calendar events (tasks) fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
-        } else if (isNetworkErrorNotAutocancel) {
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Error Loading Calendar Data", description: detailedError, variant: "destructive" });
-          console.warn("Calendar events (tasks) fetch (network error):", detailedError, err);
-        } else {
-          console.warn("Error fetching tasks for calendar (after retries):", err); 
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Error Loading Calendar Data", description: detailedError, variant: "destructive" });
-        }
+      if (isAutocancel) {
+        console.warn(`Calendar events (tasks) fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Calendar Data", description: detailedError, variant: "destructive" });
+        console.warn("Calendar events (tasks) fetch (network error):", detailedError, err);
+      } else {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Calendar Data", description: detailedError, variant: "destructive" });
+        console.warn("Error fetching tasks for calendar (after retries):", detailedError, err); 
       }
     } finally {
-      if (!ignore) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
-    return () => {
-      ignore = true;
-    };
   }, [toast]);
 
   useEffect(() => {
+    const controller = new AbortController();
     if (pbClient) {
-      const cleanup = fetchEvents(pbClient);
-       return () => {
-        if (typeof cleanup === 'function') {
-          cleanup();
-        }
-      };
+      fetchEvents(pbClient, controller.signal);
     } else {
       setIsLoading(true); 
     }
+    return () => {
+      controller.abort();
+    };
   }, [pbClient, fetchEvents]);
 
   const eventsForSelectedDate = useMemo(() => { 
@@ -170,7 +159,7 @@ export default function CalendarPage() {
 
   const refetchEvents = () => {
     if (pbClient) {
-      fetchEvents(pbClient);
+      fetchEvents(pbClient); // Consider AbortController if this can be rapid-clicked
     }
   };
 

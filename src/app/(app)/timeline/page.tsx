@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Loader2, AlertTriangle } from "lucide-react";
-import { Button as ShadcnButton } from "@/components/ui/button"; // Renamed to avoid conflict if any native button is used
+import { Button as ShadcnButton } from "@/components/ui/button"; 
 import { useAuth } from "@/context/AuthContext";
 import { getTasks } from "@/services/taskService";
 import type { Task } from "@/lib/types";
@@ -45,64 +45,53 @@ export default function TimelinePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchTimelineTasks = useCallback(async (pb: PocketBase | null) => {
+  const fetchTimelineTasks = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
       setIsLoading(true);
       return;
     }
-    let ignore = false;
     setIsLoading(true);
     setError(null);
     try {
-      const fetchedTasks = await getTasks(pb);
-      if (!ignore) {
-        setTasks(fetchedTasks.filter(task => task.startDate && task.dueDate));
-      }
+      const fetchedTasks = await getTasks(pb, { signal });
+      setTasks(fetchedTasks.filter(task => task.startDate && task.dueDate));
     } catch (err: any) {
-      if (!ignore) {
-        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
-        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
-        
-        if (isAutocancel) {
-          console.warn(`Timeline tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
-        } else if (isNetworkErrorNotAutocancel) {
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
-          console.warn("Timeline tasks fetch (network error):", detailedError, err);
-        } else {
-          console.warn("Error fetching tasks for timeline (after retries):", err); 
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
-        }
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+      
+      if (isAutocancel) {
+        console.warn(`Timeline tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
+        console.warn("Timeline tasks fetch (network error):", detailedError, err);
+      } else {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
+        console.warn("Error fetching tasks for timeline (after retries):", detailedError, err); 
       }
     } finally {
-      if (!ignore) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
-    return () => {
-      ignore = true;
-    };
   }, [toast]);
 
   useEffect(() => {
+    const controller = new AbortController();
     if (pbClient) {
-      const cleanup = fetchTimelineTasks(pbClient);
-      return () => {
-        if (typeof cleanup === 'function') {
-          cleanup();
-        }
-      };
+      fetchTimelineTasks(pbClient, controller.signal);
     } else {
        setIsLoading(true);
     }
+    return () => {
+      controller.abort();
+    };
   }, [pbClient, fetchTimelineTasks]);
 
   const refetchTasks = () => {
     if (pbClient) {
-      fetchTimelineTasks(pbClient);
+      fetchTimelineTasks(pbClient); // Consider AbortController if this can be rapid-clicked
     }
   };
 

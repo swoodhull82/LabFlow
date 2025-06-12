@@ -50,42 +50,32 @@ export default function ActivityLogPage() {
 
   const canViewPage = user?.role === 'Supervisor' || user?.role === 'Team Lead';
 
-  const fetchLogEntries = useCallback(async (pb: PocketBase) => {
-    let ignore = false;
+  const fetchLogEntries = useCallback(async (pb: PocketBase, signal?: AbortSignal) => {
     setIsLoading(true);
     setError(null);
     try {
-      const entries = await getActivityLogEntries(pb);
-      if (!ignore) {
-        setLogEntries(entries);
-      }
+      const entries = await getActivityLogEntries(pb, { signal });
+      setLogEntries(entries);
     } catch (err: any) {
-      if (!ignore) {
-        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
-        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
 
-        if (isAutocancel) {
-          console.warn(`Activity log fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
-        } else if (isNetworkErrorNotAutocancel) {
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Error Loading Activity Log", description: detailedError, variant: "destructive" });
-          console.warn("Activity log fetch (network error):", detailedError, err);
-        } else {
-          console.warn("Error fetching activity log (after retries):", err); 
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Error Loading Activity Log", description: detailedError, variant: "destructive" });
-        }
+      if (isAutocancel) {
+        console.warn(`Activity log fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Activity Log", description: detailedError, variant: "destructive" });
+        console.warn("Activity log fetch (network error):", detailedError, err);
+      } else {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Activity Log", description: detailedError, variant: "destructive" });
+        console.warn("Error fetching activity log (after retries):", detailedError, err); 
       }
     } finally {
-      if (!ignore) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
-     return () => {
-      ignore = true;
-    };
   }, [toast]);
 
   useEffect(() => {
@@ -99,17 +89,17 @@ export default function ActivityLogPage() {
       router.push('/dashboard');
       return;
     }
-    const cleanup = fetchLogEntries(pbClient);
-     return () => {
-        if (typeof cleanup === 'function') {
-          cleanup();
-        }
+    const controller = new AbortController();
+    fetchLogEntries(pbClient, controller.signal);
+    
+    return () => {
+      controller.abort();
     };
   }, [user, pbClient, router, toast, fetchLogEntries, canViewPage]);
 
   const refetchLogs = () => {
     if (pbClient && canViewPage) {
-      fetchLogEntries(pbClient);
+      fetchLogEntries(pbClient); // Consider AbortController if this can be rapid-clicked
     }
   };
 

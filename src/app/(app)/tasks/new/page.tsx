@@ -54,57 +54,48 @@ export default function NewTaskPage() {
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [fetchEmployeesError, setFetchEmployeesError] = useState<string | null>(null);
 
-  const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null) => {
+  const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
       setIsLoadingEmployees(false);
       return;
     }
-    let ignore = false;
     setIsLoadingEmployees(true);
     setFetchEmployeesError(null);
     try {
-      const fetchedEmployees = await getEmployees(pb);
-      if (!ignore) {
-        setEmployees(fetchedEmployees);
-      }
+      const fetchedEmployees = await getEmployees(pb, { signal });
+      setEmployees(fetchedEmployees);
     } catch (err: any) {
-      if (!ignore) {
-        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
-        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
-        
-        if (isAutocancel) {
-          console.warn(`Fetch employees for task assignment request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
-        } else if (isNetworkErrorNotAutocancel) {
-            const detailedError = getDetailedEmployeeFetchErrorMessage(err);
-            setFetchEmployeesError(detailedError); 
-            toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
-            console.warn("Fetch employees for task assignment (network error):", detailedError, err);
-        } else {
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+      
+      if (isAutocancel) {
+        console.warn(`Fetch employees for task assignment request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
           const detailedError = getDetailedEmployeeFetchErrorMessage(err);
-          setFetchEmployeesError(detailedError);
+          setFetchEmployeesError(detailedError); 
           toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
-          console.warn("Error fetching employees for task assignment (after retries):", err); 
-        }
+          console.warn("Fetch employees for task assignment (network error):", detailedError, err);
+      } else {
+        const detailedError = getDetailedEmployeeFetchErrorMessage(err);
+        setFetchEmployeesError(detailedError);
+        toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
+        console.warn("Error fetching employees for task assignment (after retries):", detailedError, err); 
       }
     } finally {
-      if (!ignore) {
-        setIsLoadingEmployees(false);
-      }
+      setIsLoadingEmployees(false);
     }
-    return () => { ignore = true; };
   }, [toast]);
 
   useEffect(() => {
+    const controller = new AbortController();
     if (pbClient) {
-      const cleanup = fetchAndSetEmployees(pbClient);
-      return () => {
-        if (typeof cleanup === 'function') {
-          cleanup();
-        }
-      };
+      fetchAndSetEmployees(pbClient, controller.signal);
     } else {
       setIsLoadingEmployees(true); 
     }
+    return () => {
+      controller.abort();
+    };
   }, [pbClient, fetchAndSetEmployees]);
 
 
