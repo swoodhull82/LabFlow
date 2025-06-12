@@ -14,9 +14,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 import type { Task, TaskStatus, TaskPriority, TaskRecurrence, Employee } from "@/lib/types";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -71,7 +73,7 @@ const getDetailedErrorMessage = (error: any, context: string = "tasks"): string 
 
     if ('status' in error && error.status !== 0) {
       const status = error.status;
-      const collectionName = context.includes("employee") ? "employees" : "tasks";
+      const collectionName = context.includes("employee") ? "employees" : context.includes("dependency") ? "tasks" : "tasks";
       if (status === 404) message = `The ${collectionName} collection was not found (404). Original: ${message}`;
       else if (status === 403) message = `You do not have permission to manage ${collectionName} (403). Original: ${message}`;
     }
@@ -90,7 +92,7 @@ const taskEditFormSchema = z.object({
   dueDate: z.date().optional(),
   recurrence: z.string().min(1, "Recurrence is required.") as z.ZodType<TaskRecurrence>,
   assignedTo_text: z.string().optional(),
-  // attachments are not handled in this form for simplicity
+  dependencies: z.array(z.string()).optional(),
 });
 type TaskEditFormData = z.infer<typeof taskEditFormSchema>;
 
@@ -106,12 +108,20 @@ export default function TasksPage() {
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [fetchEmployeesError, setFetchEmployeesError] = useState<string | null>(null);
 
+  const [allTasksForSelection, setAllTasksForSelection] = useState<Task[]>([]);
+  const [isLoadingTasksForSelection, setIsLoadingTasksForSelection] = useState(true);
+  const [fetchTasksErrorEdit, setFetchTasksErrorEdit] = useState<string | null>(null);
+  const [isDependenciesPopoverOpenEdit, setIsDependenciesPopoverOpenEdit] = useState(false);
+
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
   const form = useForm<TaskEditFormData>({
     resolver: zodResolver(taskEditFormSchema),
+    defaultValues: {
+      dependencies: [],
+    }
   });
 
   const fetchTasksCallback = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
@@ -161,7 +171,7 @@ export default function TasksPage() {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       if (isAutocancel) {
          console.warn(`Fetch employees for task edit request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
-      } else if (err?.status === 0 && !isAutocancel) { // Check for network error
+      } else if (err?.status === 0 && !isAutocancel) { 
         const detailedError = getDetailedErrorMessage(err, "employees for task assignment");
         setFetchEmployeesError(detailedError); 
         toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
@@ -174,6 +184,38 @@ export default function TasksPage() {
       }
     } finally {
       setIsLoadingEmployees(false);
+    }
+  }, [toast]);
+
+  const fetchAllTasksForDependencySelectionEdit = useCallback(async (pb: PocketBase | null, currentTaskId: string | null, signal?: AbortSignal) => {
+    if (!pb) {
+      setIsLoadingTasksForSelection(false);
+      return;
+    }
+    setIsLoadingTasksForSelection(true);
+    setFetchTasksErrorEdit(null);
+    try {
+      const fetchedTasks = await getTasks(pb, { signal });
+      setAllTasksForSelection(currentTaskId ? fetchedTasks.filter(t => t.id !== currentTaskId) : fetchedTasks);
+    } catch (err: any) {
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+
+      if (isAutocancel) {
+        console.warn(`Fetch tasks for edit dependency selection request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedErrorMessage(err, "tasks for dependency selection (edit)");
+        setFetchTasksErrorEdit(detailedError);
+        toast({ title: "Error Loading Tasks for Dependencies", description: detailedError, variant: "destructive" });
+        console.warn("Fetch tasks for edit dependency selection (network error):", detailedError, err);
+      } else {
+        const detailedError = getDetailedErrorMessage(err, "tasks for dependency selection (edit)");
+        setFetchTasksErrorEdit(detailedError);
+        toast({ title: "Error Loading Tasks for Dependencies", description: detailedError, variant: "destructive" });
+        console.warn("Error fetching tasks for edit dependency selection (after retries):", detailedError, err);
+      }
+    } finally {
+      setIsLoadingTasksForSelection(false);
     }
   }, [toast]);
 
@@ -193,6 +235,15 @@ export default function TasksPage() {
   }, [pbClient, fetchTasksCallback, fetchAndSetEmployees]);
 
   useEffect(() => {
+    if (isEditDialogOpen && editingTask && pbClient) {
+      const controller = new AbortController();
+      fetchAllTasksForDependencySelectionEdit(pbClient, editingTask.id, controller.signal);
+      return () => controller.abort();
+    }
+  }, [isEditDialogOpen, editingTask, pbClient, fetchAllTasksForDependencySelectionEdit]);
+
+
+  useEffect(() => {
     if (editingTask) {
       form.reset({
         title: editingTask.title,
@@ -203,6 +254,7 @@ export default function TasksPage() {
         dueDate: editingTask.dueDate ? new Date(editingTask.dueDate) : undefined,
         recurrence: editingTask.recurrence,
         assignedTo_text: editingTask.assignedTo_text || "",
+        dependencies: Array.isArray(editingTask.dependencies) ? editingTask.dependencies : [],
       });
     }
   }, [editingTask, form]);
@@ -259,6 +311,8 @@ export default function TasksPage() {
     setIsEditDialogOpen(false);
     setEditingTask(null);
     form.reset(); 
+    setAllTasksForSelection([]); // Clear task selection list for edit
+    setIsDependenciesPopoverOpenEdit(false); // Close popover
   };
 
   const onEditSubmit = async (data: TaskEditFormData) => {
@@ -277,7 +331,8 @@ export default function TasksPage() {
       dueDate: data.dueDate,
       recurrence: data.recurrence,
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
-      userId: user.id, // Ensure userId is maintained
+      dependencies: data.dependencies || [],
+      userId: user.id, 
     };
     
     try {
@@ -607,13 +662,78 @@ export default function TasksPage() {
                         )}
                     />
                 </div>
+                 <FormField
+                  control={form.control}
+                  name="dependencies"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Dependencies (Optional)</FormLabel>
+                      <Popover open={isDependenciesPopoverOpenEdit} onOpenChange={setIsDependenciesPopoverOpenEdit}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant={"outline"}
+                            className="w-full justify-start text-left font-normal"
+                            disabled={isLoadingTasksForSelection || !!fetchTasksErrorEdit}
+                          >
+                            <LinkIcon className="mr-2 h-4 w-4" />
+                            {isLoadingTasksForSelection ? "Loading tasks..." :
+                              fetchTasksErrorEdit ? "Error loading tasks" :
+                              (field.value && field.value.length > 0) ? `${field.value.length} selected` : "Select tasks"}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                           {isLoadingTasksForSelection ? (
+                                <div className="p-4 text-center text-sm">Loading tasks...</div>
+                            ) : fetchTasksErrorEdit ? (
+                                <div className="p-4 text-center text-sm text-destructive">{fetchTasksErrorEdit}</div>
+                            ) : allTasksForSelection.length === 0 ? (
+                                <div className="p-4 text-center text-sm">No other tasks available to select.</div>
+                            ) : (
+                                <ScrollArea className="h-48">
+                                    <div className="p-4 space-y-2">
+                                    {allTasksForSelection.map(task => (
+                                        <div key={task.id} className="flex items-center space-x-2">
+                                        <Checkbox
+                                            id={`edit-dep-${task.id}`}
+                                            checked={field.value?.includes(task.id)}
+                                            onCheckedChange={(checked) => {
+                                            const currentDeps = field.value || [];
+                                            return checked
+                                                ? field.onChange([...currentDeps, task.id])
+                                                : field.onChange(currentDeps.filter(id => id !== task.id));
+                                            }}
+                                        />
+                                        <label
+                                            htmlFor={`edit-dep-${task.id}`}
+                                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 truncate"
+                                            title={task.title}
+                                        >
+                                            {task.title}
+                                        </label>
+                                        </div>
+                                    ))}
+                                    </div>
+                                </ScrollArea>
+                            )}
+                            <div className="p-2 border-t">
+                                <Button size="sm" className="w-full" onClick={() => setIsDependenciesPopoverOpenEdit(false)}>
+                                    Done
+                                </Button>
+                            </div>
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <DialogFooter>
                   <DialogClose asChild>
                     <Button type="button" variant="outline" onClick={handleEditDialogClose} disabled={isSubmittingEdit}>
                       Cancel
                     </Button>
                   </DialogClose>
-                  <Button type="submit" disabled={isSubmittingEdit || isLoadingEmployees}>
+                  <Button type="submit" disabled={isSubmittingEdit || isLoadingEmployees || isLoadingTasksForSelection}>
                     {isSubmittingEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                     Save Changes
                   </Button>
@@ -629,3 +749,4 @@ export default function TasksPage() {
 
 
     
+

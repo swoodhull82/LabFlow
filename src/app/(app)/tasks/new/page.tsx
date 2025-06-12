@@ -9,16 +9,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle, Link as LinkIcon, CheckSquare, Square } from "lucide-react";
 import { format } from "date-fns";
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { createTask } from "@/services/taskService";
+import { createTask, getTasks } from "@/services/taskService";
 import { getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
-import type { Employee, TaskStatus, TaskPriority, TaskRecurrence } from "@/lib/types";
+import type { Employee, TaskStatus, TaskPriority, TaskRecurrence, Task } from "@/lib/types";
 import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
 
@@ -33,6 +35,19 @@ const getDetailedEmployeeFetchErrorMessage = (error: any): string => {
   }
   return message;
 };
+
+const getDetailedTaskFetchErrorMessage = (error: any): string => {
+  let message = "Could not load tasks for dependency selection.";
+   if (error && typeof error === 'object') {
+    if ('status' in error && error.status === 0) {
+      return "Failed to load tasks for dependency selection: Could not connect to the server. Please check your internet connection and try again.";
+    } else if (error.message) {
+      message = error.message;
+    }
+  }
+  return message;
+};
+
 
 export default function NewTaskPage() {
   const { pbClient, user } = useAuth();
@@ -53,6 +68,13 @@ export default function NewTaskPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [fetchEmployeesError, setFetchEmployeesError] = useState<string | null>(null);
+
+  const [allTasksForSelection, setAllTasksForSelection] = useState<Task[]>([]);
+  const [isLoadingTasksForSelection, setIsLoadingTasksForSelection] = useState(true);
+  const [fetchTasksError, setFetchTasksError] = useState<string | null>(null);
+  const [selectedDependencies, setSelectedDependencies] = useState<string[]>([]);
+  const [isDependenciesPopoverOpen, setIsDependenciesPopoverOpen] = useState(false);
+
 
   const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -86,23 +108,64 @@ export default function NewTaskPage() {
     }
   }, [toast]);
 
+  const fetchAllTasksForDependencySelection = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
+    if (!pb) {
+      setIsLoadingTasksForSelection(false);
+      return;
+    }
+    setIsLoadingTasksForSelection(true);
+    setFetchTasksError(null);
+    try {
+      const fetchedTasks = await getTasks(pb, { signal });
+      setAllTasksForSelection(fetchedTasks);
+    } catch (err: any) {
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+       const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+
+      if (isAutocancel) {
+        console.warn(`Fetch tasks for dependency selection request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedTaskFetchErrorMessage(err);
+        setFetchTasksError(detailedError);
+        toast({ title: "Error Loading Tasks for Dependencies", description: detailedError, variant: "destructive" });
+        console.warn("Fetch tasks for dependency selection (network error):", detailedError, err);
+      } else {
+        const detailedError = getDetailedTaskFetchErrorMessage(err);
+        setFetchTasksError(detailedError);
+        toast({ title: "Error Loading Tasks for Dependencies", description: detailedError, variant: "destructive" });
+        console.warn("Error fetching tasks for dependency selection (after retries):", detailedError, err); 
+      }
+    } finally {
+      setIsLoadingTasksForSelection(false);
+    }
+  }, [toast]);
+
+
   useEffect(() => {
     const controller = new AbortController();
     if (pbClient) {
       fetchAndSetEmployees(pbClient, controller.signal);
+      fetchAllTasksForDependencySelection(pbClient, controller.signal);
     } else {
       setIsLoadingEmployees(true); 
+      setIsLoadingTasksForSelection(true);
     }
     return () => {
       controller.abort();
     };
-  }, [pbClient, fetchAndSetEmployees]);
+  }, [pbClient, fetchAndSetEmployees, fetchAllTasksForDependencySelection]);
 
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       setAttachments(event.target.files);
     }
+  };
+
+  const handleDependencyChange = (taskId: string) => {
+    setSelectedDependencies(prev => 
+      prev.includes(taskId) ? prev.filter(id => id !== taskId) : [...prev, taskId]
+    );
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -146,6 +209,11 @@ export default function NewTaskPage() {
       formData.append("assignedTo_text", assignedToText);
     }
     formData.append("userId", user.id); 
+    
+    if (selectedDependencies.length > 0) {
+      formData.append("dependencies", JSON.stringify(selectedDependencies));
+    }
+
 
     if (attachments) {
       for (let i = 0; i < attachments.length; i++) {
@@ -203,8 +271,11 @@ export default function NewTaskPage() {
       setIsSubmitting(false);
     }
   };
+  
+  const isLoadingPrerequisites = isLoadingEmployees || isLoadingTasksForSelection;
 
-  if (!pbClient && !isLoadingEmployees) {
+
+  if (!pbClient && !isLoadingPrerequisites) {
     return (
       <div className="space-y-6 max-w-2xl mx-auto">
         <Card className="shadow-md">
@@ -358,6 +429,61 @@ export default function NewTaskPage() {
                 )}
               </div>
             </div>
+
+             <div>
+                <Label htmlFor="dependencies">Dependencies (Optional)</Label>
+                 <Popover open={isDependenciesPopoverOpen} onOpenChange={setIsDependenciesPopoverOpen}>
+                    <PopoverTrigger asChild>
+                        <Button
+                        variant={"outline"}
+                        className="w-full justify-start text-left font-normal"
+                        disabled={isLoadingTasksForSelection || !!fetchTasksError}
+                        >
+                        <LinkIcon className="mr-2 h-4 w-4" />
+                        {isLoadingTasksForSelection ? "Loading tasks..." : 
+                            fetchTasksError ? "Error loading tasks" :
+                            selectedDependencies.length > 0 ? `${selectedDependencies.length} selected` : "Select tasks"}
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                        {isLoadingTasksForSelection ? (
+                             <div className="p-4 text-center text-sm">Loading tasks...</div>
+                        ) : fetchTasksError ? (
+                            <div className="p-4 text-center text-sm text-destructive">{fetchTasksError}</div>
+                        ) : allTasksForSelection.length === 0 ? (
+                             <div className="p-4 text-center text-sm">No other tasks available.</div>
+                        ) : (
+                            <ScrollArea className="h-48">
+                                <div className="p-4 space-y-2">
+                                {allTasksForSelection.map(task => (
+                                    <div key={task.id} className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id={`dep-${task.id}`}
+                                        checked={selectedDependencies.includes(task.id)}
+                                        onCheckedChange={() => handleDependencyChange(task.id)}
+                                    />
+                                    <label
+                                        htmlFor={`dep-${task.id}`}
+                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 truncate"
+                                        title={task.title}
+                                    >
+                                        {task.title}
+                                    </label>
+                                    </div>
+                                ))}
+                                </div>
+                            </ScrollArea>
+                        )}
+                         <div className="p-2 border-t">
+                            <Button size="sm" className="w-full" onClick={() => setIsDependenciesPopoverOpen(false)}>
+                                Done
+                            </Button>
+                        </div>
+                    </PopoverContent>
+                </Popover>
+            </div>
+
+
             <div>
               <Label htmlFor="attachments">Attachments</Label>
               <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md">
@@ -383,7 +509,7 @@ export default function NewTaskPage() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button type="submit" disabled={isSubmitting || isLoadingEmployees || !!fetchEmployeesError}>
+              <Button type="submit" disabled={isSubmitting || isLoadingPrerequisites || !!fetchTasksError || !!fetchEmployeesError}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Save Task
               </Button>
@@ -394,3 +520,4 @@ export default function NewTaskPage() {
     </div>
   );
 }
+
