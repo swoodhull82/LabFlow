@@ -42,9 +42,11 @@ const getStatusBadgeVariant = (status?: string) => {
 };
 
 const getDetailedErrorMessage = (error: any): string => {
-  let message = "An unexpected error occurred.";
+  let message = "An unexpected error occurred while managing tasks.";
   if (error && typeof error === 'object') {
-    if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
+    if ('status' in error && error.status === 0) {
+      message = "Network error: Failed to communicate with the server. Please check your connection and try again.";
+    } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
       message = error.message;
@@ -54,10 +56,10 @@ const getDetailedErrorMessage = (error: any): string => {
       message = error.message;
     }
 
-    if ('status' in error) {
+    if ('status' in error && error.status !== 0) {
       const status = error.status;
       if (status === 404) message = `The tasks collection was not found (404). Original: ${message}`;
-      else if (status === 403) message = `You do not have permission to view tasks (403). Original: ${message}`;
+      else if (status === 403) message = `You do not have permission to manage tasks (403). Original: ${message}`;
     }
   } else if (typeof error === 'string') {
     message = error;
@@ -88,14 +90,18 @@ export default function TasksPage() {
       }
     } catch (err: any) {
       if (!ignore) {
-        const isPocketBaseAutocancel = err?.isAbort === true;
-        const isGeneralAutocancelOrNetworkIssue = err?.status === 0;
-        const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
+        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
         
-        if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-          console.warn("Tasks fetch request was automatically cancelled (this is expected in some cases, e.g., navigation or quick re-fetch). UI should not be affected. Details:", err);
+        if (isAutocancel) {
+          console.warn(`Tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+        } else if (isNetworkErrorNotAutocancel) {
+          const detailedError = getDetailedErrorMessage(err);
+          setError(detailedError);
+          toast({ title: "Network Error", description: detailedError, variant: "destructive" });
+          console.warn("Tasks fetch (network error):", detailedError, err);
         } else {
-          console.error("Error fetching tasks:", err);
+          console.warn("Error fetching tasks (after retries):", err); // Changed from console.error
           const detailedError = getDetailedErrorMessage(err);
           setError(detailedError);
           toast({ title: "Error Loading Tasks", description: detailedError, variant: "destructive" });
@@ -143,9 +149,8 @@ export default function TasksPage() {
       ));
       toast({ title: "Success", description: `Task marked as ${newStatus}.` });
     } catch (err) {
-      console.error("Error updating task status:", err);
-      // Revert optimistic update
-      setTasks(tasks);
+      console.error("Error updating task status:", err); // Keep console.error for CUD
+      setTasks(tasks); // Revert optimistic update
       toast({ title: "Error", description: `Failed to update task status: ${getDetailedErrorMessage(err)}`, variant: "destructive" });
     }
   };
@@ -161,7 +166,7 @@ export default function TasksPage() {
       await deleteTask(pbClient, taskId);
       toast({ title: "Success", description: "Task deleted successfully." });
     } catch (err) {
-      console.error("Error deleting task:", err);
+      console.error("Error deleting task:", err); // Keep console.error for CUD
       setTasks(originalTasks);
       toast({ title: "Error", description: getDetailedErrorMessage(err), variant: "destructive" });
     }
@@ -258,7 +263,6 @@ export default function TasksPage() {
                             {task.status === "Done" ? "Mark as To Do" : "Mark as Done"}
                           </DropdownMenuItem>
                           <DropdownMenuItem asChild>
-                             {/* TODO: Implement Edit Task Page: /tasks/[id]/edit */}
                             <Link href={`/tasks/${task.id}/edit`} className="flex items-center w-full cursor-not-allowed opacity-50">
                               <Edit className="mr-2 h-4 w-4" /> Edit
                             </Link>

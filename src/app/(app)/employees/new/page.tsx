@@ -14,7 +14,7 @@ import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { createEmployee, getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, AlertTriangle } from "lucide-react";
 import React, { useState, useEffect, useCallback } from "react";
 import type { Employee, UserRole } from "@/lib/types";
 import type PocketBase from "pocketbase";
@@ -33,6 +33,18 @@ const NONE_REPORTS_TO_VALUE = "__NONE__";
 const AVAILABLE_ROLES: UserRole[] = ["Supervisor", "Team Lead", "Chem I", "Chem II"];
 const AVAILABLE_DEPARTMENTS = ["Trace Metals", "Automated", "Air & Grav", "Organics", "BacT", "Radiation", "MAU", "SpecOp"];
 
+const getDetailedManagerFetchErrorMessage = (error: any): string => {
+  let message = "Could not load list of potential managers.";
+  if (error && typeof error === 'object') {
+    if ('status' in error && error.status === 0) {
+      return "Network error: Could not load managers. Please check connection.";
+    } else if (error.message) {
+      message = error.message;
+    }
+  }
+  return message;
+};
+
 export default function NewEmployeePage() {
   const { pbClient, user } = useAuth();
   const router = useRouter();
@@ -40,6 +52,8 @@ export default function NewEmployeePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [potentialManagers, setPotentialManagers] = useState<Employee[]>([]);
   const [isLoadingManagers, setIsLoadingManagers] = useState(false);
+  const [fetchManagersError, setFetchManagersError] = useState<string | null>(null);
+
 
   const canManageEmployees = user?.role === 'Supervisor' || user?.role === 'Team Lead';
 
@@ -64,6 +78,7 @@ export default function NewEmployeePage() {
   const fetchManagersCallback = useCallback(async (pb: PocketBase | null) => {
     if (!pb || !canManageEmployees) return;
     setIsLoadingManagers(true);
+    setFetchManagersError(null);
     try {
       const allEmployees = await getEmployees(pb);
       const managers = allEmployees.filter(
@@ -71,15 +86,20 @@ export default function NewEmployeePage() {
       );
       setPotentialManagers(managers);
     } catch (error: any) {
-      const isPocketBaseAutocancel = error?.isAbort === true;
-      const isGeneralAutocancelOrNetworkIssue = error?.status === 0;
-      const isMessageAutocancel = typeof error?.message === 'string' && error.message.toLowerCase().includes("autocancelled");
-
-      if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-        console.warn("Fetch potential managers request was autocancelled or due to a network issue.", error);
+      const isAutocancel = error?.isAbort === true || (typeof error?.message === 'string' && error.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = error?.status === 0 && !isAutocancel;
+      
+      if (isAutocancel) {
+         console.warn(`Fetch potential managers request was ${error?.isAbort ? 'aborted' : 'autocancelled'}.`, error);
       } else {
-        console.error("Failed to fetch potential managers:", error);
-        toast({ title: "Error", description: "Could not load list of potential managers.", variant: "destructive" });
+        const detailedError = getDetailedManagerFetchErrorMessage(error);
+        setFetchManagersError(detailedError);
+        toast({ title: "Error Loading Managers", description: detailedError, variant: "destructive" });
+        if (isNetworkErrorNotAutocancel) {
+          console.warn("Fetch potential managers (network error):", detailedError, error);
+        } else {
+          console.warn("Failed to fetch potential managers (after retries):", error); // Changed from console.error
+        }
       }
     } finally {
       setIsLoadingManagers(false);
@@ -247,9 +267,13 @@ export default function NewEmployeePage() {
                 name="reportsTo_text"
                 control={form.control}
                 render={({ field }) => (
-                  <Select onValueChange={field.onChange} value={field.value || ""} >
-                    <SelectTrigger id="reportsTo_text" disabled={isLoadingManagers}>
-                      <SelectValue placeholder={isLoadingManagers ? "Loading managers..." : "Select a manager"} />
+                  <Select 
+                    onValueChange={field.onChange} 
+                    value={field.value || ""} 
+                    disabled={isLoadingManagers || !!fetchManagersError}
+                  >
+                    <SelectTrigger id="reportsTo_text">
+                      <SelectValue placeholder={isLoadingManagers ? "Loading managers..." : (fetchManagersError ? "Error loading managers" : "Select a manager")} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE_REPORTS_TO_VALUE}>None</SelectItem>
@@ -262,13 +286,18 @@ export default function NewEmployeePage() {
                   </Select>
                 )}
               />
+              {fetchManagersError && !isLoadingManagers && (
+                <p className="text-sm text-destructive mt-1 flex items-center">
+                  <AlertTriangle className="h-4 w-4 mr-1" /> {fetchManagersError}
+                </p>
+              )}
             </div>
 
             <div className="flex justify-end space-x-2">
               <Button type="button" variant="outline" onClick={() => router.push("/employees")} disabled={isSubmitting}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting || isLoadingManagers}>
+              <Button type="submit" disabled={isSubmitting || isLoadingManagers || !!fetchManagersError}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Save Employee
               </Button>

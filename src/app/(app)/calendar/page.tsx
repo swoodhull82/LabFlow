@@ -16,18 +16,15 @@ import type PocketBase from "pocketbase";
 const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred while fetching tasks for the calendar.";
   if (error && typeof error === 'object') {
-    // Prioritize PocketBase's structured error data if available
-    if (error.data && typeof error.data === 'object') {
+    if ('status' in error && error.status === 0) {
+      message = "Network error: Failed to communicate with the server. Please check your connection and try again.";
+    } else if (error.data && typeof error.data === 'object') {
       if (error.data.message && typeof error.data.message === 'string') {
         message = error.data.message;
       }
-      // Check for field-specific validation errors (error.data.data)
       if (error.data.data && typeof error.data.data === 'object' && Object.keys(error.data.data).length > 0) {
         const fieldErrorString = Object.entries(error.data.data)
-          .map(([key, val]: [string, any]) => {
-            const valMessage = val && val.message ? val.message : 'Invalid value';
-            return `${key}: ${valMessage}`;
-          })
+          .map(([key, val]: [string, any]) => `${key}: ${val && val.message ? val.message : 'Invalid value'}`)
           .join("; ");
         message = fieldErrorString ? `${message}. Details: ${fieldErrorString}` : message;
       }
@@ -39,8 +36,7 @@ const getDetailedErrorMessage = (error: any): string => {
       message = error.message;
     }
 
-    // Add context based on status code
-    if ('status' in error) {
+    if ('status' in error && error.status !== 0) {
       const status = error.status;
       if (status === 404) {
         message = `The 'tasks' collection (used for calendar events) was not found (404). ${message}`;
@@ -49,7 +45,7 @@ const getDetailedErrorMessage = (error: any): string => {
       } else if (status === 400) {
         const isGenericErrorMessage = message.toLowerCase().includes("something went wrong") || message.startsWith("PocketBase_ClientResponseError") || (error.data && Object.keys(error.data.data || {}).length === 0);
         if (isGenericErrorMessage) {
-           message = `Request error (400): ${message}. Please check the 'tasks' collection schema in PocketBase, especially ensure the 'dueDate' field exists, is correctly configured as a Date type, and is sortable. This field is used as the event date.`;
+           message = `Request error (400): ${message}. Please check the 'tasks' collection schema, especially ensure 'dueDate' exists and is a sortable Date type.`;
         } else {
            message = `Request error (400) when fetching tasks for calendar: ${message}.`;
         }
@@ -61,7 +57,7 @@ const getDetailedErrorMessage = (error: any): string => {
   return message;
 };
 
-const ALMOST_DUE_DAYS = 3; // Tasks due in 3 days or less (including today)
+const ALMOST_DUE_DAYS = 3;
 
 export default function CalendarPage() {
   const { pbClient } = useAuth();
@@ -90,14 +86,18 @@ export default function CalendarPage() {
       }
     } catch (err: any) {
       if (!ignore) {
-        const isPocketBaseAutocancel = err?.isAbort === true;
-        const isGeneralAutocancelOrNetworkIssue = err?.status === 0;
-        const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
-        
-        if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-          console.warn("Calendar events (tasks) fetch request was automatically cancelled or due to a network issue. This is often expected.", err);
+        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+
+        if (isAutocancel) {
+          console.warn(`Calendar events (tasks) fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+        } else if (isNetworkErrorNotAutocancel) {
+          const detailedError = getDetailedErrorMessage(err);
+          setError(detailedError);
+          toast({ title: "Network Error", description: detailedError, variant: "destructive" });
+          console.warn("Calendar events (tasks) fetch (network error):", detailedError, err);
         } else {
-          console.error("Error fetching tasks for calendar:", err);
+          console.warn("Error fetching tasks for calendar (after retries):", err); // Changed from console.error
           const detailedError = getDetailedErrorMessage(err);
           setError(detailedError);
           toast({ title: "Error Loading Calendar Data", description: detailedError, variant: "destructive" });
@@ -151,7 +151,7 @@ export default function CalendarPage() {
         overdue.push(eventDateObj);
       } else {
         const diffDays = differenceInCalendarDays(eventDateObj, today);
-        if (diffDays >= 0 && diffDays < ALMOST_DUE_DAYS) { // strictly less than ALMOST_DUE_DAYS for 'almost due' if today is day 0
+        if (diffDays >= 0 && diffDays < ALMOST_DUE_DAYS) {
           almostDue.push(eventDateObj);
         } else if (isFuture(eventDateObj) || isSameDay(eventDateObj, today)) { 
           active.push(eventDateObj);
@@ -159,7 +159,6 @@ export default function CalendarPage() {
       }
     });
     
-    // Remove duplicates by converting to time, then back to Date objects
     return {
       overdueEventDates: [...new Set(overdue.map(d => d.getTime()))].map(t => new Date(t)),
       completedEventDates: [...new Set(completed.map(d => d.getTime()))].map(t => new Date(t)),

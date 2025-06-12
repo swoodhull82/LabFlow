@@ -67,7 +67,9 @@ const monthlyCompletionChartConfig = {
 const getDetailedErrorMessage = (error: any, context: string = "dashboard data"): string => {
   let message = `An unexpected error occurred while fetching ${context}.`;
   if (error && typeof error === 'object') {
-    if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
+    if ('status' in error && error.status === 0) {
+      message = `Network error: Failed to communicate with the server while fetching ${context}. Please check your connection and try again.`;
+    } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
       message = error.message;
@@ -76,7 +78,7 @@ const getDetailedErrorMessage = (error: any, context: string = "dashboard data")
     } else if (error.message && typeof error.message === 'string') {
       message = error.message;
     }
-    if ('status' in error) {
+    if ('status' in error && error.status !== 0) {
       const status = error.status;
       const collectionName = context.includes("tasks") ? "tasks" : context.includes("employees") ? "employees" : "data";
       if (status === 404) message = `The '${collectionName}' collection was not found (404). ${message}`;
@@ -155,7 +157,6 @@ export default function DashboardPage() {
       const isDateBasedOverdue = dueDate && isPast(dueDate) && !isToday(dueDate) && !isTaskMarkedDone;
       const isEffectivelyOverdue = task.status === "Overdue" || isDateBasedOverdue;
 
-      // For Task Status Distribution Chart
       if (task.status === "Overdue") {
         statusCounts["Overdue"]++;
       } else if (isDateBasedOverdue) { 
@@ -163,34 +164,27 @@ export default function DashboardPage() {
       } else if (task.status && statusCounts.hasOwnProperty(task.status)) {
         statusCounts[task.status]++;
       } else {
-        // Default to "To Do" for chart if status is null, empty, or unrecognized
-        // and not otherwise date-overdue.
         statusCounts["To Do"]++;
       }
 
-      // For Employee Task Counts (Active tasks by employee)
       if (!isTaskMarkedDone && !isEffectivelyOverdue) {
         if (task.assignedTo_text) {
           employeeTaskCounts[task.assignedTo_text] = (employeeTaskCounts[task.assignedTo_text] || 0) + 1;
         }
       }
 
-      // For Summary Cards
       if (isTaskMarkedDone) {
         const updatedDate = task.updated ? new Date(task.updated) : new Date(task.created);
         if (isToday(updatedDate)) {
           completedTodaySummaryCount++;
         }
       } else { 
-        // Task is NOT Done
         if (isEffectivelyOverdue) {
           overdueSummaryCount++;
         }
-        // An active task is not done, not effectively overdue, and has an active status
         if (!isEffectivelyOverdue && (task.status === "In Progress" || task.status === "To Do" || task.status === "Blocked")) {
           activeSummaryCount++;
         }
-        // An upcoming task is not done, not effectively overdue, and due within 7 days
         if (!isEffectivelyOverdue && dueDate && dueDate >= today && dueDate < nextSevenDays) {
           upcomingSummaryCount++;
         }
@@ -207,7 +201,7 @@ export default function DashboardPage() {
     const distribution = (Object.keys(statusCounts) as (TaskStatus | string)[]).map(status => ({
       status: status,
       count: statusCounts[status] || 0,
-      fill: chartFills[status as TaskStatus] || "hsl(var(--muted))", // Ensure 'status' key exists in chartFills or use fallback
+      fill: chartFills[status as TaskStatus] || "hsl(var(--muted))",
     })).filter(item => item.count > 0);
     setTaskDistributionData(distribution);
 
@@ -219,7 +213,6 @@ export default function DashboardPage() {
       .sort((a,b) => b.activeTasks - a.activeTasks);
     setActiveTasksByEmployeeData(employeeDataForChart);
 
-    // Process Monthly Task Completion Data
     const monthlyCompletionAgg: { [monthKey: string]: { total: number; completed: number; monthLabel: string } } = {};
     const numMonthsToShow = 6;
     const currentMonthStart = startOfMonth(new Date());
@@ -248,7 +241,7 @@ export default function DashboardPage() {
     });
     
     const monthlyChartDataPoints: MonthlyCompletionDataPoint[] = [];
-    for (let i = numMonthsToShow - 1; i >= 0; i--) { // Iterate from oldest to newest for chart order
+    for (let i = numMonthsToShow - 1; i >= 0; i--) {
       const monthToProcess = subMonths(currentMonthStart, i);
       const monthKey = format(monthToProcess, "yyyy-MM");
       const data = monthlyCompletionAgg[monthKey] || { total: 0, completed: 0, monthLabel: format(monthToProcess, "MMM 'yy") };
@@ -274,11 +267,18 @@ export default function DashboardPage() {
       ]);
       processData(fetchedTasks, fetchedEmployees);
     } catch (err: any) {
-      const isAutocancel = err?.isAbort === true || err?.status === 0 || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+
       if (isAutocancel) {
-        console.warn("Dashboard data fetch request was autocancelled or due to a network issue.", err);
+        console.warn(`Dashboard data fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedErrorMessage(err, "dashboard data");
+        setError(detailedError);
+        toast({ title: "Network Error", description: detailedError, variant: "destructive" });
+        console.warn("Dashboard data fetch (network error):", detailedError, err);
       } else {
-        console.error("Error fetching dashboard data:", err);
+        console.warn("Error fetching dashboard data (after retries):", err); // Changed from console.error
         const errorContext = err.message?.toLowerCase().includes("employee") ? "employees" : "tasks";
         const detailedError = getDetailedErrorMessage(err, errorContext);
         setError(detailedError);

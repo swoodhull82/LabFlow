@@ -3,7 +3,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, Button } from "lucide-react"; // Added Button for explicit import
 import { useAuth } from "@/context/AuthContext";
 import { getTasks } from "@/services/taskService";
 import type { Task } from "@/lib/types";
@@ -14,7 +14,9 @@ import type PocketBase from "pocketbase";
 const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred while fetching tasks for the timeline.";
   if (error && typeof error === 'object') {
-    if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
+    if ('status' in error && error.status === 0) {
+      message = "Network error: Failed to communicate with the server. Please check your connection and try again.";
+    } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
       message = error.message;
@@ -24,7 +26,7 @@ const getDetailedErrorMessage = (error: any): string => {
       message = error.message;
     }
 
-    if ('status' in error) {
+    if ('status' in error && error.status !== 0) {
       const status = error.status;
       if (status === 404) message = `The 'tasks' collection was not found (404). ${message}`;
       else if (status === 403) message = `You do not have permission to view tasks (403). ${message}`;
@@ -53,18 +55,22 @@ export default function TimelinePage() {
     try {
       const fetchedTasks = await getTasks(pb);
       if (!ignore) {
-        setTasks(fetchedTasks.filter(task => task.startDate && task.dueDate)); // Only tasks with start and due dates for Gantt
+        setTasks(fetchedTasks.filter(task => task.startDate && task.dueDate));
       }
     } catch (err: any) {
       if (!ignore) {
-        const isPocketBaseAutocancel = err?.isAbort === true;
-        const isGeneralAutocancelOrNetworkIssue = err?.status === 0;
-        const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
+        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
         
-        if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-          console.warn("Timeline tasks fetch request was automatically cancelled or due to network issue.", err);
+        if (isAutocancel) {
+          console.warn(`Timeline tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+        } else if (isNetworkErrorNotAutocancel) {
+          const detailedError = getDetailedErrorMessage(err);
+          setError(detailedError);
+          toast({ title: "Network Error", description: detailedError, variant: "destructive" });
+          console.warn("Timeline tasks fetch (network error):", detailedError, err);
         } else {
-          console.error("Error fetching tasks for timeline:", err);
+          console.warn("Error fetching tasks for timeline (after retries):", err); // Changed from console.error
           const detailedError = getDetailedErrorMessage(err);
           setError(detailedError);
           toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
@@ -124,7 +130,13 @@ export default function TimelinePage() {
               <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
               <p className="mt-4 text-lg font-semibold">Failed to Load Timeline Data</p>
               <p className="text-sm">{error}</p>
-              <button onClick={refetchTasks} className="mt-6 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90">Try Again</button>
+              {/* Ensure Button component is properly imported or use standard button */}
+              <button 
+                onClick={refetchTasks} 
+                className="mt-6 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                Try Again
+              </button>
             </div>
           )}
           {!isLoading && !error && tasks.length === 0 && (

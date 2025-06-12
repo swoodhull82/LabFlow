@@ -38,9 +38,11 @@ const AVAILABLE_DEPARTMENTS = ["Trace Metals", "Automated", "Air & Grav", "Organ
 
 
 const getDetailedErrorMessage = (error: any): string => {
-  let message = "An unexpected error occurred.";
+  let message = "An unexpected error occurred while managing employees.";
   if (error && typeof error === 'object') {
-    if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
+    if ('status' in error && error.status === 0) {
+      message = "Network error: Failed to communicate with the server. Please check your connection and try again.";
+    } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
       message = error.message;
@@ -50,10 +52,10 @@ const getDetailedErrorMessage = (error: any): string => {
       message = error.message;
     }
 
-    if ('status' in error) {
+    if ('status' in error && error.status !== 0) {
       const status = error.status;
       if (status === 404) message = `The employees collection was not found (404). Original: ${message}`;
-      else if (status === 403) message = `You do not have permission to view employees (403). Original: ${message}`;
+      else if (status === 403) message = `You do not have permission to manage employees (403). Original: ${message}`;
     }
   } else if (typeof error === 'string') {
     message = error;
@@ -99,14 +101,18 @@ export default function EmployeesPage() {
       }
     } catch (err: any) {
       if (!ignore) {
-        const isPocketBaseAutocancel = err?.isAbort === true;
-        const isGeneralAutocancelOrNetworkIssue = err?.status === 0;
-        const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
+        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
         
-        if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-          console.warn("Employees fetch request was autocancelled or due to a network issue.", err);
+        if (isAutocancel) {
+          console.warn(`Employees fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+        } else if (isNetworkErrorNotAutocancel) {
+          const detailedError = getDetailedErrorMessage(err);
+          setError(detailedError);
+          toast({ title: "Network Error", description: detailedError, variant: "destructive" });
+          console.warn("Employees fetch (network error):", detailedError, err);
         } else {
-          console.error("Error fetching employees:", err);
+          console.warn("Error fetching employees (after retries):", err); // Changed from console.error
           const detailedError = getDetailedErrorMessage(err);
           setError(detailedError);
           toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
@@ -174,7 +180,7 @@ export default function EmployeesPage() {
       await deleteEmployee(pbClient, employeeId);
       toast({ title: "Success", description: "Employee removed successfully." });
     } catch (error) {
-      console.error("Failed to delete employee:", error);
+      console.error("Failed to delete employee:", error); // Keep console.error for CUD operations
       setEmployees(originalEmployees);
       toast({ title: "Error", description: getDetailedErrorMessage(error), variant: "destructive" });
     }
@@ -221,7 +227,7 @@ export default function EmployeesPage() {
         toast({ title: "Success", description: "Employee details updated successfully." });
         handleEditDialogClose();
     } catch (error) {
-        console.error("Failed to update employee:", error);
+        console.error("Failed to update employee:", error); // Keep console.error for CUD operations
         toast({ title: "Error", description: getDetailedErrorMessage(error), variant: "destructive" });
     } finally {
         setIsSubmittingEdit(false);
