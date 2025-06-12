@@ -29,7 +29,8 @@ export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOption
       pb.collection(COLLECTION_NAME).getFullList({
         sort: '-created',
         ...options, 
-      })
+      }),
+      { ...options, context: "fetching tasks list" }
     );
     return records.map(pbRecordToTask);
   } catch (error) {
@@ -39,7 +40,7 @@ export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOption
 
 export const getTaskById = async (pb: PocketBase, id: string, options?: PocketBaseRequestOptions): Promise<Task | null> => {
   try {
-    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id, options));
+    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id, options), { ...options, context: `fetching task by ID ${id}` });
     return pbRecordToTask(record);
   } catch (error) {
     if ((error as any).status === 404) {
@@ -77,4 +78,3 @@ export const deleteTask = async (pb: PocketBase, id: string): Promise<void> => {
     throw error;
   }
 };
-

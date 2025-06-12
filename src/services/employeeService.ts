@@ -35,7 +35,8 @@ export const getEmployees = async (pb: PocketBase, options?: PocketBaseRequestOp
       pb.collection(COLLECTION_NAME).getFullList({
         sort: 'name',
         ...options,
-      })
+      }),
+      { ...options, context: "fetching employees list" }
     );
     return records.map(pbRecordToEmployee);
   } catch (error) {
@@ -74,7 +75,7 @@ export const deleteEmployee = async (pb: PocketBase, id: string): Promise<void> 
 
 export const getEmployeeById = async (pb: PocketBase, id: string, options?: PocketBaseRequestOptions): Promise<Employee | null> => {
   try {
-    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id, options));
+    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id, options), { ...options, context: `fetching employee by ID ${id}` });
     return pbRecordToEmployee(record);
   } catch (error) {
      if ((error as any).status === 404) {
@@ -83,4 +84,3 @@ export const getEmployeeById = async (pb: PocketBase, id: string, options?: Pock
     throw error;
   }
 };
-

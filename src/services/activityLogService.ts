@@ -26,7 +26,8 @@ export const getActivityLogEntries = async (pb: PocketBase, options?: PocketBase
       pb.collection(COLLECTION_NAME).getFullList({
         sort: '-created', 
         ...options,
-      })
+      }),
+      { ...options, context: "fetching activity log entries" }
     );
     return records.map(pbRecordToActivityLogEntry);
   } catch (error) {
@@ -39,6 +40,7 @@ export const createActivityLogEntry = async (
   entryData: { user_name: string; action: string; details?: string; target_resource?: string }
 ): Promise<ActivityLogEntry> => {
   try {
+    // Create operations are typically not retried automatically by default to avoid duplicate creations
     const record = await pb.collection(COLLECTION_NAME).create(entryData);
     return pbRecordToActivityLogEntry(record);
   } catch (error) {

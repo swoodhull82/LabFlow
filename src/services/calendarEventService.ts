@@ -36,7 +36,8 @@ export const getCalendarEvents = async (pb: PocketBase, options?: PocketBaseRequ
         filter: 'dueDate != null && dueDate != ""', 
         sort: '-dueDate', 
         ...options,
-      })
+      }),
+      { ...options, context: "fetching tasks for calendar" }
     );
     return records.map(pbTaskToCalendarEvent).filter(event => event.eventDate); 
   } catch (error) {

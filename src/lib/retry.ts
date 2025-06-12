@@ -6,6 +6,7 @@ export interface RetryOptions {
   delayMs?: number;
   shouldRetry?: (error: any) => boolean;
   onRetry?: (attempt: number, error: any) => void;
+  context?: string; // Added context for logging
 }
 
 const DEFAULT_RETRY_OPTIONS: Required<Omit<RetryOptions, 'onRetry'>> & { onRetry?: RetryOptions['onRetry'] } = {
@@ -22,6 +23,7 @@ const DEFAULT_RETRY_OPTIONS: Required<Omit<RetryOptions, 'onRetry'>> & { onRetry
     }
     return false;
   },
+  context: 'operation', // Default context
 };
 
 export async function withRetry<T>(
@@ -41,10 +43,10 @@ export async function withRetry<T>(
           opts.onRetry(attempt, error);
         }
         if (attempt < opts.maxAttempts) {
-          console.warn(`Attempt ${attempt} failed for operation. Retrying in ${opts.delayMs * Math.pow(2, attempt -1) }ms... Error: ${error.message || JSON.stringify(error)}`);
+          console.warn(`Attempt ${attempt} failed for ${opts.context}. Retrying in ${opts.delayMs * Math.pow(2, attempt -1) }ms... Error: ${error.message || JSON.stringify(error)}`);
           await new Promise(resolve => setTimeout(resolve, opts.delayMs * Math.pow(2, attempt -1) )); // Exponential backoff
         } else {
-          console.warn(`All ${opts.maxAttempts} attempts failed for operation. Last error: ${error.message || JSON.stringify(error)}`);
+          console.warn(`All ${opts.maxAttempts} attempts failed for ${opts.context}. Last error: ${error.message || JSON.stringify(error)}`);
         }
       } else {
         // If error is not retryable, rethrow immediately
