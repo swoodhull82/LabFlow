@@ -2,6 +2,7 @@
 'use client';
 import type { ActivityLogEntry } from "@/lib/types";
 import type PocketBase from 'pocketbase';
+import { withRetry } from '@/lib/retry';
 
 const COLLECTION_NAME = "activity_log";
 
@@ -16,12 +17,13 @@ const pbRecordToActivityLogEntry = (record: any): ActivityLogEntry => {
 
 export const getActivityLogEntries = async (pb: PocketBase): Promise<ActivityLogEntry[]> => {
   try {
-    const records = await pb.collection(COLLECTION_NAME).getFullList({
-      sort: '-created', // Fetch most recent entries first
-    });
+    const records = await withRetry(() => 
+      pb.collection(COLLECTION_NAME).getFullList({
+        sort: '-created', // Fetch most recent entries first
+      })
+    );
     return records.map(pbRecordToActivityLogEntry);
   } catch (error) {
-    console.error("Failed to fetch activity log entries:", error);
     throw error;
   }
 };
@@ -32,6 +34,8 @@ export const createActivityLogEntry = async (
   entryData: { user_name: string; action: string; details?: string; target_resource?: string }
 ): Promise<ActivityLogEntry> => {
   try {
+    // Create operations might not always be suitable for retries without idempotency keys
+    // For now, not wrapping create/update/delete with retry by default
     const record = await pb.collection(COLLECTION_NAME).create(entryData);
     return pbRecordToActivityLogEntry(record);
   } catch (error) {

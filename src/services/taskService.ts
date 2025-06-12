@@ -1,8 +1,8 @@
 
 'use client';
-import type { PocketBaseInstance } from "@/context/AuthContext"; // Assuming this type exists or can be PocketBase
 import type { Task } from "@/lib/types";
 import type PocketBase from 'pocketbase';
+import { withRetry } from '@/lib/retry';
 
 const COLLECTION_NAME = "tasks";
 
@@ -22,25 +22,23 @@ const pbRecordToTask = (record: any): Task => {
 
 export const getTasks = async (pb: PocketBase): Promise<Task[]> => {
   try {
-    const records = await pb.collection(COLLECTION_NAME).getFullList({
-      sort: '-created',
-      // expand: 'user,assignedTo' // if you have relations you want to expand
-    });
+    const records = await withRetry(() => 
+      pb.collection(COLLECTION_NAME).getFullList({
+        sort: '-created',
+        // expand: 'user,assignedTo' // if you have relations you want to expand
+      })
+    );
     return records.map(pbRecordToTask);
   } catch (error) {
-    console.error("Failed to fetch tasks:", error);
     throw error;
   }
 };
 
 export const getTaskById = async (pb: PocketBase, id: string): Promise<Task | null> => {
   try {
-    const record = await pb.collection(COLLECTION_NAME).getOne(id);
+    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id));
     return pbRecordToTask(record);
   } catch (error) {
-    console.error(`Failed to fetch task ${id}:`, error);
-    // PocketBase throws an error if not found, which might be okay
-    // or you might want to return null specifically for 404s
     if ((error as any).status === 404) {
         return null;
     }
@@ -50,7 +48,8 @@ export const getTaskById = async (pb: PocketBase, id: string): Promise<Task | nu
 
 export const createTask = async (pb: PocketBase, taskData: FormData): Promise<Task> => {
   try {
-    // PocketBase SDK handles FormData directly for creating records with files
+    // Create operations might not always be suitable for retries without idempotency keys
+    // Not wrapping with retry by default for CUD operations
     const record = await pb.collection(COLLECTION_NAME).create(taskData);
     return pbRecordToTask(record);
   } catch (error) {
@@ -61,8 +60,6 @@ export const createTask = async (pb: PocketBase, taskData: FormData): Promise<Ta
 
 export const updateTask = async (pb: PocketBase, id: string, taskData: FormData | Partial<Task>): Promise<Task> => {
   try {
-    // If taskData includes files, it must be FormData
-    // If not, it can be a partial Task object
     const record = await pb.collection(COLLECTION_NAME).update(id, taskData);
     return pbRecordToTask(record);
   } catch (error) {

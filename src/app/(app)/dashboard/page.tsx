@@ -9,11 +9,12 @@ import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { getTasks } from "@/services/taskService";
-import { getEmployees } from "@/services/employeeService"; // Import employee service
-import type { Task, TaskStatus, Employee } from "@/lib/types"; // Import Employee type
+import { getEmployees } from "@/services/employeeService";
+import type { Task, TaskStatus, Employee } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
-import { format, isPast, isToday, addDays, startOfDay } from "date-fns";
+import { format, isPast, isToday, addDays, startOfDay, startOfMonth, subMonths } from "date-fns";
 import type PocketBase from "pocketbase";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface TaskSummaryItem {
   title: string;
@@ -27,7 +28,14 @@ interface TaskSummaryItem {
 interface LiveEmployeeTaskData {
   employee: string;
   activeTasks: number;
-  fill?: string; // Optional: if you want to dynamically assign fills later
+  fill?: string;
+}
+
+interface MonthlyCompletionDataPoint {
+  month: string;
+  total: number;
+  completed: number;
+  rate: number;
 }
 
 const initialTaskSummaryData: TaskSummaryItem[] = [
@@ -46,19 +54,9 @@ const taskStatusChartConfig = {
   "Overdue": { label: "Overdue", color: "hsl(var(--chart-5))" },
 } satisfies ChartConfig;
 
-// Simplified config for employee tasks chart, color will be driven by the Bar component's fill or theme
 const employeeTasksChartConfig = {
-  activeTasks: { label: "Active Tasks", color: "hsl(var(--chart-2))" }, // A single color for all bars
+  activeTasks: { label: "Active Tasks", color: "hsl(var(--chart-2))" },
 } satisfies ChartConfig;
-
-const monthlyTaskCompletionData = [
-  { month: "Jan '24", total: 50, completed: 35, rate: 70 },
-  { month: "Feb '24", total: 45, completed: 30, rate: 66.67 },
-  { month: "Mar '24", total: 60, completed: 50, rate: 83.33 },
-  { month: "Apr '24", total: 55, completed: 40, rate: 72.73 },
-  { month: "May '24", total: 65, completed: 58, rate: 89.23 },
-  { month: "Jun '24", total: 70, completed: 60, rate: 85.71 },
-].map(item => ({ ...item, rate: parseFloat(item.rate.toFixed(1)) }));
 
 const monthlyCompletionChartConfig = {
   rate: { label: "Completion Rate (%)", color: "hsl(var(--chart-2))" },
@@ -69,7 +67,9 @@ const monthlyCompletionChartConfig = {
 const getDetailedErrorMessage = (error: any, context: string = "dashboard data"): string => {
   let message = `An unexpected error occurred while fetching ${context}.`;
   if (error && typeof error === 'object') {
-    if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
+    if ('status' in error && error.status === 0) {
+      message = `Network error: Failed to communicate with the server while fetching ${context}. Please check your connection and try again.`;
+    } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
       message = error.message;
@@ -78,7 +78,7 @@ const getDetailedErrorMessage = (error: any, context: string = "dashboard data")
     } else if (error.message && typeof error.message === 'string') {
       message = error.message;
     }
-    if ('status' in error) {
+    if ('status' in error && error.status !== 0) {
       const status = error.status;
       const collectionName = context.includes("tasks") ? "tasks" : context.includes("employees") ? "employees" : "data";
       if (status === 404) message = `The '${collectionName}' collection was not found (404). ${message}`;
@@ -90,6 +90,32 @@ const getDetailedErrorMessage = (error: any, context: string = "dashboard data")
   return message;
 };
 
+const SkeletonSummaryCard = () => (
+  <Card className="shadow-md">
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <Skeleton className="h-4 w-2/3" />
+      <Skeleton className="h-5 w-5 rounded-full" />
+    </CardHeader>
+    <CardContent>
+      <Skeleton className="h-7 w-1/3 mb-2" />
+      <Skeleton className="h-3 w-full" />
+    </CardContent>
+  </Card>
+);
+
+const SkeletonChartCard = () => (
+  <Card className="shadow-md">
+    <CardHeader>
+      <Skeleton className="h-5 w-1/2 mb-1" />
+      <Skeleton className="h-4 w-3/4" />
+    </CardHeader>
+    <CardContent className="h-[300px]">
+      <Skeleton className="h-full w-full" />
+    </CardContent>
+  </Card>
+);
+
+
 export default function DashboardPage() {
   const { pbClient } = useAuth();
   const { toast } = useToast();
@@ -97,6 +123,7 @@ export default function DashboardPage() {
   const [taskSummaryData, setTaskSummaryData] = useState<TaskSummaryItem[]>(initialTaskSummaryData);
   const [taskDistributionData, setTaskDistributionData] = useState<{ status: string; count: number; fill: string; }[]>([]);
   const [activeTasksByEmployeeData, setActiveTasksByEmployeeData] = useState<LiveEmployeeTaskData[]>([]);
+  const [liveMonthlyTaskCompletionData, setLiveMonthlyTaskCompletionData] = useState<MonthlyCompletionDataPoint[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,45 +153,38 @@ export default function DashboardPage() {
     allTasks.forEach(task => {
       const dueDate = task.dueDate ? startOfDay(new Date(task.dueDate)) : null;
       const isTaskMarkedDone = task.status === "Done";
-      const isTaskDateBasedOverdue = dueDate && isPast(dueDate) && !isToday(dueDate) && !isTaskMarkedDone;
+      
+      const isDateBasedOverdue = dueDate && isPast(dueDate) && !isToday(dueDate) && !isTaskMarkedDone;
+      const isEffectivelyOverdue = task.status === "Overdue" || isDateBasedOverdue;
 
-      // Determine if the task is effectively overdue for consistent logic
-      const isEffectivelyOverdue = task.status === "Overdue" || isTaskDateBasedOverdue;
-
-      // For Status Distribution Chart
       if (task.status === "Overdue") {
         statusCounts["Overdue"]++;
-      } else if (isTaskDateBasedOverdue) { // If date-based overdue AND not already status "Overdue"
+      } else if (isDateBasedOverdue) { 
         statusCounts["Overdue"]++;
-      } else if (task.status && statusCounts.hasOwnProperty(task.status)) { // For all other non-overdue statuses
+      } else if (task.status && statusCounts.hasOwnProperty(task.status)) {
         statusCounts[task.status]++;
+      } else {
+        statusCounts["To Do"]++;
       }
 
-      // For Employee Task Chart (Active Tasks)
-      // Active means not Done, and not Effectively Overdue
       if (!isTaskMarkedDone && !isEffectivelyOverdue) {
         if (task.assignedTo_text) {
           employeeTaskCounts[task.assignedTo_text] = (employeeTaskCounts[task.assignedTo_text] || 0) + 1;
         }
       }
 
-      // For Summary Cards
       if (isTaskMarkedDone) {
         const updatedDate = task.updated ? new Date(task.updated) : new Date(task.created);
         if (isToday(updatedDate)) {
           completedTodaySummaryCount++;
         }
-      } else { // Task is not marked as Done
+      } else { 
         if (isEffectivelyOverdue) {
           overdueSummaryCount++;
         }
-
-        // "Active Tasks" for summary card: "To Do", "In Progress", "Blocked" AND NOT effectively overdue
         if (!isEffectivelyOverdue && (task.status === "In Progress" || task.status === "To Do" || task.status === "Blocked")) {
           activeSummaryCount++;
         }
-
-        // "Upcoming Tasks" for summary card: Due in next 7 days AND NOT effectively overdue
         if (!isEffectivelyOverdue && dueDate && dueDate >= today && dueDate < nextSevenDays) {
           upcomingSummaryCount++;
         }
@@ -181,7 +201,7 @@ export default function DashboardPage() {
     const distribution = (Object.keys(statusCounts) as (TaskStatus | string)[]).map(status => ({
       status: status,
       count: statusCounts[status] || 0,
-      fill: chartFills[status] || "hsl(var(--muted))",
+      fill: chartFills[status as TaskStatus] || "hsl(var(--muted))",
     })).filter(item => item.count > 0);
     setTaskDistributionData(distribution);
 
@@ -190,8 +210,49 @@ export default function DashboardPage() {
         employee: employeeName,
         activeTasks: count,
       }))
-      .sort((a,b) => b.activeTasks - a.activeTasks); // Sort by most tasks
+      .sort((a,b) => b.activeTasks - a.activeTasks);
     setActiveTasksByEmployeeData(employeeDataForChart);
+
+    const monthlyCompletionAgg: { [monthKey: string]: { total: number; completed: number; monthLabel: string } } = {};
+    const numMonthsToShow = 6;
+    const currentMonthStart = startOfMonth(new Date());
+
+    for (let i = 0; i < numMonthsToShow; i++) {
+      const monthToProcess = subMonths(currentMonthStart, i);
+      const monthKey = format(monthToProcess, "yyyy-MM");
+      const monthLabel = format(monthToProcess, "MMM 'yy");
+      if (!monthlyCompletionAgg[monthKey]) {
+        monthlyCompletionAgg[monthKey] = { total: 0, completed: 0, monthLabel };
+      }
+    }
+
+    allTasks.forEach(task => {
+      if (task.dueDate) {
+        const dueDateObj = startOfDay(new Date(task.dueDate));
+        const dueMonthKey = format(startOfMonth(dueDateObj), "yyyy-MM");
+
+        if (monthlyCompletionAgg[dueMonthKey]) {
+          monthlyCompletionAgg[dueMonthKey].total++;
+          if (task.status === "Done") {
+            monthlyCompletionAgg[dueMonthKey].completed++;
+          }
+        }
+      }
+    });
+    
+    const monthlyChartDataPoints: MonthlyCompletionDataPoint[] = [];
+    for (let i = numMonthsToShow - 1; i >= 0; i--) {
+      const monthToProcess = subMonths(currentMonthStart, i);
+      const monthKey = format(monthToProcess, "yyyy-MM");
+      const data = monthlyCompletionAgg[monthKey] || { total: 0, completed: 0, monthLabel: format(monthToProcess, "MMM 'yy") };
+      monthlyChartDataPoints.push({
+        month: data.monthLabel,
+        total: data.total,
+        completed: data.completed,
+        rate: data.total > 0 ? parseFloat(((data.completed / data.total) * 100).toFixed(1)) : 0,
+      });
+    }
+    setLiveMonthlyTaskCompletionData(monthlyChartDataPoints);
 
   }, [chartFills]);
 
@@ -202,16 +263,22 @@ export default function DashboardPage() {
     try {
       const [fetchedTasks, fetchedEmployees] = await Promise.all([
         getTasks(pb),
-        getEmployees(pb) // Fetch employees
+        getEmployees(pb)
       ]);
       processData(fetchedTasks, fetchedEmployees);
     } catch (err: any) {
-      const isAutocancel = err?.isAbort === true || err?.status === 0 || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+
       if (isAutocancel) {
-        console.warn("Dashboard data fetch request was autocancelled or due to a network issue.", err);
+        console.warn(`Dashboard data fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedErrorMessage(err, "dashboard data");
+        setError(detailedError);
+        toast({ title: "Network Error", description: detailedError, variant: "destructive" });
+        console.warn("Dashboard data fetch (network error):", detailedError, err);
       } else {
-        console.error("Error fetching dashboard data:", err);
-        // Determine context of error (tasks or employees) if possible, or use general
+        console.warn("Error fetching dashboard data (after retries):", err); // Changed from console.error
         const errorContext = err.message?.toLowerCase().includes("employee") ? "employees" : "tasks";
         const detailedError = getDetailedErrorMessage(err, errorContext);
         setError(detailedError);
@@ -236,153 +303,160 @@ export default function DashboardPage() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-[calc(100vh-10rem)]">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="ml-4 text-lg text-muted-foreground">Loading dashboard data...</p>
-      </div>
-    );
-  }
-
-  if (error && !isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[calc(100vh-10rem)] text-destructive">
-        <AlertTriangle className="h-16 w-16" />
-        <p className="mt-4 text-xl font-semibold">Failed to Load Dashboard Data</p>
-        <p className="text-md mt-1 text-center max-w-md">{error}</p>
-        <Button onClick={refetchData} className="mt-6">
-          Try Again
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-headline font-semibold">Dashboard</h1>
       
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {taskSummaryData.map((item) => (
-          <Card key={item.title} className="shadow-md hover:shadow-lg transition-shadow duration-300">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{item.title}</CardTitle>
-              <item.icon className={`h-5 w-5 ${item.color}`} />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{item.value}</div>
-              <p className="text-xs text-muted-foreground">{item.description}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {error && !isLoading ? (
+        <div className="flex flex-col items-center justify-center py-10 text-destructive bg-destructive/10 rounded-lg">
+          <AlertTriangle className="h-12 w-12" />
+          <p className="mt-4 text-xl font-semibold">Failed to Load Dashboard Data</p>
+          <p className="text-md mt-1 text-center max-w-md">{error}</p>
+          <Button onClick={refetchData} className="mt-6" variant="destructive">
+            Try Again
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {isLoading
+              ? Array.from({ length: 4 }).map((_, index) => <SkeletonSummaryCard key={index} />)
+              : taskSummaryData.map((item) => (
+                  <Card key={item.title} className="shadow-md hover:shadow-lg transition-shadow duration-300">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">{item.title}</CardTitle>
+                      <item.icon className={`h-5 w-5 ${item.color}`} />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{item.value}</div>
+                      <p className="text-xs text-muted-foreground">{item.description}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+          </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card className="shadow-md">
-          <CardHeader>
-            <CardTitle className="font-headline flex items-center">
-              <BarChart className="mr-2 h-5 w-5 text-primary" />
-              Task Status Distribution
-            </CardTitle>
-            <CardDescription>Overview of tasks by their current status.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {taskDistributionData.length > 0 ? (
-              <ChartContainer config={taskStatusChartConfig} className="h-[300px] w-full">
-                <RechartsBarChart data={taskDistributionData} layout="vertical" margin={{left:10, right:30}}>
-                  <CartesianGrid horizontal={false} />
-                  <XAxis type="number" dataKey="count" allowDecimals={false} />
-                  <YAxis dataKey="status" type="category" tickLine={false} axisLine={false} width={80} />
-                  <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent hideLabel />} />
-                  <Legend />
-                  <Bar dataKey="count" radius={4} />
-                </RechartsBarChart>
-              </ChartContainer>
-            ) : (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                No task data available for distribution chart.
-              </div>
+          <div className="grid gap-6 md:grid-cols-2">
+            {isLoading ? <SkeletonChartCard /> : (
+              <Card className="shadow-md">
+                <CardHeader>
+                  <CardTitle className="font-headline flex items-center">
+                    <BarChart className="mr-2 h-5 w-5 text-primary" />
+                    Task Status Distribution
+                  </CardTitle>
+                  <CardDescription>Overview of tasks by their current status.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {taskDistributionData.length > 0 ? (
+                    <ChartContainer config={taskStatusChartConfig} className="h-[300px] w-full">
+                      <RechartsBarChart data={taskDistributionData} layout="vertical" margin={{left:10, right:30}}>
+                        <CartesianGrid horizontal={false} />
+                        <XAxis type="number" dataKey="count" allowDecimals={false} />
+                        <YAxis dataKey="status" type="category" tickLine={false} axisLine={false} width={80} />
+                        <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent hideLabel />} />
+                        <Legend />
+                        <Bar dataKey="count" radius={4} />
+                      </RechartsBarChart>
+                    </ChartContainer>
+                  ) : (
+                    <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                      No task data available for distribution chart.
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             )}
-          </CardContent>
-        </Card>
 
-        <Card className="shadow-md">
-          <CardHeader>
-            <CardTitle className="font-headline flex items-center">
-              <Users className="mr-2 h-5 w-5 text-primary" />
-              Active Tasks by Employee
-            </CardTitle>
-            <CardDescription>Breakdown of active tasks assigned per employee.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {activeTasksByEmployeeData.length > 0 ? (
-              <ChartContainer config={employeeTasksChartConfig} className="h-[300px] w-full">
-                <RechartsBarChart data={activeTasksByEmployeeData} margin={{top: 5, right: 20, left: 0, bottom: 5}}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="employee" type="category" />
-                  <YAxis dataKey="activeTasks" type="number" allowDecimals={false} />
-                  <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent />} />
-                  <Bar dataKey="activeTasks" fill="var(--color-activeTasks)" radius={[4, 4, 0, 0]} />
-                </RechartsBarChart>
-              </ChartContainer>
-            ) : (
-               <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                No active tasks assigned to employees or employee data not loaded.
-              </div>
+            {isLoading ? <SkeletonChartCard /> : (
+              <Card className="shadow-md">
+                <CardHeader>
+                  <CardTitle className="font-headline flex items-center">
+                    <Users className="mr-2 h-5 w-5 text-primary" />
+                    Active Tasks by Employee
+                  </CardTitle>
+                  <CardDescription>Breakdown of active tasks assigned per employee.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {activeTasksByEmployeeData.length > 0 ? (
+                    <ChartContainer config={employeeTasksChartConfig} className="h-[300px] w-full">
+                      <RechartsBarChart data={activeTasksByEmployeeData} margin={{top: 5, right: 20, left: 0, bottom: 5}}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="employee" type="category" />
+                        <YAxis dataKey="activeTasks" type="number" allowDecimals={false} />
+                        <Tooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent />} />
+                        <Bar dataKey="activeTasks" fill="var(--color-activeTasks)" radius={[4, 4, 0, 0]} />
+                      </RechartsBarChart>
+                    </ChartContainer>
+                  ) : (
+                    <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                      No active tasks assigned to employees or employee data not loaded.
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             )}
-          </CardContent>
-        </Card>
 
-        <Card className="shadow-md md:col-span-2">
-          <CardHeader>
-            <CardTitle className="font-headline flex items-center">
-              <TrendingUp className="mr-2 h-5 w-5 text-primary" />
-              Monthly Task Completion Rate (Mock Data)
-            </CardTitle>
-            <CardDescription>Trend of task completion based on due dates.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer config={monthlyCompletionChartConfig} className="h-[300px] w-full">
-              <RechartsLineChart data={monthlyTaskCompletionData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="month" />
-                <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (active && payload && payload.length) {
-                      const data = payload[0].payload; 
-                      return (
-                        <div className="p-2 rounded-md border bg-background shadow-lg">
-                          <p className="font-medium text-sm">{label}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Completed: {data.completed} / {data.total}
-                          </p>
-                          <p className="text-xs" style={{ color: payload[0].color }}>
-                            Rate: {data.rate}%
-                          </p>
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                  cursor={{fill: 'hsl(var(--muted))'}}
-                />
-                <Legend />
-                <Line 
-                  type="monotone" 
-                  dataKey="rate" 
-                  stroke="hsl(var(--chart-2))" 
-                  strokeWidth={2} 
-                  dot={{ r: 4, fill: "hsl(var(--chart-2))" }} 
-                  activeDot={{ r: 6, fill: "hsl(var(--chart-2))"}} 
-                  name="Completion Rate" 
-                />
-              </RechartsLineChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-      </div>
+            {isLoading ? <div className="md:col-span-2"><SkeletonChartCard /></div> : (
+                <Card className="shadow-md md:col-span-2">
+                <CardHeader>
+                    <CardTitle className="font-headline flex items-center">
+                    <TrendingUp className="mr-2 h-5 w-5 text-primary" />
+                    Monthly Task Completion Rate
+                    </CardTitle>
+                    <CardDescription>Trend of task completion based on due dates for the last 6 months.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {liveMonthlyTaskCompletionData.length > 0 ? (
+                    <ChartContainer config={monthlyCompletionChartConfig} className="h-[300px] w-full">
+                    <RechartsLineChart data={liveMonthlyTaskCompletionData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="month" />
+                        <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+                        <Tooltip
+                        content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                            const data = payload[0].payload as MonthlyCompletionDataPoint; 
+                            return (
+                                <div className="p-2 rounded-md border bg-background shadow-lg">
+                                <p className="font-medium text-sm">{label}</p>
+                                <p className="text-xs text-muted-foreground">
+                                    Completed: {data.completed} / {data.total}
+                                </p>
+                                <p className="text-xs" style={{ color: payload[0].stroke }}>
+                                    Rate: {data.rate}%
+                                </p>
+                                </div>
+                            );
+                            }
+                            return null;
+                        }}
+                        cursor={{fill: 'hsl(var(--muted))'}}
+                        />
+                        <Legend />
+                        <Line 
+                        type="monotone" 
+                        dataKey="rate" 
+                        stroke="hsl(var(--chart-2))" 
+                        strokeWidth={2} 
+                        dot={{ r: 4, fill: "hsl(var(--chart-2))" }} 
+                        activeDot={{ r: 6, fill: "hsl(var(--chart-2))"}} 
+                        name="Completion Rate" 
+                        />
+                    </RechartsLineChart>
+                    </ChartContainer>
+                  ) : (
+                     <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                      No task data available for the selected period.
+                    </div>
+                  )}
+                </CardContent>
+                </Card>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
+    
+
     

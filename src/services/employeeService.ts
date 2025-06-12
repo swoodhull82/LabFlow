@@ -2,6 +2,7 @@
 'use client';
 import type { Employee } from "@/lib/types";
 import type PocketBase from 'pocketbase';
+import { withRetry } from '@/lib/retry';
 
 const COLLECTION_NAME = "employees";
 
@@ -25,12 +26,13 @@ const pbRecordToEmployee = (record: any): Employee => {
 
 export const getEmployees = async (pb: PocketBase): Promise<Employee[]> => {
   try {
-    const records = await pb.collection(COLLECTION_NAME).getFullList({
-      sort: 'name', 
-    });
+    const records = await withRetry(() => 
+      pb.collection(COLLECTION_NAME).getFullList({
+        sort: 'name', 
+      })
+    );
     return records.map(pbRecordToEmployee);
   } catch (error) {
-    console.error("Failed to fetch employees:", error);
     throw error;
   }
 };
@@ -67,13 +69,13 @@ export const deleteEmployee = async (pb: PocketBase, id: string): Promise<void> 
 
 export const getEmployeeById = async (pb: PocketBase, id: string): Promise<Employee | null> => {
   try {
-    const record = await pb.collection(COLLECTION_NAME).getOne(id);
+    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id));
     return pbRecordToEmployee(record);
   } catch (error) {
-    console.error(`Failed to fetch employee ${id}:`, error);
      if ((error as any).status === 404) {
         return null;
     }
     throw error;
   }
 };
+

@@ -12,18 +12,23 @@ import { getActivityLogEntries } from "@/services/activityLogService";
 import type { ActivityLogEntry } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
+import type PocketBase from "pocketbase";
 
 const getDetailedErrorMessage = (error: any): string => {
-  let message = "An unexpected error occurred.";
+  let message = "An unexpected error occurred while fetching the activity log.";
   if (error && typeof error === 'object') {
-    if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
+    if ('status' in error && error.status === 0) {
+      message = "Network error: Failed to communicate with the server. Please check your connection and try again.";
+    } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
       message = error.message;
+    } else if (error.originalError && typeof error.originalError.message === 'string') {
+        message = error.originalError.message;
     } else if (error.message && typeof error.message === 'string') {
       message = error.message;
     }
-    if ('status' in error) {
+    if ('status' in error && error.status !== 0) { // Add status context only if not already handled as network error
       const status = error.status;
       if (status === 404) message = `The activity log collection was not found (404). Original: ${message}`;
       else if (status === 403) message = `You do not have permission to view the activity log (403). Original: ${message}`;
@@ -52,14 +57,18 @@ export default function ActivityLogPage() {
       const entries = await getActivityLogEntries(pb);
       setLogEntries(entries);
     } catch (err: any) {
-      const isPocketBaseAutocancel = err?.isAbort === true;
-      const isGeneralAutocancelOrNetworkIssue = err?.status === 0;
-      const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
 
-      if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-        console.warn("Activity log fetch request was autocancelled or due to a network issue.", err);
+      if (isAutocancel) {
+        console.warn(`Activity log fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Network Error", description: detailedError, variant: "destructive" });
+        console.warn("Activity log fetch (network error):", detailedError, err);
       } else {
-        console.error("Error fetching activity log:", err);
+        console.warn("Error fetching activity log (after retries):", err); // Changed from console.error
         const detailedError = getDetailedErrorMessage(err);
         setError(detailedError);
         toast({ title: "Error Loading Activity Log", description: detailedError, variant: "destructive" });

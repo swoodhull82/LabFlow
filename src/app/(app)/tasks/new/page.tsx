@@ -22,6 +22,18 @@ import type { Employee, TaskStatus, TaskPriority, TaskRecurrence } from "@/lib/t
 import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
 
+const getDetailedEmployeeFetchErrorMessage = (error: any): string => {
+  let message = "Could not load employees for assignment.";
+  if (error && typeof error === 'object') {
+    if ('status' in error && error.status === 0) {
+      return "Network error: Could not load employees. Please check connection.";
+    } else if (error.message) {
+      message = error.message;
+    }
+  }
+  return message;
+};
+
 export default function NewTaskPage() {
   const { pbClient, user } = useAuth();
   const router = useRouter();
@@ -44,7 +56,7 @@ export default function NewTaskPage() {
 
   const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null) => {
     if (!pb) {
-      setIsLoadingEmployees(false); // Ensure loading stops if pbClient is null initially
+      setIsLoadingEmployees(false);
       return;
     }
     setIsLoadingEmployees(true);
@@ -53,17 +65,20 @@ export default function NewTaskPage() {
       const fetchedEmployees = await getEmployees(pb);
       setEmployees(fetchedEmployees);
     } catch (err: any) {
-      const isPocketBaseAutocancel = err?.isAbort === true;
-      const isGeneralAutocancelOrNetworkIssue = err?.status === 0;
-      const isMessageAutocancel = typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled");
-
-      if (isPocketBaseAutocancel || isGeneralAutocancelOrNetworkIssue || isMessageAutocancel) {
-        console.warn("Fetch employees request for task assignment was autocancelled or due to a network issue.", err);
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+      
+      if (isAutocancel) {
+        console.warn(`Fetch employees for task assignment request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
       } else {
-        console.error("Error fetching employees for task assignment:", err);
-        const errorMessage = err.message || "Could not load employees for assignment.";
-        setFetchEmployeesError(errorMessage);
-        toast({ title: "Error Loading Employees", description: errorMessage, variant: "destructive" });
+        const detailedError = getDetailedEmployeeFetchErrorMessage(err);
+        setFetchEmployeesError(detailedError);
+        toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
+        if (isNetworkErrorNotAutocancel) {
+          console.warn("Fetch employees for task assignment (network error):", detailedError, err);
+        } else {
+          console.warn("Error fetching employees for task assignment (after retries):", err); // Changed from console.error
+        }
       }
     } finally {
       setIsLoadingEmployees(false);
@@ -138,7 +153,7 @@ export default function NewTaskPage() {
       toast({ title: "Success", description: "New task created successfully!" });
       router.push("/tasks");
     } catch (err: any) {
-      console.error("Failed to create task (full error object):", err);
+      console.error("Failed to create task (full error object):", err); // Keep console.error for CUD operations
       let detailedMessage = "Failed to create task. Please try again.";
       
       if (err.data && typeof err.data === 'object') {
@@ -148,7 +163,6 @@ export default function NewTaskPage() {
         }
 
         let fieldErrorString = "";
-        // Check for field-specific validation errors (err.data.data)
         if (err.data.data && typeof err.data.data === 'object' && Object.keys(err.data.data).length > 0) {
           fieldErrorString = Object.entries(err.data.data)
             .map(([key, val]: [string, any]) => {
@@ -161,11 +175,10 @@ export default function NewTaskPage() {
         if (mainErrorMessage && fieldErrorString) {
           detailedMessage = `${mainErrorMessage}. Details: ${fieldErrorString}`;
         } else if (mainErrorMessage) {
-          detailedMessage = mainErrorMessage; // Use PocketBase's general error message if available
+          detailedMessage = mainErrorMessage;
         } else if (fieldErrorString) {
-          detailedMessage = `Validation errors: ${fieldErrorString}`; // Use only field errors if no general message
+          detailedMessage = `Validation errors: ${fieldErrorString}`;
         } else if (Object.keys(err.data).length > 0 && detailedMessage === "Failed to create task. Please try again.") {
-            // Fallback if err.data is an object but message/data sub-properties are not as expected
             try {
                 detailedMessage = `PocketBase error: ${JSON.stringify(err.data)}`;
             } catch (e) {
@@ -173,7 +186,6 @@ export default function NewTaskPage() {
             }
         }
       } else if (err.message && typeof err.message === 'string') { 
-        // Fallback to the generic error message if err.data is not informative
         detailedMessage = err.message;
       }
       
@@ -187,7 +199,7 @@ export default function NewTaskPage() {
     }
   };
 
-  if (!pbClient && !isLoadingEmployees) { // Added !isLoadingEmployees to prevent flash of this message if pbClient just takes a moment
+  if (!pbClient && !isLoadingEmployees) {
     return (
       <div className="space-y-6 max-w-2xl mx-auto">
         <Card className="shadow-md">
@@ -325,7 +337,7 @@ export default function NewTaskPage() {
                   disabled={isLoadingEmployees || !!fetchEmployeesError}
                 >
                   <SelectTrigger id="assignedTo_text">
-                    <SelectValue placeholder={isLoadingEmployees ? "Loading employees..." : (fetchEmployeesError ? "Error loading" : "Select employee (Optional)")} />
+                    <SelectValue placeholder={isLoadingEmployees ? "Loading employees..." : (fetchEmployeesError ? "Error loading employees" : "Select employee (Optional)")} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__NONE__">None</SelectItem>
@@ -366,7 +378,7 @@ export default function NewTaskPage() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button type="submit" disabled={isSubmitting || isLoadingEmployees}>
+              <Button type="submit" disabled={isSubmitting || isLoadingEmployees || !!fetchEmployeesError}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Save Task
               </Button>
