@@ -41,7 +41,7 @@ const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred while managing employees.";
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      message = "Network error: Failed to communicate with the server. Please check your connection and try again.";
+      message = "Failed to load employees: Could not connect to the server. Please check your internet connection and try again.";
     } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
@@ -109,10 +109,10 @@ export default function EmployeesPage() {
         } else if (isNetworkErrorNotAutocancel) {
           const detailedError = getDetailedErrorMessage(err);
           setError(detailedError);
-          toast({ title: "Network Error", description: detailedError, variant: "destructive" });
+          toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
           console.warn("Employees fetch (network error):", detailedError, err);
         } else {
-          console.warn("Error fetching employees (after retries):", err); // Changed from console.error
+          console.warn("Error fetching employees (after retries):", err); 
           const detailedError = getDetailedErrorMessage(err);
           setError(detailedError);
           toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
@@ -180,7 +180,7 @@ export default function EmployeesPage() {
       await deleteEmployee(pbClient, employeeId);
       toast({ title: "Success", description: "Employee removed successfully." });
     } catch (error) {
-      console.error("Failed to delete employee:", error); // Keep console.error for CUD operations
+      console.error("Failed to delete employee:", error); 
       setEmployees(originalEmployees);
       toast({ title: "Error", description: getDetailedErrorMessage(error), variant: "destructive" });
     }
@@ -227,7 +227,7 @@ export default function EmployeesPage() {
         toast({ title: "Success", description: "Employee details updated successfully." });
         handleEditDialogClose();
     } catch (error) {
-        console.error("Failed to update employee:", error); // Keep console.error for CUD operations
+        console.error("Failed to update employee:", error); 
         toast({ title: "Error", description: getDetailedErrorMessage(error), variant: "destructive" });
     } finally {
         setIsSubmittingEdit(false);

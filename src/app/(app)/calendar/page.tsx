@@ -17,7 +17,7 @@ const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred while fetching tasks for the calendar.";
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      message = "Network error: Failed to communicate with the server. Please check your connection and try again.";
+      message = "Failed to load calendar tasks: Could not connect to the server. Please check your internet connection and try again.";
     } else if (error.data && typeof error.data === 'object') {
       if (error.data.message && typeof error.data.message === 'string') {
         message = error.data.message;
@@ -94,10 +94,10 @@ export default function CalendarPage() {
         } else if (isNetworkErrorNotAutocancel) {
           const detailedError = getDetailedErrorMessage(err);
           setError(detailedError);
-          toast({ title: "Network Error", description: detailedError, variant: "destructive" });
+          toast({ title: "Error Loading Calendar Data", description: detailedError, variant: "destructive" });
           console.warn("Calendar events (tasks) fetch (network error):", detailedError, err);
         } else {
-          console.warn("Error fetching tasks for calendar (after retries):", err); // Changed from console.error
+          console.warn("Error fetching tasks for calendar (after retries):", err); 
           const detailedError = getDetailedErrorMessage(err);
           setError(detailedError);
           toast({ title: "Error Loading Calendar Data", description: detailedError, variant: "destructive" });

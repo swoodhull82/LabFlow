@@ -3,7 +3,8 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Loader2, AlertTriangle, Button } from "lucide-react"; // Added Button for explicit import
+import { Loader2, AlertTriangle } from "lucide-react";
+import { Button as ShadcnButton } from "@/components/ui/button"; // Renamed to avoid conflict if any native button is used
 import { useAuth } from "@/context/AuthContext";
 import { getTasks } from "@/services/taskService";
 import type { Task } from "@/lib/types";
@@ -15,7 +16,7 @@ const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred while fetching tasks for the timeline.";
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      message = "Network error: Failed to communicate with the server. Please check your connection and try again.";
+      message = "Failed to load timeline data: Could not connect to the server. Please check your internet connection and try again.";
     } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
@@ -67,10 +68,10 @@ export default function TimelinePage() {
         } else if (isNetworkErrorNotAutocancel) {
           const detailedError = getDetailedErrorMessage(err);
           setError(detailedError);
-          toast({ title: "Network Error", description: detailedError, variant: "destructive" });
+          toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
           console.warn("Timeline tasks fetch (network error):", detailedError, err);
         } else {
-          console.warn("Error fetching tasks for timeline (after retries):", err); // Changed from console.error
+          console.warn("Error fetching tasks for timeline (after retries):", err); 
           const detailedError = getDetailedErrorMessage(err);
           setError(detailedError);
           toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
@@ -130,13 +131,12 @@ export default function TimelinePage() {
               <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
               <p className="mt-4 text-lg font-semibold">Failed to Load Timeline Data</p>
               <p className="text-sm">{error}</p>
-              {/* Ensure Button component is properly imported or use standard button */}
-              <button 
+              <ShadcnButton 
                 onClick={refetchTasks} 
-                className="mt-6 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                className="mt-6"
               >
                 Try Again
-              </button>
+              </ShadcnButton>
             </div>
           )}
           {!isLoading && !error && tasks.length === 0 && (

@@ -18,7 +18,7 @@ const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred while fetching the activity log.";
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      message = "Network error: Failed to communicate with the server. Please check your connection and try again.";
+      message = "Failed to load activity log: Could not connect to the server. Please check your internet connection and try again.";
     } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
@@ -28,7 +28,7 @@ const getDetailedErrorMessage = (error: any): string => {
     } else if (error.message && typeof error.message === 'string') {
       message = error.message;
     }
-    if ('status' in error && error.status !== 0) { // Add status context only if not already handled as network error
+    if ('status' in error && error.status !== 0) { 
       const status = error.status;
       if (status === 404) message = `The activity log collection was not found (404). Original: ${message}`;
       else if (status === 403) message = `You do not have permission to view the activity log (403). Original: ${message}`;
@@ -51,31 +51,41 @@ export default function ActivityLogPage() {
   const canViewPage = user?.role === 'Supervisor' || user?.role === 'Team Lead';
 
   const fetchLogEntries = useCallback(async (pb: PocketBase) => {
+    let ignore = false;
     setIsLoading(true);
     setError(null);
     try {
       const entries = await getActivityLogEntries(pb);
-      setLogEntries(entries);
+      if (!ignore) {
+        setLogEntries(entries);
+      }
     } catch (err: any) {
-      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
-      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+      if (!ignore) {
+        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
 
-      if (isAutocancel) {
-        console.warn(`Activity log fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
-      } else if (isNetworkErrorNotAutocancel) {
-        const detailedError = getDetailedErrorMessage(err);
-        setError(detailedError);
-        toast({ title: "Network Error", description: detailedError, variant: "destructive" });
-        console.warn("Activity log fetch (network error):", detailedError, err);
-      } else {
-        console.warn("Error fetching activity log (after retries):", err); // Changed from console.error
-        const detailedError = getDetailedErrorMessage(err);
-        setError(detailedError);
-        toast({ title: "Error Loading Activity Log", description: detailedError, variant: "destructive" });
+        if (isAutocancel) {
+          console.warn(`Activity log fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+        } else if (isNetworkErrorNotAutocancel) {
+          const detailedError = getDetailedErrorMessage(err);
+          setError(detailedError);
+          toast({ title: "Error Loading Activity Log", description: detailedError, variant: "destructive" });
+          console.warn("Activity log fetch (network error):", detailedError, err);
+        } else {
+          console.warn("Error fetching activity log (after retries):", err); 
+          const detailedError = getDetailedErrorMessage(err);
+          setError(detailedError);
+          toast({ title: "Error Loading Activity Log", description: detailedError, variant: "destructive" });
+        }
       }
     } finally {
-      setIsLoading(false);
+      if (!ignore) {
+        setIsLoading(false);
+      }
     }
+     return () => {
+      ignore = true;
+    };
   }, [toast]);
 
   useEffect(() => {
@@ -89,7 +99,12 @@ export default function ActivityLogPage() {
       router.push('/dashboard');
       return;
     }
-    fetchLogEntries(pbClient);
+    const cleanup = fetchLogEntries(pbClient);
+     return () => {
+        if (typeof cleanup === 'function') {
+          cleanup();
+        }
+    };
   }, [user, pbClient, router, toast, fetchLogEntries, canViewPage]);
 
   const refetchLogs = () => {
