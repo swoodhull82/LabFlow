@@ -4,6 +4,11 @@ import type { Employee } from "@/lib/types";
 import type PocketBase from 'pocketbase';
 
 const COLLECTION_NAME = "employees";
+const ARTIFICIAL_DELAY_MS = 200;
+
+async function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 // Helper to convert PocketBase record to Employee type
 const pbRecordToEmployee = (record: any): Employee => {
@@ -25,12 +30,12 @@ const pbRecordToEmployee = (record: any): Employee => {
 
 export const getEmployees = async (pb: PocketBase): Promise<Employee[]> => {
   try {
+    await delay(ARTIFICIAL_DELAY_MS);
     const records = await pb.collection(COLLECTION_NAME).getFullList({
       sort: 'name', 
     });
     return records.map(pbRecordToEmployee);
   } catch (error) {
-    console.error("Failed to fetch employees:", error);
     throw error;
   }
 };
@@ -70,10 +75,11 @@ export const getEmployeeById = async (pb: PocketBase, id: string): Promise<Emplo
     const record = await pb.collection(COLLECTION_NAME).getOne(id);
     return pbRecordToEmployee(record);
   } catch (error) {
-    console.error(`Failed to fetch employee ${id}:`, error);
+    // console.error(`Failed to fetch employee ${id}:`, error); // Already handled by UI
      if ((error as any).status === 404) {
         return null;
     }
     throw error;
   }
 };
+

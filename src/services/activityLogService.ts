@@ -4,6 +4,11 @@ import type { ActivityLogEntry } from "@/lib/types";
 import type PocketBase from 'pocketbase';
 
 const COLLECTION_NAME = "activity_log";
+const ARTIFICIAL_DELAY_MS = 200;
+
+async function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 // Helper to convert PocketBase record to ActivityLogEntry type
 const pbRecordToActivityLogEntry = (record: any): ActivityLogEntry => {
@@ -16,12 +21,12 @@ const pbRecordToActivityLogEntry = (record: any): ActivityLogEntry => {
 
 export const getActivityLogEntries = async (pb: PocketBase): Promise<ActivityLogEntry[]> => {
   try {
+    await delay(ARTIFICIAL_DELAY_MS);
     const records = await pb.collection(COLLECTION_NAME).getFullList({
       sort: '-created', // Fetch most recent entries first
     });
     return records.map(pbRecordToActivityLogEntry);
   } catch (error) {
-    console.error("Failed to fetch activity log entries:", error);
     throw error;
   }
 };
@@ -39,3 +44,4 @@ export const createActivityLogEntry = async (
     throw error;
   }
 };
+

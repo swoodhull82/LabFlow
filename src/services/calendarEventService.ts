@@ -4,6 +4,11 @@ import type { CalendarEvent, Task, TaskStatus } from "@/lib/types";
 import type PocketBase from 'pocketbase';
 
 const TASK_COLLECTION_NAME = "tasks";
+const ARTIFICIAL_DELAY_MS = 200;
+
+async function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 // Helper to convert a Task record from PocketBase to a CalendarEvent type
 const pbTaskToCalendarEvent = (taskRecord: any): CalendarEvent => {
@@ -27,6 +32,7 @@ const pbTaskToCalendarEvent = (taskRecord: any): CalendarEvent => {
 
 export const getCalendarEvents = async (pb: PocketBase): Promise<CalendarEvent[]> => {
   try {
+    await delay(ARTIFICIAL_DELAY_MS);
     // Fetch tasks that have a due date
     const records = await pb.collection(TASK_COLLECTION_NAME).getFullList({
       filter: 'dueDate != null && dueDate != ""', // Filter for tasks with a non-empty dueDate
@@ -35,7 +41,6 @@ export const getCalendarEvents = async (pb: PocketBase): Promise<CalendarEvent[]
     // Map task records to CalendarEvent objects
     return records.map(pbTaskToCalendarEvent).filter(event => event.eventDate); // Ensure eventDate is valid
   } catch (error) {
-    console.error("Failed to fetch tasks for calendar view:", error);
     throw error;
   }
 };
