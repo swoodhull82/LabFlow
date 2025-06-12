@@ -12,7 +12,8 @@ import {
   isSameDay,
   isWithinInterval,
   max,
-  min
+  min,
+  isValid // Added isValid import
 } from 'date-fns';
 import React, { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
@@ -95,7 +96,15 @@ const GanttChart: React.FC<GanttChartProps> = () => {
     setError(null);
     try {
       const fetchedTasks = await getTasks(pb, { signal });
-      setTasks(fetchedTasks.filter(task => task.startDate && task.dueDate));
+      // Filter tasks to include only those with valid start and end dates
+      setTasks(
+        fetchedTasks.filter(task => 
+          task.startDate &&
+          task.dueDate &&
+          isValid(task.startDate) && // Ensure startDate is a valid Date
+          isValid(task.dueDate)     // Ensure dueDate is a valid Date
+        )
+      );
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
@@ -161,20 +170,22 @@ const GanttChart: React.FC<GanttChartProps> = () => {
     );
   }
   
+  // tasks state already contains filtered tasks with valid dates
   const validTasks = tasks.map(task => ({
     ...task,
-    startDate: startOfDay(new Date(task.startDate!)),
-    dueDate: startOfDay(new Date(task.dueDate!)),
+    // startDate and dueDate are confirmed valid Date objects here by the filter
+    startDate: startOfDay(task.startDate!), 
+    dueDate: startOfDay(task.dueDate!),
     progress: typeof task.progress === 'number' && task.progress >= 0 && task.progress <= 100 ? task.progress : 0,
-    isMilestone: task.isMilestone === true || (task.isMilestone !== false && isSameDay(new Date(task.startDate!), new Date(task.dueDate!))),
+    isMilestone: task.isMilestone === true || (task.isMilestone !== false && isSameDay(task.startDate!, task.dueDate!)),
     dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
   }));
 
   if (validTasks.length === 0 && !isLoading && !error) {
     return (
         <div className="text-center py-10 text-muted-foreground min-h-[300px]">
-            <p>No tasks with both start and due dates found to display on the timeline.</p>
-            <p className="text-xs mt-1">Ensure tasks have valid start and due dates assigned.</p>
+            <p>No tasks with valid start and due dates found to display on the timeline.</p>
+            <p className="text-xs mt-1">Ensure tasks have valid start and due dates assigned, and that the dates are correctly formatted.</p>
         </div>
     );
   }
@@ -219,6 +230,9 @@ const GanttChart: React.FC<GanttChartProps> = () => {
 
   const today = startOfDay(new Date());
   const showTodayLine = isWithinInterval(today, { start: chartStartDate, end: chartEndDate });
+  const todayLineLeftPosition = showTodayLine 
+    ? (differenceInDays(today, chartStartDate) / totalDaysInChart) * (weeksInChart.length * DAY_CELL_WIDTH)
+    : 0;
 
   return (
     <div className="gantt-chart-container text-xs select-none" style={{ minWidth: SIDEBAR_WIDTH + (weeksInChart.length * DAY_CELL_WIDTH) }}>
@@ -268,7 +282,7 @@ const GanttChart: React.FC<GanttChartProps> = () => {
         {showTodayLine && (
              <div 
                 className="absolute top-0 bottom-0 w-[2px] bg-red-500/70 z-10"
-                style={{ left: `${(differenceInDays(today, chartStartDate) / totalDaysInChart) * (weeksInChart.length * DAY_CELL_WIDTH) }px` }}
+                style={{ left: `${todayLineLeftPosition}px` }}
                 title={`Today: ${format(today, 'PPP')}`}
               >
                 <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[8px] px-0.5 rounded-sm">TODAY</div>
@@ -357,3 +371,4 @@ const GanttChart: React.FC<GanttChartProps> = () => {
 };
 
 export default GanttChart;
+
