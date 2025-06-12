@@ -22,9 +22,9 @@ interface GanttChartProps {
 }
 
 const DAY_CELL_WIDTH = 30; 
-const ROW_HEIGHT = 48; // Increased slightly for better text fit in left panel
-const SIDEBAR_WIDTH = 450; // Increased width to accommodate new columns in left panel
-const HEADER_HEIGHT = 60; 
+const ROW_HEIGHT = 48;
+const SIDEBAR_WIDTH = 450; 
+const HEADER_HEIGHT = 60; // Combined height for month and week headers
 const TASK_BAR_VERTICAL_PADDING = 8; 
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => {
@@ -81,15 +81,22 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
   const getMonthYear = (date: Date) => format(date, 'MMM yyyy');
   const monthHeaders: { name: string; span: number }[] = [];
   
-  weeksInChart.forEach(weekStart => {
-    const monthYear = getMonthYear(weekStart);
-    const lastMonthHeader = monthHeaders[monthHeaders.length - 1];
-    if (lastMonthHeader && lastMonthHeader.name === monthYear) {
-      lastMonthHeader.span += 1;
-    } else {
-      monthHeaders.push({ name: monthYear, span: 1 });
+  if (weeksInChart.length > 0) {
+    let currentMonth = getMonthYear(weeksInChart[0]);
+    let spanCount = 0;
+    for (const weekStart of weeksInChart) {
+      const monthYear = getMonthYear(weekStart);
+      if (monthYear === currentMonth) {
+        spanCount++;
+      } else {
+        monthHeaders.push({ name: currentMonth, span: spanCount });
+        currentMonth = monthYear;
+        spanCount = 1;
+      }
     }
-  });
+    monthHeaders.push({ name: currentMonth, span: spanCount }); // Add the last month
+  }
+
 
   const today = startOfDay(new Date());
   const showTodayLine = isWithinInterval(today, { start: chartStartDate, end: chartEndDate });
@@ -100,7 +107,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
   }
 
   return (
-    <div className="gantt-chart-container text-xs select-none" style={{ minWidth: SIDEBAR_WIDTH + (totalDaysInChart * DAY_CELL_WIDTH * 0.3) }}>
+    <div className="gantt-chart-container text-xs select-none" style={{ minWidth: SIDEBAR_WIDTH + (weeksInChart.length * DAY_CELL_WIDTH) }}>
       {/* Headers */}
       <div className="sticky top-0 z-20 bg-card grid" style={{ gridTemplateColumns: `${SIDEBAR_WIDTH}px 1fr`}}>
         {/* Left Panel Header */}
@@ -126,6 +133,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
                 {month.name}
               </div>
             ))}
+             {/* Ensure full border if months don't fill width */}
+            {weeksInChart.length > 0 && monthHeaders.reduce((acc, curr) => acc + curr.span, 0) < weeksInChart.length && (
+                <div className="border-r border-border"></div>
+            )}
           </div>
           {/* Week Headers */}
           <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${weeksInChart.length}, minmax(${DAY_CELL_WIDTH}px, 1fr))`}}>
@@ -144,22 +155,34 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
         {showTodayLine && (
           <div 
             className="absolute top-0 bottom-0 w-[2px] bg-red-500/70 z-10"
-            style={{ left: `${todayPositionPercent}%` }}
-            title={`Today: ${format(today, 'PPP')}`}
+            style={{ left: `${SIDEBAR_WIDTH + (differenceInDays(today, chartStartDate) * DAY_CELL_WIDTH / 7 * (weeksInChart.length/totalDaysInChart) )}px` }}
+            // Approximate position based on days; more accurate would need pixel calculation per day
+            // For simplicity, if DAY_CELL_WIDTH represents a week, then per day is DAY_CELL_WIDTH / 7
+            // The style needs to map days to the grid, not overall percentage of total chart duration
           >
-            <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[8px] px-0.5 rounded-sm">TODAY</div>
+             <div 
+                className="absolute top-0 bottom-0 w-[2px] bg-red-500/70 z-10"
+                style={{ left: `${(differenceInDays(today, chartStartDate) / totalDaysInChart) * (weeksInChart.length * DAY_CELL_WIDTH) }px` }}
+                title={`Today: ${format(today, 'PPP')}`}
+              >
+                <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[8px] px-0.5 rounded-sm">TODAY</div>
+              </div>
           </div>
         )}
 
+
         {validTasks.map((task, taskIndex) => {
           const taskStartDayIndex = differenceInDays(task.startDate, chartStartDate);
-          const taskEndDayIndex = differenceInDays(task.dueDate, chartStartDate);
+          // Ensure taskEndDayIndex is at least taskStartDayIndex if due date is before start date (or for milestones)
+          const taskEndDayIndex = Math.max(taskStartDayIndex, differenceInDays(task.dueDate, chartStartDate));
           
-          const barLeftPercent = Math.max(0, (taskStartDayIndex / totalDaysInChart) * 100);
+          const barLeftPosition = (taskStartDayIndex / totalDaysInChart) * (weeksInChart.length * DAY_CELL_WIDTH);
+
+          // Duration in days, ensuring at least 1 day for milestones or same-day tasks
           const taskDurationDays = Math.max(1, differenceInDays(task.dueDate, task.startDate) + 1);
-          const barWidthPercent = (taskDurationDays / totalDaysInChart) * 100;
+          const barWidth = (taskDurationDays / totalDaysInChart) * (weeksInChart.length * DAY_CELL_WIDTH);
           
-          const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING - 4; // Adjusted for padding within row
+          const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING - 4; 
           const taskBarTop = (ROW_HEIGHT - taskBarHeight) / 2;
 
           let tooltipText = `${task.title}: ${task.progress}% (${format(task.startDate, 'P')} - ${format(task.dueDate, 'P')})`;
@@ -187,7 +210,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
 
               {/* Task Bar Pane */}
               <div className="relative border-r border-border overflow-hidden">
-                {barWidthPercent > 0 && (
+                {barWidth > 0 && (
                   <div
                     title={tooltipText}
                     className={cn(
@@ -195,11 +218,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
                       getTaskBarColor(task.status, task.isMilestone)
                     )}
                     style={{
-                      left: `${barLeftPercent}%`,
-                      width: `${barWidthPercent}%`,
+                      left: `${barLeftPosition}px`,
+                      width: `${Math.max(task.isMilestone ? 12 : 5, barWidth)}px`, // Ensure min width for visibility
                       height: `${taskBarHeight}px`,
                       top: `${taskBarTop}px`,
-                      minWidth: task.isMilestone ? '12px' : '5px', 
                     }}
                   >
                     {!task.isMilestone && task.progress !== undefined && task.progress > 0 && (
@@ -215,7 +237,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
                          </svg>
                        </div>
                     )}
-                    {!task.isMilestone && barWidthPercent > 3 && (
+                    {!task.isMilestone && barWidth > (DAY_CELL_WIDTH * 0.75) && ( // Only show title if bar is wide enough
                       <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden pr-1">
                         {task.title}
                       </span>
@@ -232,3 +254,4 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
 };
 
 export default GanttChart;
+
