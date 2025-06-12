@@ -8,6 +8,7 @@ const COLLECTION_NAME = "employees";
 
 interface PocketBaseRequestOptions {
   signal?: AbortSignal;
+  onRetry?: (attempt: number, maxAttempts: number, error: any) => void; // Add this
   [key: string]: any;
 }
 
@@ -31,12 +32,17 @@ const pbRecordToEmployee = (record: any): Employee => {
 
 export const getEmployees = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<Employee[]> => {
   try {
+    const { onRetry, ...restOptions } = options || {}; // Destructure onRetry
     const records = await withRetry(() => 
       pb.collection(COLLECTION_NAME).getFullList({
         sort: 'name',
-        ...options,
+        ...restOptions, // Pass remaining options
       }),
-      { ...options, context: "fetching employees list" }
+      {
+        ...restOptions, // Pass other options like signal, context
+        context: "fetching employees list",
+        onRetry // Pass the callback
+      }
     );
     return records.map(pbRecordToEmployee);
   } catch (error) {
@@ -44,9 +50,11 @@ export const getEmployees = async (pb: PocketBase, options?: PocketBaseRequestOp
   }
 };
 
-export const createEmployee = async (pb: PocketBase, employeeData: Partial<Omit<Employee, 'id' | 'created' | 'updated'>> | FormData): Promise<Employee> => {
+export const createEmployee = async (pb: PocketBase, employeeData: Partial<Omit<Employee, 'id' | 'created' | 'updated'>> | FormData, options?: PocketBaseRequestOptions): Promise<Employee> => {
+  // Note: createEmployee is not being wrapped withRetry in this subtask,
+  // but options are added for consistency if future needs arise e.g. for signal.
   try {
-    const record = await pb.collection(COLLECTION_NAME).create(employeeData);
+    const record = await pb.collection(COLLECTION_NAME).create(employeeData, { signal: options?.signal });
     return pbRecordToEmployee(record);
   } catch (error) {
     console.error("Failed to create employee:", error);
@@ -54,9 +62,13 @@ export const createEmployee = async (pb: PocketBase, employeeData: Partial<Omit<
   }
 };
 
-export const updateEmployee = async (pb: PocketBase, id: string, employeeData: Partial<Employee> | FormData): Promise<Employee> => {
+export const updateEmployee = async (pb: PocketBase, id: string, employeeData: Partial<Employee> | FormData, options?: PocketBaseRequestOptions): Promise<Employee> => {
   try {
-    const record = await pb.collection(COLLECTION_NAME).update(id, employeeData);
+    const { signal } = options || {};
+    const record = await withRetry(() =>
+      pb.collection(COLLECTION_NAME).update(id, employeeData, { signal }),
+      { context: `updating employee ${id}`, signal }
+    );
     return pbRecordToEmployee(record);
   } catch (error) {
     console.error(`Failed to update employee ${id}:`, error);
@@ -64,9 +76,13 @@ export const updateEmployee = async (pb: PocketBase, id: string, employeeData: P
   }
 };
 
-export const deleteEmployee = async (pb: PocketBase, id: string): Promise<void> => {
+export const deleteEmployee = async (pb: PocketBase, id: string, options?: PocketBaseRequestOptions): Promise<void> => {
   try {
-    await pb.collection(COLLECTION_NAME).delete(id);
+    const { signal } = options || {};
+    await withRetry(() =>
+      pb.collection(COLLECTION_NAME).delete(id, { signal }),
+      { context: `deleting employee ${id}`, signal }
+    );
   } catch (error) {
     console.error(`Failed to delete employee ${id}:`, error);
     throw error;
@@ -75,7 +91,13 @@ export const deleteEmployee = async (pb: PocketBase, id: string): Promise<void> 
 
 export const getEmployeeById = async (pb: PocketBase, id: string, options?: PocketBaseRequestOptions): Promise<Employee | null> => {
   try {
-    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id, options), { ...options, context: `fetching employee by ID ${id}` });
+    const { onRetry, ...restOptions } = options || {}; // Destructure onRetry
+    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id, restOptions),
+    {
+      ...restOptions,
+      context: `fetching employee by ID ${id}`,
+      onRetry // Pass the callback
+    });
     return pbRecordToEmployee(record);
   } catch (error) {
      if ((error as any).status === 404) {
