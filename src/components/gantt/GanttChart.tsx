@@ -13,26 +13,27 @@ import {
   isWithinInterval,
   max,
   min,
-  isValid // Added isValid import
+  isValid,
+  addMonths, // Added
+  subMonths, // Added
+  startOfMonth, // Added
+  endOfMonth // Added
 } from 'date-fns';
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
 import { getTasks } from "@/services/taskService";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle } from "lucide-react";
-import { Button as ShadcnButton } from "@/components/ui/button";
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react"; // Added Chevrons
+import { Button as ShadcnButton } from "@/components/ui/button"; // Renamed to avoid conflict
 import type PocketBase from "pocketbase";
-
-interface GanttChartProps {
-  // tasks prop removed as the component will fetch its own data
-}
 
 const DAY_CELL_WIDTH = 30; 
 const ROW_HEIGHT = 48;
 const SIDEBAR_WIDTH = 450; 
-const HEADER_HEIGHT = 60; 
+// HEADER_HEIGHT is implicitly handled by the two 30px rows
 const TASK_BAR_VERTICAL_PADDING = 8; 
+const GANTT_VIEW_MONTHS = 3; // Number of months to display in the view
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => {
   if (isMilestone) return 'bg-purple-500 hover:bg-purple-600'; 
@@ -80,12 +81,13 @@ const getDetailedErrorMessage = (error: any): string => {
 };
 
 
-const GanttChart: React.FC<GanttChartProps> = () => {
+const GanttChart: React.FC = () => {
   const { pbClient } = useAuth();
   const { toast } = useToast();
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [viewStartDate, setViewStartDate] = useState<Date>(startOfMonth(new Date()));
 
   const fetchTimelineTasks = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -96,15 +98,19 @@ const GanttChart: React.FC<GanttChartProps> = () => {
     setError(null);
     try {
       const fetchedTasks = await getTasks(pb, { signal });
-      // Filter tasks to include only those with valid start and end dates
-      setTasks(
-        fetchedTasks.filter(task => 
-          task.startDate &&
-          task.dueDate &&
-          isValid(task.startDate) && // Ensure startDate is a valid Date
-          isValid(task.dueDate)     // Ensure dueDate is a valid Date
-        )
+      const validRawTasks = fetchedTasks.filter(task => 
+        task.startDate && task.dueDate &&
+        isValid(new Date(task.startDate)) && isValid(new Date(task.dueDate))
       );
+      setAllTasks(validRawTasks);
+
+      if (validRawTasks.length > 0) {
+        const projectMinDate = min(validRawTasks.map(t => startOfDay(new Date(t.startDate!))));
+        setViewStartDate(startOfMonth(projectMinDate));
+      } else {
+        setViewStartDate(startOfMonth(new Date()));
+      }
+
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
@@ -139,6 +145,83 @@ const GanttChart: React.FC<GanttChartProps> = () => {
     };
   }, [pbClient, fetchTimelineTasks]);
 
+
+  const chartData = useMemo(() => {
+    if (allTasks.length === 0) {
+      return {
+        tasksToDisplay: [],
+        chartStartDate: viewStartDate,
+        chartEndDate: endOfMonth(addMonths(viewStartDate, GANTT_VIEW_MONTHS - 1)),
+        totalDaysInView: 0,
+        weeksInView: [],
+        monthHeaders: [],
+      };
+    }
+
+    const processedTasks = allTasks.map(task => ({
+      ...task,
+      startDate: startOfDay(new Date(task.startDate!)), 
+      dueDate: startOfDay(new Date(task.dueDate!)),
+      progress: typeof task.progress === 'number' && task.progress >= 0 && task.progress <= 100 ? task.progress : 0,
+      isMilestone: task.isMilestone === true || (task.isMilestone !== false && isSameDay(new Date(task.startDate!), new Date(task.dueDate!))),
+      dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
+    }));
+    
+    const currentChartStartDate = viewStartDate;
+    const currentChartEndDate = endOfMonth(addMonths(viewStartDate, GANTT_VIEW_MONTHS - 1));
+
+    const tasksToDisplay = processedTasks.filter(task => 
+        (task.startDate <= currentChartEndDate && task.dueDate >= currentChartStartDate)
+    ).sort((a,b) => a.startDate.getTime() - b.startDate.getTime());
+
+
+    const totalDaysInView = differenceInDays(currentChartEndDate, currentChartStartDate) + 1;
+    
+    const weeksInView = totalDaysInView > 0 ? eachWeekOfInterval(
+      { start: currentChartStartDate, end: currentChartEndDate },
+      { weekStartsOn: 1 } 
+    ) : [];
+
+    const getMonthYear = (date: Date) => format(date, 'MMM yyyy');
+    const monthHeadersData: { name: string; span: number }[] = [];
+    
+    if (weeksInView.length > 0) {
+      let currentMonthStr = getMonthYear(weeksInView[0]);
+      let spanCount = 0;
+      weeksInView.forEach(weekStart => {
+        const monthYear = getMonthYear(weekStart);
+        if (monthYear === currentMonthStr) {
+          spanCount++;
+        } else {
+          monthHeadersData.push({ name: currentMonthStr, span: spanCount });
+          currentMonthStr = monthYear;
+          spanCount = 1;
+        }
+      });
+      monthHeadersData.push({ name: currentMonthStr, span: spanCount });
+    }
+
+    return {
+      tasksToDisplay,
+      chartStartDate: currentChartStartDate,
+      chartEndDate: currentChartEndDate,
+      totalDaysInView,
+      weeksInView,
+      monthHeaders: monthHeadersData,
+    };
+
+  }, [allTasks, viewStartDate]);
+
+  const { tasksToDisplay, chartStartDate, chartEndDate, totalDaysInView, weeksInView, monthHeaders } = chartData;
+
+  const handlePrevMonth = () => {
+    setViewStartDate(prev => subMonths(prev, 1));
+  };
+
+  const handleNextMonth = () => {
+    setViewStartDate(prev => addMonths(prev, 1));
+  };
+
   const refetchTasks = () => {
     if (pbClient) {
       fetchTimelineTasks(pbClient);
@@ -170,74 +253,64 @@ const GanttChart: React.FC<GanttChartProps> = () => {
     );
   }
   
-  // tasks state already contains filtered tasks with valid dates
-  const validTasks = tasks.map(task => ({
-    ...task,
-    // startDate and dueDate are confirmed valid Date objects here by the filter
-    startDate: startOfDay(task.startDate!), 
-    dueDate: startOfDay(task.dueDate!),
-    progress: typeof task.progress === 'number' && task.progress >= 0 && task.progress <= 100 ? task.progress : 0,
-    isMilestone: task.isMilestone === true || (task.isMilestone !== false && isSameDay(task.startDate!, task.dueDate!)),
-    dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
-  }));
-
-  if (validTasks.length === 0 && !isLoading && !error) {
+  if (allTasks.length === 0 && !isLoading && !error) {
     return (
         <div className="text-center py-10 text-muted-foreground min-h-[300px]">
-            <p>No tasks with valid start and due dates found to display on the timeline.</p>
-            <p className="text-xs mt-1">Ensure tasks have valid start and due dates assigned, and that the dates are correctly formatted.</p>
+            <p>No tasks found to display on the timeline.</p>
+            <p className="text-xs mt-1">Ensure tasks have valid start and due dates assigned.</p>
+        </div>
+    );
+  }
+  if (tasksToDisplay.length === 0 && allTasks.length > 0 && !isLoading && !error) {
+     return (
+        <div className="text-center py-10 text-muted-foreground min-h-[300px]">
+            <div className="flex justify-center items-center gap-2 mb-4">
+                <ShadcnButton variant="outline" size="sm" onClick={handlePrevMonth}><ChevronLeft className="h-4 w-4 mr-1" /> Prev</ShadcnButton>
+                <span className="font-medium text-lg">{format(viewStartDate, "MMMM yyyy")} - {format(addMonths(viewStartDate, GANTT_VIEW_MONTHS -1), "MMMM yyyy")}</span>
+                <ShadcnButton variant="outline" size="sm" onClick={handleNextMonth}>Next <ChevronRight className="h-4 w-4 ml-1" /></ShadcnButton>
+            </div>
+            <p>No tasks fall within the current visible date range.</p>
+            <p className="text-xs mt-1">Try adjusting the timeline view using the Prev/Next buttons.</p>
         </div>
     );
   }
 
 
-  const overallStartDate = validTasks.length > 0 ? min(validTasks.map(t => t.startDate)) : startOfDay(new Date());
-  const overallEndDate = validTasks.length > 0 ? max(validTasks.map(t => t.dueDate)) : addDays(startOfDay(new Date()), 30);
-  
-  const chartStartDate = addDays(overallStartDate, -2); 
-  const chartEndDate = addDays(overallEndDate, 14); 
-
-  const totalDaysInChart = differenceInDays(chartEndDate, chartStartDate) + 1;
-  if (totalDaysInChart <= 0) {
-     return <div className="p-4 text-center text-muted-foreground">Invalid date range for chart.</div>;
+  if (totalDaysInView <= 0 && !isLoading && !error) {
+     return <div className="p-4 text-center text-muted-foreground">Invalid date range for chart. Try navigating.</div>;
   }
-
-
-  const weeksInChart = eachWeekOfInterval(
-    { start: chartStartDate, end: chartEndDate },
-    { weekStartsOn: 1 } 
-  );
-
-  const getMonthYear = (date: Date) => format(date, 'MMM yyyy');
-  const monthHeaders: { name: string; span: number }[] = [];
-  
-  if (weeksInChart.length > 0) {
-    let currentMonth = getMonthYear(weeksInChart[0]);
-    let spanCount = 0;
-    for (const weekStart of weeksInChart) {
-      const monthYear = getMonthYear(weekStart);
-      if (monthYear === currentMonth) {
-        spanCount++;
-      } else {
-        monthHeaders.push({ name: currentMonth, span: spanCount });
-        currentMonth = monthYear;
-        spanCount = 1;
-      }
-    }
-    monthHeaders.push({ name: currentMonth, span: spanCount }); // Add the last month
-  }
-
 
   const today = startOfDay(new Date());
   const showTodayLine = isWithinInterval(today, { start: chartStartDate, end: chartEndDate });
-  const todayLineLeftPosition = showTodayLine 
-    ? (differenceInDays(today, chartStartDate) / totalDaysInChart) * (weeksInChart.length * DAY_CELL_WIDTH)
+  const todayLineLeftPosition = showTodayLine && totalDaysInView > 0
+    ? (differenceInDays(today, chartStartDate) * DAY_CELL_WIDTH)
     : 0;
+  
+  const timelineGridWidth = weeksInView.length * 7 * DAY_CELL_WIDTH;
+
 
   return (
-    <div className="gantt-chart-container text-xs select-none" style={{ minWidth: SIDEBAR_WIDTH + (weeksInChart.length * DAY_CELL_WIDTH) }}>
+    <div className="gantt-chart-container text-xs select-none" style={{ minWidth: SIDEBAR_WIDTH + timelineGridWidth }}>
+      {/* Control Header */}
+      <div className="flex justify-between items-center p-2 border-b border-border bg-card sticky top-0 z-30">
+         <h2 className="text-lg font-semibold text-card-foreground">Project Timeline</h2>
+         <div className="flex items-center gap-2">
+            <ShadcnButton variant="outline" size="sm" onClick={handlePrevMonth}>
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Prev
+            </ShadcnButton>
+            <span className="font-medium text-sm text-muted-foreground tabular-nums">
+                {format(viewStartDate, "MMM yyyy")} - {format(addMonths(viewStartDate, GANTT_VIEW_MONTHS - 1), "MMM yyyy")}
+            </span>
+            <ShadcnButton variant="outline" size="sm" onClick={handleNextMonth}>
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+            </ShadcnButton>
+         </div>
+      </div>
+      
       {/* Headers */}
-      <div className="sticky top-0 z-20 bg-card grid" style={{ gridTemplateColumns: `${SIDEBAR_WIDTH}px 1fr`}}>
+      <div className="sticky top-[57px] z-20 bg-card grid" style={{ gridTemplateColumns: `${SIDEBAR_WIDTH}px 1fr`}}>
         {/* Left Panel Header */}
         <div className="h-[60px] border-b border-r border-border flex items-center p-2 font-semibold text-sm">
           <div className="grid grid-cols-[40px_1fr_70px_70px_60px] w-full items-center gap-2">
@@ -251,7 +324,7 @@ const GanttChart: React.FC<GanttChartProps> = () => {
         {/* Month and Week Headers */}
         <div className="overflow-hidden">
           {/* Month Headers */}
-          <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${weeksInChart.length}, minmax(${DAY_CELL_WIDTH}px, 1fr))`}}>
+          <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${weeksInView.length}, ${DAY_CELL_WIDTH * 7}px)`}}>
             {monthHeaders.map((month, index) => (
               <div
                 key={index}
@@ -261,17 +334,31 @@ const GanttChart: React.FC<GanttChartProps> = () => {
                 {month.name}
               </div>
             ))}
-            {weeksInChart.length > 0 && monthHeaders.reduce((acc, curr) => acc + curr.span, 0) < weeksInChart.length && (
-                <div className="border-r border-border"></div>
+            {weeksInView.length > 0 && monthHeaders.reduce((acc, curr) => acc + curr.span, 0) < weeksInView.length && (
+                <div className="border-r border-border"></div> // Ensure right border for last partial month if any
             )}
           </div>
           {/* Week Headers */}
-          <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${weeksInChart.length}, minmax(${DAY_CELL_WIDTH}px, 1fr))`}}>
-            {weeksInChart.map((weekStart, index) => (
-              <div key={index} className="flex items-center justify-center border-r border-border text-muted-foreground text-[10px]">
-                W{getISOWeek(weekStart)}
-              </div>
-            ))}
+          <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${weeksInView.length * 7}, ${DAY_CELL_WIDTH}px)`}}>
+            {weeksInView.flatMap((weekStart, weekIndex) => 
+              Array.from({ length: 7 }).map((_, dayIndex) => {
+                const day = addDays(weekStart, dayIndex);
+                const isCurrentMonthDay = day >= chartStartDate && day <= chartEndDate;
+                return (
+                  <div 
+                    key={`${weekIndex}-${dayIndex}`} 
+                    className={cn(
+                        "flex items-center justify-center border-r border-border text-muted-foreground text-[10px]",
+                        isSameDay(day, today) ? "bg-blue-100 dark:bg-blue-900/50" : "",
+                        !isCurrentMonthDay ? "opacity-50" : ""
+                    )}
+                    title={format(day, 'EEE, MMM d')}
+                  >
+                    {format(day, 'd')}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>
@@ -279,7 +366,7 @@ const GanttChart: React.FC<GanttChartProps> = () => {
       {/* Task Rows and Timeline Grid */}
       <div className="relative">
         {/* "Today" Line */}
-        {showTodayLine && (
+        {showTodayLine && totalDaysInView > 0 && (
              <div 
                 className="absolute top-0 bottom-0 w-[2px] bg-red-500/70 z-10"
                 style={{ left: `${todayLineLeftPosition}px` }}
@@ -290,19 +377,31 @@ const GanttChart: React.FC<GanttChartProps> = () => {
         )}
 
 
-        {validTasks.map((task, taskIndex) => {
-          const taskStartDayIndex = differenceInDays(task.startDate, chartStartDate);
-          const taskEndDayIndex = Math.max(taskStartDayIndex, differenceInDays(task.dueDate, chartStartDate));
-          
-          const barLeftPosition = (taskStartDayIndex / totalDaysInChart) * (weeksInChart.length * DAY_CELL_WIDTH);
+        {tasksToDisplay.map((task, taskIndex) => {
+          // Ensure dates are valid before proceeding with calculations
+          if (!isValid(task.startDate) || !isValid(task.dueDate)) return null;
 
-          const taskDurationDays = Math.max(1, differenceInDays(task.dueDate, task.startDate) + 1);
-          const barWidth = (taskDurationDays / totalDaysInChart) * (weeksInChart.length * DAY_CELL_WIDTH);
+          const taskStartActual = task.startDate;
+          const taskEndActual = task.dueDate;
+
+          // Clip task start/end to be within the current view window for rendering
+          const taskStartInView = max([taskStartActual, chartStartDate]);
+          const taskEndInView = min([taskEndActual, chartEndDate]);
+          
+          if (taskStartInView > taskEndInView) return null; // Task is completely outside the clipped view
+
+          const taskStartDayOffset = differenceInDays(taskStartInView, chartStartDate);
+          const taskDurationInViewDays = differenceInDays(taskEndInView, taskStartInView) + 1;
+
+          if (taskDurationInViewDays <= 0) return null;
+
+          const barLeftPosition = taskStartDayOffset * DAY_CELL_WIDTH;
+          const barWidth = taskDurationInViewDays * DAY_CELL_WIDTH;
           
           const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING - 4; 
           const taskBarTop = (ROW_HEIGHT - taskBarHeight) / 2;
 
-          let tooltipText = `${task.title}: ${task.progress}% (${format(task.startDate, 'P')} - ${format(task.dueDate, 'P')})`;
+          let tooltipText = `${task.title}: ${task.progress}% (${format(taskStartActual, 'P')} - ${format(taskEndActual, 'P')})`;
           if (task.dependencies && task.dependencies.length > 0) {
             tooltipText += ` | Depends on: ${task.dependencies.join(', ')}`;
           }
@@ -320,13 +419,13 @@ const GanttChart: React.FC<GanttChartProps> = () => {
               <div className="grid grid-cols-[40px_1fr_70px_70px_60px] w-full items-center gap-2 p-2 border-r border-border">
                 <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
                 <span className="font-medium truncate text-xs" title={task.title}>{task.title}</span>
-                <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
-                <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
+                <span className="text-center text-[10px]">{format(taskStartActual, 'ddMMMyy')}</span>
+                <span className="text-center text-[10px]">{format(taskEndActual, 'ddMMMyy')}</span>
                 <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
               </div>
 
               {/* Task Bar Pane */}
-              <div className="relative border-r border-border overflow-hidden">
+              <div className="relative border-r border-border overflow-hidden" style={{width: `${timelineGridWidth}px`}}>
                 {barWidth > 0 && (
                   <div
                     title={tooltipText}
@@ -372,3 +471,5 @@ const GanttChart: React.FC<GanttChartProps> = () => {
 
 export default GanttChart;
 
+
+    
