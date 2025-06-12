@@ -7,7 +7,7 @@ import {
   differenceInDays,
   eachWeekOfInterval,
   format,
-  getISOWeek,
+  // getISOWeek, // No longer used
   startOfDay,
   isSameDay,
   isWithinInterval,
@@ -29,7 +29,7 @@ import { Button as ShadcnButton } from "@/components/ui/button";
 import type PocketBase from "pocketbase";
 
 const ROW_HEIGHT = 48;
-const SIDEBAR_WIDTH = 450;
+const SIDEBAR_WIDTH = 450; // Increased to accommodate more details
 const TASK_BAR_VERTICAL_PADDING = 8;
 const GANTT_VIEW_MONTHS = 3;
 const MILESTONE_SIZE = 16; // px
@@ -199,18 +199,22 @@ const GanttChart: React.FC = () => {
     if (weeksInView.length > 0) {
       let currentMonthStr = getMonthYear(weeksInView[0]);
       let spanCount = 0;
-      weeksInView.forEach(weekStart => {
-        const monthYear = getMonthYear(weekStart);
-        if (monthYear === currentMonthStr) {
-          spanCount++;
-        } else {
-          monthHeadersData.push({ name: currentMonthStr, span: spanCount });
-          currentMonthStr = monthYear;
-          spanCount = 1;
-        }
+      let currentDayPtr = new Date(currentChartStartDate);
+      
+      const monthSpans: {[key: string]: number} = {};
+
+      while(currentDayPtr <= currentChartEndDate) {
+        const monthKey = getMonthYear(currentDayPtr);
+        monthSpans[monthKey] = (monthSpans[monthKey] || 0) + 1;
+        currentDayPtr = addDays(currentDayPtr, 1);
+      }
+      
+      Object.entries(monthSpans).forEach(([name, daysInMonth]) => {
+          // A "span" here is number of day cells, not week cells
+          monthHeadersData.push({ name, span: daysInMonth });
       });
-      monthHeadersData.push({ name: currentMonthStr, span: spanCount });
     }
+
 
     return {
       tasksToDisplay,
@@ -305,7 +309,7 @@ const GanttChart: React.FC = () => {
     ? (differenceInDays(today, chartStartDate) * dayCellWidth)
     : 0;
 
-  const timelineGridWidth = weeksInView.length * 7 * dayCellWidth;
+  const timelineGridWidth = totalDaysInView * dayCellWidth;
 
 
   return (
@@ -346,36 +350,30 @@ const GanttChart: React.FC = () => {
             <span className="text-center text-muted-foreground text-[10px] uppercase">Prog.</span>
           </div>
         </div>
-        {/* Month and Week Headers */}
+        {/* Month and Day Headers */}
         <div className="overflow-hidden">
           {/* Month Headers */}
-          <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${weeksInView.length}, ${dayCellWidth * 7}px)`}}>
+          <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: monthHeaders.map(m => `${m.span * dayCellWidth}px`).join(' ') }}>
             {monthHeaders.map((month, index) => (
               <div
                 key={index}
                 className="flex items-center justify-center border-r border-border font-semibold text-xs"
-                style={{ gridColumn: `span ${month.span}` }}
+                // style={{ gridColumn: `span ${month.span}` }} // grid-template-columns on parent handles span
               >
                 {month.name}
               </div>
             ))}
-            {weeksInView.length > 0 && monthHeaders.reduce((acc, curr) => acc + curr.span, 0) < weeksInView.length && (
-                <div className="border-r border-border"></div>
-            )}
           </div>
           {/* Day Headers */}
-          <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${weeksInView.length * 7}, ${dayCellWidth}px)`}}>
-            {weeksInView.flatMap((weekStart, weekIndex) =>
-              Array.from({ length: 7 }).map((_, dayIndex) => {
-                const day = addDays(weekStart, dayIndex);
-                const isCurrentMonthDay = day >= chartStartDate && day <= chartEndDate;
+          <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${totalDaysInView}, ${dayCellWidth}px)`}}>
+            {Array.from({ length: totalDaysInView }).map((_, dayIndex) => {
+                const day = addDays(chartStartDate, dayIndex);
                 return (
                   <div
-                    key={`${weekIndex}-${dayIndex}`}
+                    key={`${dayIndex}`}
                     className={cn(
                         "flex items-center justify-center border-r border-border text-muted-foreground text-[10px]",
-                        isSameDay(day, today) ? "bg-blue-100 dark:bg-blue-900/50" : "",
-                        !isCurrentMonthDay ? "opacity-50" : ""
+                        isSameDay(day, today) ? "bg-blue-100 dark:bg-blue-900/50" : ""
                     )}
                     title={format(day, 'EEE, MMM d')}
                   >
@@ -383,7 +381,7 @@ const GanttChart: React.FC = () => {
                   </div>
                 );
               })
-            )}
+            }
           </div>
         </div>
       </div>
@@ -420,6 +418,7 @@ const GanttChart: React.FC = () => {
 
           let barLeftPosition = taskStartDayOffset * dayCellWidth;
           if (task.isMilestone) {
+            // For milestone, center it within its day cell
             barLeftPosition += (dayCellWidth / 2) - (MILESTONE_SIZE / 2);
           }
 
@@ -430,11 +429,16 @@ const GanttChart: React.FC = () => {
           
           const milestoneTop = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
 
-
-          let tooltipText = `${task.title}: ${task.progress}% (${format(taskStartActual, 'P')} - ${format(taskEndActual, 'P')})`;
-          if (task.dependencies && task.dependencies.length > 0) {
-            tooltipText += ` | Depends on: ${task.dependencies.join(', ')}`;
-          }
+          const tooltipLines = [
+            `Task: ${task.title}`,
+            `Status: ${task.status}`,
+            `Priority: ${task.priority}`,
+            `Progress: ${task.progress}%`,
+            `Dates: ${format(taskStartActual, 'MMM d, yyyy')} - ${format(taskEndActual, 'MMM d, yyyy')}`,
+            `Assigned to: ${task.assignedTo_text || "Unassigned"}`,
+            `Depends on: ${task.dependencies && task.dependencies.length > 0 ? task.dependencies.join(', ') : "None"}`
+          ];
+          const tooltipText = tooltipLines.join('\n');
           
           if (task.isMilestone && !isWithinInterval(taskStartActual, { start: chartStartDate, end: chartEndDate })) {
             return null;
@@ -471,7 +475,7 @@ const GanttChart: React.FC = () => {
                     )}
                     style={{
                       left: `${barLeftPosition}px`,
-                      width: task.isMilestone ? `${MILESTONE_SIZE}px` : `${Math.max(5, barWidth)}px`,
+                      width: task.isMilestone ? `${MILESTONE_SIZE}px` : `${Math.max(5, barWidth)}px`, // Ensure min width for visibility
                       height: task.isMilestone ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
                       top: task.isMilestone ? `${milestoneTop}px` : `${taskBarTop}px`,
                     }}
@@ -489,7 +493,7 @@ const GanttChart: React.FC = () => {
                          </svg>
                        </div>
                     )}
-                    {!task.isMilestone && barWidth > (dayCellWidth * 0.75) && (
+                    {!task.isMilestone && barWidth > (dayCellWidth * 0.75) && ( // Show title in bar if enough space
                       <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden pr-1">
                         {task.title}
                       </span>
@@ -506,4 +510,3 @@ const GanttChart: React.FC = () => {
 };
 
 export default GanttChart;
-
