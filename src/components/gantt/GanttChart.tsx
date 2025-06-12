@@ -14,17 +14,23 @@ import {
   max,
   min
 } from 'date-fns';
-import React from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
+import { useAuth } from "@/context/AuthContext";
+import { getTasks } from "@/services/taskService";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2, AlertTriangle } from "lucide-react";
+import { Button as ShadcnButton } from "@/components/ui/button";
+import type PocketBase from "pocketbase";
 
 interface GanttChartProps {
-  tasks: Task[];
+  // tasks prop removed as the component will fetch its own data
 }
 
 const DAY_CELL_WIDTH = 30; 
 const ROW_HEIGHT = 48;
 const SIDEBAR_WIDTH = 450; 
-const HEADER_HEIGHT = 60; // Combined height for month and week headers
+const HEADER_HEIGHT = 60; 
 const TASK_BAR_VERTICAL_PADDING = 8; 
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => {
@@ -46,9 +52,116 @@ const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => 
   }
 };
 
-const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
+const getDetailedErrorMessage = (error: any): string => {
+  let message = "An unexpected error occurred while fetching tasks for the timeline.";
+  if (error && typeof error === 'object') {
+    if ('status' in error && error.status === 0) {
+      message = "Failed to load timeline data: Could not connect to the server. Please check your internet connection and try again.";
+    } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
+      message = error.data.message;
+    } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
+      message = error.message;
+    } else if (error.originalError && typeof error.originalError.message === 'string') {
+        message = error.originalError.message;
+    } else if (error.message && typeof error.message === 'string') {
+      message = error.message;
+    }
+
+    if ('status' in error && error.status !== 0) {
+      const status = error.status;
+      if (status === 404) message = `The 'tasks' collection was not found (404). ${message}`;
+      else if (status === 403) message = `You do not have permission to view tasks (403). ${message}`;
+    }
+  } else if (typeof error === 'string') {
+    message = error;
+  }
+  return message;
+};
+
+
+const GanttChart: React.FC<GanttChartProps> = () => {
+  const { pbClient } = useAuth();
+  const { toast } = useToast();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTimelineTasks = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
+    if (!pb) {
+      setIsLoading(true);
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      const fetchedTasks = await getTasks(pb, { signal });
+      setTasks(fetchedTasks.filter(task => task.startDate && task.dueDate));
+    } catch (err: any) {
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+      
+      if (isAutocancel) {
+        console.warn(`GanttChart: Timeline tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
+        console.warn("GanttChart: Timeline tasks fetch (network error):", detailedError, err);
+      } else {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
+        console.warn("GanttChart: Error fetching tasks for timeline (after retries):", detailedError, err); 
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    if (pbClient) {
+      fetchTimelineTasks(pbClient, controller.signal);
+    } else {
+       setIsLoading(true);
+    }
+    return () => {
+      controller.abort();
+    };
+  }, [pbClient, fetchTimelineTasks]);
+
+  const refetchTasks = () => {
+    if (pbClient) {
+      fetchTimelineTasks(pbClient);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center py-10 min-h-[300px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="ml-2">Loading timeline data...</p>
+      </div>
+    );
+  }
+
+  if (error && !isLoading) {
+    return (
+      <div className="text-center py-10 min-h-[300px]">
+        <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
+        <p className="mt-4 text-lg font-semibold">Failed to Load Timeline Data</p>
+        <p className="text-sm text-muted-foreground">{error}</p>
+        <ShadcnButton 
+          onClick={refetchTasks} 
+          className="mt-6"
+        >
+          Try Again
+        </ShadcnButton>
+      </div>
+    );
+  }
   
-  const validTasks = tasks.filter(task => task.startDate && task.dueDate).map(task => ({
+  const validTasks = tasks.map(task => ({
     ...task,
     startDate: startOfDay(new Date(task.startDate!)),
     dueDate: startOfDay(new Date(task.dueDate!)),
@@ -57,12 +170,18 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
     dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
   }));
 
-  if (validTasks.length === 0) {
-    return <div className="p-4 text-center text-muted-foreground">No tasks with valid start and end dates to display.</div>;
+  if (validTasks.length === 0 && !isLoading && !error) {
+    return (
+        <div className="text-center py-10 text-muted-foreground min-h-[300px]">
+            <p>No tasks with both start and due dates found to display on the timeline.</p>
+            <p className="text-xs mt-1">Ensure tasks have valid start and due dates assigned.</p>
+        </div>
+    );
   }
 
-  const overallStartDate = min(validTasks.map(t => t.startDate));
-  const overallEndDate = max(validTasks.map(t => t.dueDate));
+
+  const overallStartDate = validTasks.length > 0 ? min(validTasks.map(t => t.startDate)) : startOfDay(new Date());
+  const overallEndDate = validTasks.length > 0 ? max(validTasks.map(t => t.dueDate)) : addDays(startOfDay(new Date()), 30);
   
   const chartStartDate = addDays(overallStartDate, -2); 
   const chartEndDate = addDays(overallEndDate, 14); 
@@ -100,11 +219,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
 
   const today = startOfDay(new Date());
   const showTodayLine = isWithinInterval(today, { start: chartStartDate, end: chartEndDate });
-  let todayPositionPercent = 0;
-  if (showTodayLine) {
-    const daysFromChartStartToToday = differenceInDays(today, chartStartDate);
-    todayPositionPercent = (daysFromChartStartToToday / totalDaysInChart) * 100;
-  }
 
   return (
     <div className="gantt-chart-container text-xs select-none" style={{ minWidth: SIDEBAR_WIDTH + (weeksInChart.length * DAY_CELL_WIDTH) }}>
@@ -133,7 +247,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
                 {month.name}
               </div>
             ))}
-             {/* Ensure full border if months don't fill width */}
             {weeksInChart.length > 0 && monthHeaders.reduce((acc, curr) => acc + curr.span, 0) < weeksInChart.length && (
                 <div className="border-r border-border"></div>
             )}
@@ -153,13 +266,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
       <div className="relative">
         {/* "Today" Line */}
         {showTodayLine && (
-          <div 
-            className="absolute top-0 bottom-0 w-[2px] bg-red-500/70 z-10"
-            style={{ left: `${SIDEBAR_WIDTH + (differenceInDays(today, chartStartDate) * DAY_CELL_WIDTH / 7 * (weeksInChart.length/totalDaysInChart) )}px` }}
-            // Approximate position based on days; more accurate would need pixel calculation per day
-            // For simplicity, if DAY_CELL_WIDTH represents a week, then per day is DAY_CELL_WIDTH / 7
-            // The style needs to map days to the grid, not overall percentage of total chart duration
-          >
              <div 
                 className="absolute top-0 bottom-0 w-[2px] bg-red-500/70 z-10"
                 style={{ left: `${(differenceInDays(today, chartStartDate) / totalDaysInChart) * (weeksInChart.length * DAY_CELL_WIDTH) }px` }}
@@ -167,18 +273,15 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
               >
                 <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[8px] px-0.5 rounded-sm">TODAY</div>
               </div>
-          </div>
         )}
 
 
         {validTasks.map((task, taskIndex) => {
           const taskStartDayIndex = differenceInDays(task.startDate, chartStartDate);
-          // Ensure taskEndDayIndex is at least taskStartDayIndex if due date is before start date (or for milestones)
           const taskEndDayIndex = Math.max(taskStartDayIndex, differenceInDays(task.dueDate, chartStartDate));
           
           const barLeftPosition = (taskStartDayIndex / totalDaysInChart) * (weeksInChart.length * DAY_CELL_WIDTH);
 
-          // Duration in days, ensuring at least 1 day for milestones or same-day tasks
           const taskDurationDays = Math.max(1, differenceInDays(task.dueDate, task.startDate) + 1);
           const barWidth = (taskDurationDays / totalDaysInChart) * (weeksInChart.length * DAY_CELL_WIDTH);
           
@@ -219,7 +322,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
                     )}
                     style={{
                       left: `${barLeftPosition}px`,
-                      width: `${Math.max(task.isMilestone ? 12 : 5, barWidth)}px`, // Ensure min width for visibility
+                      width: `${Math.max(task.isMilestone ? 12 : 5, barWidth)}px`, 
                       height: `${taskBarHeight}px`,
                       top: `${taskBarTop}px`,
                     }}
@@ -237,7 +340,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
                          </svg>
                        </div>
                     )}
-                    {!task.isMilestone && barWidth > (DAY_CELL_WIDTH * 0.75) && ( // Only show title if bar is wide enough
+                    {!task.isMilestone && barWidth > (DAY_CELL_WIDTH * 0.75) && ( 
                       <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden pr-1">
                         {task.title}
                       </span>
@@ -254,4 +357,3 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
 };
 
 export default GanttChart;
-
