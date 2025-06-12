@@ -41,7 +41,7 @@ const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred while managing employees.";
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      message = "Network error: Failed to communicate with the server. Please check your connection and try again.";
+      message = "Failed to load employees: Could not connect to the server. Please check your internet connection and try again.";
     } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
@@ -90,42 +90,32 @@ export default function EmployeesPage() {
     },
   });
 
-  const fetchEmployees = useCallback(async (pb: PocketBase) => {
-    let ignore = false;
+  const fetchEmployees = useCallback(async (pb: PocketBase, signal?: AbortSignal) => {
     setIsLoading(true);
     setError(null);
     try {
-      const fetchedEmployees = await getEmployees(pb);
-      if (!ignore) {
-        setEmployees(fetchedEmployees);
-      }
+      const fetchedEmployees = await getEmployees(pb, { signal });
+      setEmployees(fetchedEmployees);
     } catch (err: any) {
-      if (!ignore) {
-        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
-        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
-        
-        if (isAutocancel) {
-          console.warn(`Employees fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
-        } else if (isNetworkErrorNotAutocancel) {
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Network Error", description: detailedError, variant: "destructive" });
-          console.warn("Employees fetch (network error):", detailedError, err);
-        } else {
-          console.warn("Error fetching employees (after retries):", err); // Changed from console.error
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
-        }
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+      
+      if (isAutocancel) {
+        console.warn(`Employees fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
+        console.warn("Employees fetch (network error):", detailedError, err);
+      } else {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
+        console.warn("Error fetching employees (after retries):", detailedError, err); 
       }
     } finally {
-      if (!ignore) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
-    return () => {
-      ignore = true;
-    };
   }, [toast]);
 
 
@@ -141,11 +131,11 @@ export default function EmployeesPage() {
       return;
     }
     
-    const cleanup = fetchEmployees(pbClient);
+    const controller = new AbortController();
+    fetchEmployees(pbClient, controller.signal);
+    
     return () => {
-      if (typeof cleanup === 'function') {
-        cleanup();
-      }
+      controller.abort();
     }
   }, [user, pbClient, router, toast, fetchEmployees, canManageEmployees]);
 
@@ -180,7 +170,7 @@ export default function EmployeesPage() {
       await deleteEmployee(pbClient, employeeId);
       toast({ title: "Success", description: "Employee removed successfully." });
     } catch (error) {
-      console.error("Failed to delete employee:", error); // Keep console.error for CUD operations
+      console.error("Failed to delete employee:", error); 
       setEmployees(originalEmployees);
       toast({ title: "Error", description: getDetailedErrorMessage(error), variant: "destructive" });
     }
@@ -227,7 +217,7 @@ export default function EmployeesPage() {
         toast({ title: "Success", description: "Employee details updated successfully." });
         handleEditDialogClose();
     } catch (error) {
-        console.error("Failed to update employee:", error); // Keep console.error for CUD operations
+        console.error("Failed to update employee:", error); 
         toast({ title: "Error", description: getDetailedErrorMessage(error), variant: "destructive" });
     } finally {
         setIsSubmittingEdit(false);
@@ -236,7 +226,7 @@ export default function EmployeesPage() {
   
   const refetchEmployees = () => {
      if (pbClient && canManageEmployees) {
-      fetchEmployees(pbClient);
+      fetchEmployees(pbClient); // Consider AbortController if this can be rapid-clicked
     }
   };
 

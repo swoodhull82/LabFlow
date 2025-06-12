@@ -6,16 +6,21 @@ import { withRetry } from '@/lib/retry';
 
 const COLLECTION_NAME = "employees";
 
+interface PocketBaseRequestOptions {
+  signal?: AbortSignal;
+  [key: string]: any;
+}
+
 // Helper to convert PocketBase record to Employee type
 const pbRecordToEmployee = (record: any): Employee => {
   return {
     id: record.id,
     name: record.name,
     email: record.email,
-    role: record.role, // This is the job title/role within the company
+    role: record.role, 
     reportsTo_text: record.reportsTo_text,
     department_text: record.department_text,
-    userId: record.userId, // This would link to a User record in PocketBase's 'users' collection
+    userId: record.userId, 
     created: record.created ? new Date(record.created) : undefined,
     updated: record.updated ? new Date(record.updated) : undefined,
     collectionId: record.collectionId,
@@ -24,12 +29,14 @@ const pbRecordToEmployee = (record: any): Employee => {
   };
 };
 
-export const getEmployees = async (pb: PocketBase): Promise<Employee[]> => {
+export const getEmployees = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<Employee[]> => {
   try {
     const records = await withRetry(() => 
       pb.collection(COLLECTION_NAME).getFullList({
-        sort: 'name', 
-      })
+        sort: 'name',
+        ...options,
+      }),
+      { ...options, context: "fetching employees list" }
     );
     return records.map(pbRecordToEmployee);
   } catch (error) {
@@ -37,7 +44,6 @@ export const getEmployees = async (pb: PocketBase): Promise<Employee[]> => {
   }
 };
 
-// Updated to clarify that employeeData can be an object or FormData
 export const createEmployee = async (pb: PocketBase, employeeData: Partial<Omit<Employee, 'id' | 'created' | 'updated'>> | FormData): Promise<Employee> => {
   try {
     const record = await pb.collection(COLLECTION_NAME).create(employeeData);
@@ -67,9 +73,9 @@ export const deleteEmployee = async (pb: PocketBase, id: string): Promise<void> 
   }
 };
 
-export const getEmployeeById = async (pb: PocketBase, id: string): Promise<Employee | null> => {
+export const getEmployeeById = async (pb: PocketBase, id: string, options?: PocketBaseRequestOptions): Promise<Employee | null> => {
   try {
-    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id));
+    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id, options), { ...options, context: `fetching employee by ID ${id}` });
     return pbRecordToEmployee(record);
   } catch (error) {
      if ((error as any).status === 404) {
@@ -78,4 +84,3 @@ export const getEmployeeById = async (pb: PocketBase, id: string): Promise<Emplo
     throw error;
   }
 };
-

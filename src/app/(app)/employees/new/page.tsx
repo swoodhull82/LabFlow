@@ -37,7 +37,7 @@ const getDetailedManagerFetchErrorMessage = (error: any): string => {
   let message = "Could not load list of potential managers.";
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      return "Network error: Could not load managers. Please check connection.";
+      return "Failed to load potential managers: Could not connect to the server. Please check your internet connection and try again.";
     } else if (error.message) {
       message = error.message;
     }
@@ -75,14 +75,15 @@ export default function NewEmployeePage() {
     }
   }, [user, router, toast, canManageEmployees]);
 
-  const fetchManagersCallback = useCallback(async (pb: PocketBase | null) => {
+  const fetchManagersCallback = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb || !canManageEmployees) return;
+    
     setIsLoadingManagers(true);
     setFetchManagersError(null);
     try {
-      const allEmployees = await getEmployees(pb);
+      const allEmployees = await getEmployees(pb, { signal });
       const managers = allEmployees.filter(
-        (emp) => emp.role === "Supervisor" || emp.role === "Team Lead"
+        (emp) => (emp.role === "Supervisor" || emp.role === "Team Lead")
       );
       setPotentialManagers(managers);
     } catch (error: any) {
@@ -91,15 +92,16 @@ export default function NewEmployeePage() {
       
       if (isAutocancel) {
          console.warn(`Fetch potential managers request was ${error?.isAbort ? 'aborted' : 'autocancelled'}.`, error);
+      } else if (isNetworkErrorNotAutocancel) {
+          const detailedError = getDetailedManagerFetchErrorMessage(error);
+          setFetchManagersError(detailedError); 
+          toast({ title: "Error Loading Managers", description: detailedError, variant: "destructive" });
+          console.warn("Fetch potential managers (network error):", detailedError, error);
       } else {
         const detailedError = getDetailedManagerFetchErrorMessage(error);
         setFetchManagersError(detailedError);
         toast({ title: "Error Loading Managers", description: detailedError, variant: "destructive" });
-        if (isNetworkErrorNotAutocancel) {
-          console.warn("Fetch potential managers (network error):", detailedError, error);
-        } else {
-          console.warn("Failed to fetch potential managers (after retries):", error); // Changed from console.error
-        }
+        console.warn("Failed to fetch potential managers (after retries):", error); 
       }
     } finally {
       setIsLoadingManagers(false);
@@ -108,7 +110,12 @@ export default function NewEmployeePage() {
 
 
   useEffect(() => {
-    fetchManagersCallback(pbClient);
+    const controller = new AbortController();
+    fetchManagersCallback(pbClient, controller.signal);
+    
+    return () => {
+      controller.abort();
+    };
   }, [pbClient, fetchManagersCallback]);
 
 

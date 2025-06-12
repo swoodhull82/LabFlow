@@ -26,7 +26,7 @@ const getDetailedEmployeeFetchErrorMessage = (error: any): string => {
   let message = "Could not load employees for assignment.";
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      return "Network error: Could not load employees. Please check connection.";
+      return "Failed to load employees for assignment: Could not connect to the server. Please check your internet connection and try again.";
     } else if (error.message) {
       message = error.message;
     }
@@ -54,7 +54,7 @@ export default function NewTaskPage() {
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [fetchEmployeesError, setFetchEmployeesError] = useState<string | null>(null);
 
-  const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null) => {
+  const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
       setIsLoadingEmployees(false);
       return;
@@ -62,7 +62,7 @@ export default function NewTaskPage() {
     setIsLoadingEmployees(true);
     setFetchEmployeesError(null);
     try {
-      const fetchedEmployees = await getEmployees(pb);
+      const fetchedEmployees = await getEmployees(pb, { signal });
       setEmployees(fetchedEmployees);
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
@@ -70,15 +70,16 @@ export default function NewTaskPage() {
       
       if (isAutocancel) {
         console.warn(`Fetch employees for task assignment request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+          const detailedError = getDetailedEmployeeFetchErrorMessage(err);
+          setFetchEmployeesError(detailedError); 
+          toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
+          console.warn("Fetch employees for task assignment (network error):", detailedError, err);
       } else {
         const detailedError = getDetailedEmployeeFetchErrorMessage(err);
         setFetchEmployeesError(detailedError);
         toast({ title: "Error Loading Employees", description: detailedError, variant: "destructive" });
-        if (isNetworkErrorNotAutocancel) {
-          console.warn("Fetch employees for task assignment (network error):", detailedError, err);
-        } else {
-          console.warn("Error fetching employees for task assignment (after retries):", err); // Changed from console.error
-        }
+        console.warn("Error fetching employees for task assignment (after retries):", detailedError, err); 
       }
     } finally {
       setIsLoadingEmployees(false);
@@ -86,11 +87,15 @@ export default function NewTaskPage() {
   }, [toast]);
 
   useEffect(() => {
+    const controller = new AbortController();
     if (pbClient) {
-      fetchAndSetEmployees(pbClient);
+      fetchAndSetEmployees(pbClient, controller.signal);
     } else {
       setIsLoadingEmployees(true); 
     }
+    return () => {
+      controller.abort();
+    };
   }, [pbClient, fetchAndSetEmployees]);
 
 
@@ -153,7 +158,7 @@ export default function NewTaskPage() {
       toast({ title: "Success", description: "New task created successfully!" });
       router.push("/tasks");
     } catch (err: any) {
-      console.error("Failed to create task (full error object):", err); // Keep console.error for CUD operations
+      console.error("Failed to create task (full error object):", err); 
       let detailedMessage = "Failed to create task. Please try again.";
       
       if (err.data && typeof err.data === 'object') {

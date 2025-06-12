@@ -6,6 +6,11 @@ import { withRetry } from '@/lib/retry';
 
 const COLLECTION_NAME = "activity_log";
 
+interface PocketBaseRequestOptions {
+  signal?: AbortSignal;
+  [key: string]: any;
+}
+
 // Helper to convert PocketBase record to ActivityLogEntry type
 const pbRecordToActivityLogEntry = (record: any): ActivityLogEntry => {
   return {
@@ -15,12 +20,14 @@ const pbRecordToActivityLogEntry = (record: any): ActivityLogEntry => {
   } as ActivityLogEntry;
 };
 
-export const getActivityLogEntries = async (pb: PocketBase): Promise<ActivityLogEntry[]> => {
+export const getActivityLogEntries = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<ActivityLogEntry[]> => {
   try {
     const records = await withRetry(() => 
       pb.collection(COLLECTION_NAME).getFullList({
-        sort: '-created', // Fetch most recent entries first
-      })
+        sort: '-created', 
+        ...options,
+      }),
+      { ...options, context: "fetching activity log entries" }
     );
     return records.map(pbRecordToActivityLogEntry);
   } catch (error) {
@@ -28,14 +35,12 @@ export const getActivityLogEntries = async (pb: PocketBase): Promise<ActivityLog
   }
 };
 
-// Optional: Function to create a log entry, can be called from other services
 export const createActivityLogEntry = async (
   pb: PocketBase,
   entryData: { user_name: string; action: string; details?: string; target_resource?: string }
 ): Promise<ActivityLogEntry> => {
   try {
-    // Create operations might not always be suitable for retries without idempotency keys
-    // For now, not wrapping create/update/delete with retry by default
+    // Create operations are typically not retried automatically by default to avoid duplicate creations
     const record = await pb.collection(COLLECTION_NAME).create(entryData);
     return pbRecordToActivityLogEntry(record);
   } catch (error) {

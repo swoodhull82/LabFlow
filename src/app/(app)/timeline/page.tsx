@@ -3,7 +3,8 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Loader2, AlertTriangle, Button } from "lucide-react"; // Added Button for explicit import
+import { Loader2, AlertTriangle } from "lucide-react";
+import { Button as ShadcnButton } from "@/components/ui/button"; 
 import { useAuth } from "@/context/AuthContext";
 import { getTasks } from "@/services/taskService";
 import type { Task } from "@/lib/types";
@@ -15,7 +16,7 @@ const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred while fetching tasks for the timeline.";
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      message = "Network error: Failed to communicate with the server. Please check your connection and try again.";
+      message = "Failed to load timeline data: Could not connect to the server. Please check your internet connection and try again.";
     } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
@@ -44,64 +45,53 @@ export default function TimelinePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchTimelineTasks = useCallback(async (pb: PocketBase | null) => {
+  const fetchTimelineTasks = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
       setIsLoading(true);
       return;
     }
-    let ignore = false;
     setIsLoading(true);
     setError(null);
     try {
-      const fetchedTasks = await getTasks(pb);
-      if (!ignore) {
-        setTasks(fetchedTasks.filter(task => task.startDate && task.dueDate));
-      }
+      const fetchedTasks = await getTasks(pb, { signal });
+      setTasks(fetchedTasks.filter(task => task.startDate && task.dueDate));
     } catch (err: any) {
-      if (!ignore) {
-        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
-        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
-        
-        if (isAutocancel) {
-          console.warn(`Timeline tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
-        } else if (isNetworkErrorNotAutocancel) {
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Network Error", description: detailedError, variant: "destructive" });
-          console.warn("Timeline tasks fetch (network error):", detailedError, err);
-        } else {
-          console.warn("Error fetching tasks for timeline (after retries):", err); // Changed from console.error
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
-        }
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+      
+      if (isAutocancel) {
+        console.warn(`Timeline tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
+        console.warn("Timeline tasks fetch (network error):", detailedError, err);
+      } else {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
+        console.warn("Error fetching tasks for timeline (after retries):", detailedError, err); 
       }
     } finally {
-      if (!ignore) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
-    return () => {
-      ignore = true;
-    };
   }, [toast]);
 
   useEffect(() => {
+    const controller = new AbortController();
     if (pbClient) {
-      const cleanup = fetchTimelineTasks(pbClient);
-      return () => {
-        if (typeof cleanup === 'function') {
-          cleanup();
-        }
-      };
+      fetchTimelineTasks(pbClient, controller.signal);
     } else {
        setIsLoading(true);
     }
+    return () => {
+      controller.abort();
+    };
   }, [pbClient, fetchTimelineTasks]);
 
   const refetchTasks = () => {
     if (pbClient) {
-      fetchTimelineTasks(pbClient);
+      fetchTimelineTasks(pbClient); // Consider AbortController if this can be rapid-clicked
     }
   };
 
@@ -130,13 +120,12 @@ export default function TimelinePage() {
               <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
               <p className="mt-4 text-lg font-semibold">Failed to Load Timeline Data</p>
               <p className="text-sm">{error}</p>
-              {/* Ensure Button component is properly imported or use standard button */}
-              <button 
+              <ShadcnButton 
                 onClick={refetchTasks} 
-                className="mt-6 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                className="mt-6"
               >
                 Try Again
-              </button>
+              </ShadcnButton>
             </div>
           )}
           {!isLoading && !error && tasks.length === 0 && (

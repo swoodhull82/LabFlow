@@ -45,7 +45,7 @@ const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred while managing tasks.";
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      message = "Network error: Failed to communicate with the server. Please check your connection and try again.";
+      message = "Failed to load tasks: Could not connect to the server. Please check your internet connection and try again.";
     } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
       message = error.data.message;
     } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
@@ -75,59 +75,49 @@ export default function TasksPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchTasksCallback = useCallback(async (pb: PocketBase | null) => {
+  const fetchTasksCallback = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
       setIsLoading(false); 
       return;
     }
-    let ignore = false;
+    
     setIsLoading(true);
     setError(null);
     try {
-      const fetchedTasks = await getTasks(pb);
-      if (!ignore) {
-        setTasks(fetchedTasks);
-      }
+      const fetchedTasks = await getTasks(pb, { signal });
+      setTasks(fetchedTasks);
     } catch (err: any) {
-      if (!ignore) {
-        const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
-        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
-        
-        if (isAutocancel) {
-          console.warn(`Tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
-        } else if (isNetworkErrorNotAutocancel) {
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Network Error", description: detailedError, variant: "destructive" });
-          console.warn("Tasks fetch (network error):", detailedError, err);
-        } else {
-          console.warn("Error fetching tasks (after retries):", err); // Changed from console.error
-          const detailedError = getDetailedErrorMessage(err);
-          setError(detailedError);
-          toast({ title: "Error Loading Tasks", description: detailedError, variant: "destructive" });
-        }
+      const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+      const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
+      
+      if (isAutocancel) {
+        console.warn(`Tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+      } else if (isNetworkErrorNotAutocancel) {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Tasks", description: detailedError, variant: "destructive" });
+        console.warn("Tasks fetch (network error):", detailedError, err);
+      } else {
+        const detailedError = getDetailedErrorMessage(err);
+        setError(detailedError);
+        toast({ title: "Error Loading Tasks", description: detailedError, variant: "destructive" });
+        console.warn("Error fetching tasks (after retries):", detailedError, err); 
       }
     } finally {
-      if (!ignore) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
-    return () => {
-      ignore = true;
-    };
   }, [toast]);
 
   useEffect(() => {
+    const controller = new AbortController();
     if (pbClient) {
-      const cleanup = fetchTasksCallback(pbClient);
-      return () => {
-        if (typeof cleanup === 'function') {
-          cleanup();
-        }
-      };
+      fetchTasksCallback(pbClient, controller.signal);
     } else {
       setIsLoading(true); 
     }
+    return () => {
+      controller.abort();
+    };
   }, [pbClient, fetchTasksCallback]);
 
   const handleToggleTaskStatus = async (taskId: string, currentStatus: TaskStatus) => {
@@ -149,8 +139,8 @@ export default function TasksPage() {
       ));
       toast({ title: "Success", description: `Task marked as ${newStatus}.` });
     } catch (err) {
-      console.error("Error updating task status:", err); // Keep console.error for CUD
-      setTasks(tasks); // Revert optimistic update
+      console.error("Error updating task status:", err); 
+      setTasks(tasks); 
       toast({ title: "Error", description: `Failed to update task status: ${getDetailedErrorMessage(err)}`, variant: "destructive" });
     }
   };
@@ -166,7 +156,7 @@ export default function TasksPage() {
       await deleteTask(pbClient, taskId);
       toast({ title: "Success", description: "Task deleted successfully." });
     } catch (err) {
-      console.error("Error deleting task:", err); // Keep console.error for CUD
+      console.error("Error deleting task:", err); 
       setTasks(originalTasks);
       toast({ title: "Error", description: getDetailedErrorMessage(err), variant: "destructive" });
     }
@@ -174,7 +164,7 @@ export default function TasksPage() {
 
   const refetchTasks = () => {
     if (pbClient) {
-      fetchTasksCallback(pbClient);
+      fetchTasksCallback(pbClient); // Consider AbortController if this can be rapid-clicked
     }
   }
 
@@ -286,4 +276,3 @@ export default function TasksPage() {
     </div>
   );
 }
-
