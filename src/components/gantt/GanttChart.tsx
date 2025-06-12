@@ -5,9 +5,8 @@ import type { Task, TaskStatus } from '@/lib/types';
 import {
   addDays,
   differenceInDays,
-  eachWeekOfInterval,
+  // eachWeekOfInterval, // No longer directly used for day headers
   format,
-  // getISOWeek, // No longer used
   startOfDay,
   isSameDay,
   isWithinInterval,
@@ -29,7 +28,7 @@ import { Button as ShadcnButton } from "@/components/ui/button";
 import type PocketBase from "pocketbase";
 
 const ROW_HEIGHT = 48;
-const SIDEBAR_WIDTH = 450; // Increased to accommodate more details
+const SIDEBAR_WIDTH = 450;
 const TASK_BAR_VERTICAL_PADDING = 8;
 const GANTT_VIEW_MONTHS = 3;
 const MILESTONE_SIZE = 16; // px
@@ -37,6 +36,9 @@ const MILESTONE_SIZE = 16; // px
 const MIN_DAY_CELL_WIDTH = 15;
 const MAX_DAY_CELL_WIDTH = 60;
 const DEFAULT_DAY_CELL_WIDTH = 30;
+
+const DEPENDENCY_LINE_OFFSET = 15; // pixels, for the horizontal part of the elbow
+const ARROW_SIZE = 5; // for arrowhead marker
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => {
   if (isMilestone) return 'bg-purple-500 hover:bg-purple-600';
@@ -115,7 +117,8 @@ const GanttChart: React.FC = () => {
         setViewStartDate(startOfMonth(new Date()));
       }
 
-    } catch (err: any) {
+    } catch (err: any)
+{
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
 
@@ -157,7 +160,6 @@ const GanttChart: React.FC = () => {
         chartStartDate: viewStartDate,
         chartEndDate: endOfMonth(addMonths(viewStartDate, GANTT_VIEW_MONTHS - 1)),
         totalDaysInView: 0,
-        weeksInView: [],
         monthHeaders: [],
       };
     }
@@ -188,19 +190,11 @@ const GanttChart: React.FC = () => {
 
     const totalDaysInView = differenceInDays(currentChartEndDate, currentChartStartDate) + 1;
 
-    const weeksInView = totalDaysInView > 0 ? eachWeekOfInterval(
-      { start: currentChartStartDate, end: currentChartEndDate },
-      { weekStartsOn: 1 } // Assuming Monday is the start of the week
-    ) : [];
-
     const getMonthYear = (date: Date) => format(date, 'MMM yyyy');
     const monthHeadersData: { name: string; span: number }[] = [];
 
-    if (weeksInView.length > 0) {
-      let currentMonthStr = getMonthYear(weeksInView[0]);
-      let spanCount = 0;
+    if (totalDaysInView > 0) {
       let currentDayPtr = new Date(currentChartStartDate);
-      
       const monthSpans: {[key: string]: number} = {};
 
       while(currentDayPtr <= currentChartEndDate) {
@@ -210,24 +204,109 @@ const GanttChart: React.FC = () => {
       }
       
       Object.entries(monthSpans).forEach(([name, daysInMonth]) => {
-          // A "span" here is number of day cells, not week cells
           monthHeadersData.push({ name, span: daysInMonth });
       });
     }
-
 
     return {
       tasksToDisplay,
       chartStartDate: currentChartStartDate,
       chartEndDate: currentChartEndDate,
       totalDaysInView,
-      weeksInView,
       monthHeaders: monthHeadersData,
     };
 
   }, [allTasks, viewStartDate]);
 
-  const { tasksToDisplay, chartStartDate, chartEndDate, totalDaysInView, weeksInView, monthHeaders } = chartData;
+  const { tasksToDisplay, chartStartDate, chartEndDate, totalDaysInView, monthHeaders } = chartData;
+
+  const taskRenderDetailsMap = useMemo(() => {
+    const map = new Map<string, {
+        task: Task;
+        index: number;
+        barStartX: number;
+        barEndX: number;
+        barCenterY: number;
+        isMilestone: boolean;
+    }>();
+
+    tasksToDisplay.forEach((task, index) => {
+        // Basic validation, should have been caught by earlier processing if using these tasks
+        if (!isValid(task.startDate) || !isValid(task.dueDate)) return;
+
+        const taskStartActual = task.startDate;
+        // const taskEndActual = task.dueDate; // Not directly used here for map value
+        const taskStartInView = max([taskStartActual, chartStartDate]);
+        const taskEndInView = min([task.dueDate, chartEndDate]);
+        
+        // These checks might be redundant if tasksToDisplay is already well-filtered, but safe
+        if (taskStartInView > taskEndInView && !task.isMilestone) return;
+
+        const taskStartDayOffset = differenceInDays(taskStartInView, chartStartDate);
+        const taskDurationInViewDays = task.isMilestone ? 1 : differenceInDays(taskEndInView, taskStartInView) + 1;
+
+        if (taskDurationInViewDays <= 0 && !task.isMilestone) return;
+
+        let barLeftPosition = taskStartDayOffset * dayCellWidth;
+        const barWidth = task.isMilestone ? MILESTONE_SIZE : taskDurationInViewDays * dayCellWidth;
+
+        if (task.isMilestone) {
+            barLeftPosition += (dayCellWidth / 2) - (MILESTONE_SIZE / 2);
+        }
+        
+        const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING - 4;
+        const taskBarTop = (ROW_HEIGHT - taskBarHeight) / 2;
+        const milestoneTop = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
+
+        map.set(task.id, {
+            task, // Store the processed task object
+            index,
+            barStartX: barLeftPosition,
+            barEndX: barLeftPosition + barWidth,
+            barCenterY: (index * ROW_HEIGHT) + 
+                        (task.isMilestone ? milestoneTop + MILESTONE_SIZE / 2 : taskBarTop + taskBarHeight / 2),
+            isMilestone: !!task.isMilestone,
+        });
+    });
+    return map;
+  }, [tasksToDisplay, chartStartDate, dayCellWidth]);
+
+
+  const dependencyLines = useMemo(() => {
+    const lines: { id: string, d: string }[] = [];
+    tasksToDisplay.forEach((dependentTask) => {
+        if (!dependentTask.dependencies || dependentTask.dependencies.length === 0) {
+            return;
+        }
+
+        const dependentDetails = taskRenderDetailsMap.get(dependentTask.id);
+        if (!dependentDetails) return;
+
+        dependentTask.dependencies.forEach((predecessorId, depIndex) => {
+            const predecessorDetails = taskRenderDetailsMap.get(predecessorId);
+            if (!predecessorDetails) {
+                // Predecessor might be off-screen (not in tasksToDisplay currently)
+                return;
+            }
+            
+            const fromX = predecessorDetails.isMilestone ? predecessorDetails.barStartX + MILESTONE_SIZE / 2 : predecessorDetails.barEndX;
+            const fromY = predecessorDetails.barCenterY;
+            const toX = dependentDetails.isMilestone ? dependentDetails.barStartX + MILESTONE_SIZE / 2 : dependentDetails.barStartX;
+            const toY = dependentDetails.barCenterY;
+
+            if (fromX >= toX && fromY === toY) return; // Avoid drawing line if predecessor ends at or after dependent starts on same row
+
+            const turnX = fromX + DEPENDENCY_LINE_OFFSET;
+            const pathD = `M ${fromX} ${fromY} L ${turnX} ${fromY} L ${turnX} ${toY} L ${toX} ${toY}`;
+
+            lines.push({
+                id: `dep-${predecessorDetails.task.id}-to-${dependentDetails.task.id}-${depIndex}`,
+                d: pathD,
+            });
+        });
+    });
+    return lines;
+  }, [tasksToDisplay, taskRenderDetailsMap]); // DEPENDENCY_LINE_OFFSET is constant
 
   const handlePrevMonth = () => {
     setViewStartDate(prev => subMonths(prev, 1));
@@ -310,6 +389,7 @@ const GanttChart: React.FC = () => {
     : 0;
 
   const timelineGridWidth = totalDaysInView * dayCellWidth;
+  const svgHeight = tasksToDisplay.length * ROW_HEIGHT;
 
 
   return (
@@ -358,7 +438,6 @@ const GanttChart: React.FC = () => {
               <div
                 key={index}
                 className="flex items-center justify-center border-r border-border font-semibold text-xs"
-                // style={{ gridColumn: `span ${month.span}` }} // grid-template-columns on parent handles span
               >
                 {month.name}
               </div>
@@ -386,12 +465,12 @@ const GanttChart: React.FC = () => {
         </div>
       </div>
 
-      {/* Task Rows and Timeline Grid */}
+      {/* Task Rows and Timeline Grid Container */}
       <div className="relative">
         {/* "Today" Line */}
         {showTodayLine && totalDaysInView > 0 && (
              <div
-                className="absolute top-0 bottom-0 w-[2px] bg-red-500/70 z-10"
+                className="absolute top-0 bottom-0 w-[2px] bg-red-500/70 z-10" // z-10 to be above grid, below task bars potentially
                 style={{ left: `${todayLineLeftPosition}px` }}
                 title={`Today: ${format(today, 'PPP')}`}
               >
@@ -399,34 +478,16 @@ const GanttChart: React.FC = () => {
               </div>
         )}
 
-
+        {/* Task Rows Rendering */}
         {tasksToDisplay.map((task, taskIndex) => {
-          if (!isValid(task.startDate) || !isValid(task.dueDate)) return null;
+          const taskDetails = taskRenderDetailsMap.get(task.id);
+          if (!taskDetails) return null; // Should not happen if tasksToDisplay is source for map
 
-          const taskStartActual = task.startDate;
-          const taskEndActual = task.dueDate;
+          const { barStartX, barEndX, isMilestone } = taskDetails;
+          const barWidth = barEndX - barStartX; // Effective bar width
 
-          const taskStartInView = max([taskStartActual, chartStartDate]);
-          const taskEndInView = min([taskEndActual, chartEndDate]);
-
-          if (taskStartInView > taskEndInView && !task.isMilestone) return null;
-
-          const taskStartDayOffset = differenceInDays(taskStartInView, chartStartDate);
-          const taskDurationInViewDays = task.isMilestone ? 1 : differenceInDays(taskEndInView, taskStartInView) + 1;
-
-          if (taskDurationInViewDays <= 0 && !task.isMilestone) return null;
-
-          let barLeftPosition = taskStartDayOffset * dayCellWidth;
-          if (task.isMilestone) {
-            // For milestone, center it within its day cell
-            barLeftPosition += (dayCellWidth / 2) - (MILESTONE_SIZE / 2);
-          }
-
-          const barWidth = task.isMilestone ? MILESTONE_SIZE : taskDurationInViewDays * dayCellWidth;
-          
           const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING - 4;
           const taskBarTop = (ROW_HEIGHT - taskBarHeight) / 2;
-          
           const milestoneTop = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
 
           const tooltipLines = [
@@ -434,21 +495,16 @@ const GanttChart: React.FC = () => {
             `Status: ${task.status}`,
             `Priority: ${task.priority}`,
             `Progress: ${task.progress}%`,
-            `Dates: ${format(taskStartActual, 'MMM d, yyyy')} - ${format(taskEndActual, 'MMM d, yyyy')}`,
+            `Dates: ${format(task.startDate, 'MMM d, yyyy')} - ${format(task.dueDate, 'MMM d, yyyy')}`,
             `Assigned to: ${task.assignedTo_text || "Unassigned"}`,
             `Depends on: ${task.dependencies && task.dependencies.length > 0 ? task.dependencies.join(', ') : "None"}`
           ];
           const tooltipText = tooltipLines.join('\n');
           
-          if (task.isMilestone && !isWithinInterval(taskStartActual, { start: chartStartDate, end: chartEndDate })) {
-            return null;
-          }
-
-
           return (
             <div
               key={task.id}
-              className="grid border-b border-border hover:bg-muted/10 relative"
+              className="grid border-b border-border hover:bg-muted/10 relative" // relative for potential future absolutely positioned elements within row
               style={{
                 gridTemplateColumns: `${SIDEBAR_WIDTH}px 1fr`,
                 height: `${ROW_HEIGHT}px`
@@ -458,42 +514,42 @@ const GanttChart: React.FC = () => {
               <div className="grid grid-cols-[40px_1fr_70px_70px_60px] w-full items-center gap-2 p-2 border-r border-border">
                 <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
                 <span className="font-medium truncate text-xs" title={task.title}>{task.title}</span>
-                <span className="text-center text-[10px]">{format(taskStartActual, 'ddMMMyy')}</span>
-                <span className="text-center text-[10px]">{format(taskEndActual, 'ddMMMyy')}</span>
+                <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
+                <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
                 <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
               </div>
 
-              {/* Task Bar Pane */}
+              {/* Task Bar Pane - This div itself doesn't need a fixed width, its parent does */}
               <div className="relative border-r border-border overflow-hidden" style={{width: `${timelineGridWidth}px`}}>
-                {barWidth > 0 && (
+                {barWidth > 0 && ( // Only render if there's a visible portion
                   <div
                     title={tooltipText}
                     className={cn(
-                      "absolute transition-all duration-150 ease-in-out group cursor-pointer",
-                      getTaskBarColor(task.status, task.isMilestone),
-                      !task.isMilestone && "rounded-sm"
+                      "absolute transition-all duration-150 ease-in-out group cursor-pointer z-20", // z-20 to be above today line and grid
+                      getTaskBarColor(task.status, isMilestone),
+                      !isMilestone && "rounded-sm"
                     )}
                     style={{
-                      left: `${barLeftPosition}px`,
-                      width: task.isMilestone ? `${MILESTONE_SIZE}px` : `${Math.max(5, barWidth)}px`, // Ensure min width for visibility
-                      height: task.isMilestone ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
-                      top: task.isMilestone ? `${milestoneTop}px` : `${taskBarTop}px`,
+                      left: `${barStartX}px`,
+                      width: `${barWidth}px`,
+                      height: isMilestone ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
+                      top: isMilestone ? `${milestoneTop}px` : `${taskBarTop}px`,
                     }}
                   >
-                    {!task.isMilestone && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && (
+                    {!isMilestone && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && (
                        <div
                           className="absolute top-0 left-0 h-full bg-black/40 rounded-sm"
                           style={{ width: `${task.progress}%`}}
                        />
                     )}
-                    {task.isMilestone && (
+                    {isMilestone && (
                        <div className="absolute inset-0 flex items-center justify-center">
                          <svg viewBox="0 0 100 100" className="w-full h-full fill-current text-white/80" preserveAspectRatio="none">
                            <polygon points="50,0 100,50 50,100 0,50" />
                          </svg>
                        </div>
                     )}
-                    {!task.isMilestone && barWidth > (dayCellWidth * 0.75) && ( // Show title in bar if enough space
+                    {!isMilestone && barWidth > (dayCellWidth * 0.75) && (
                       <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden pr-1">
                         {task.title}
                       </span>
@@ -504,9 +560,51 @@ const GanttChart: React.FC = () => {
             </div>
           );
         })}
-      </div>
+
+        {/* Dependency Lines SVG Overlay */}
+        {dependencyLines.length > 0 && (
+          <svg
+            className="absolute top-0 left-0 pointer-events-none"
+            width={timelineGridWidth} // SVG width should match the timeline grid
+            height={svgHeight}
+            xmlns="http://www.w3.org/2000/svg"
+            style={{ zIndex: 5 }} // Above grid lines, below task bars (if bars need higher z-index for other interactions)
+                                    // Or zIndex: 25 if task bars are z-20 and lines should be on top.
+                                    // pointer-events-none means it won't capture clicks, so tooltips on bars should work.
+          >
+            <defs>
+              <marker
+                id="arrowhead"
+                markerWidth={ARROW_SIZE * 1.2} // Adjusted for better proportion
+                markerHeight={ARROW_SIZE * 0.8}
+                refX={ARROW_SIZE * 1.1} // Nudge back so tip aligns with line end
+                refY={ARROW_SIZE * 0.4}
+                orient="auto-start-reverse" // auto-start-reverse is often better for paths
+              >
+                <polygon
+                  points={`0 0, ${ARROW_SIZE} ${ARROW_SIZE*0.4}, 0 ${ARROW_SIZE*0.8}`} // Points for a triangle
+                  fill="hsl(var(--foreground) / 0.6)" // Slightly less opaque
+                />
+              </marker>
+            </defs>
+            {dependencyLines.map(line => (
+              <path
+                key={line.id}
+                d={line.d}
+                stroke="hsl(var(--foreground) / 0.6)"
+                strokeWidth="1.5"
+                fill="none"
+                markerEnd="url(#arrowhead)"
+              />
+            ))}
+          </svg>
+        )}
+      </div> {/* End of relative container for timeline grid content */}
     </div>
   );
 };
 
 export default GanttChart;
+
+
+    
