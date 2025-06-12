@@ -41,10 +41,10 @@ export async function withRetry<T>(
           opts.onRetry(attempt, error);
         }
         if (attempt < opts.maxAttempts) {
-          console.warn(`Attempt ${attempt} failed for operation. Retrying in ${opts.delayMs}ms... Error: ${error.message || JSON.stringify(error)}`);
+          console.warn(`Attempt ${attempt} failed for operation. Retrying in ${opts.delayMs * Math.pow(2, attempt -1) }ms... Error: ${error.message || JSON.stringify(error)}`);
           await new Promise(resolve => setTimeout(resolve, opts.delayMs * Math.pow(2, attempt -1) )); // Exponential backoff
         } else {
-          console.error(`All ${opts.maxAttempts} attempts failed for operation. Last error: ${error.message || JSON.stringify(error)}`);
+          console.warn(`All ${opts.maxAttempts} attempts failed for operation. Last error: ${error.message || JSON.stringify(error)}`);
         }
       } else {
         // If error is not retryable, rethrow immediately
@@ -55,3 +55,4 @@ export async function withRetry<T>(
   // If all attempts failed for retryable errors
   throw lastError;
 }
+
