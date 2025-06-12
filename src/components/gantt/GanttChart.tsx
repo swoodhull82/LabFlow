@@ -33,6 +33,7 @@ const ROW_HEIGHT = 48;
 const SIDEBAR_WIDTH = 450;
 const TASK_BAR_VERTICAL_PADDING = 8;
 const GANTT_VIEW_MONTHS = 3;
+const MILESTONE_SIZE = 16; // px
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => {
   if (isMilestone) return 'bg-purple-500 hover:bg-purple-600';
@@ -157,14 +158,21 @@ const GanttChart: React.FC = () => {
       };
     }
 
-    const processedTasks = allTasks.map(task => ({
-      ...task,
-      startDate: startOfDay(new Date(task.startDate!)),
-      dueDate: startOfDay(new Date(task.dueDate!)),
-      progress: typeof task.progress === 'number' && task.progress >= 0 && task.progress <= 100 ? task.progress : 0,
-      isMilestone: task.isMilestone === true || (task.isMilestone !== false && isSameDay(new Date(task.startDate!), new Date(task.dueDate!))),
-      dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
-    }));
+    const processedTasks = allTasks.map(task => {
+      const taskStartDateObj = startOfDay(new Date(task.startDate!));
+      const taskDueDateObj = startOfDay(new Date(task.dueDate!));
+      return {
+        ...task,
+        startDate: taskStartDateObj,
+        dueDate: taskDueDateObj,
+        progress: typeof task.progress === 'number' && task.progress >= 0 && task.progress <= 100 ? task.progress : 0,
+        isMilestone: task.isMilestone === true || // Explicitly marked
+                     (task.isMilestone !== false && // Not explicitly NOT a milestone
+                      isValid(taskStartDateObj) && isValid(taskDueDateObj) && // Both dates must be valid
+                      isSameDay(taskStartDateObj, taskDueDateObj)), // And on the same day
+        dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
+      };
+    });
 
     const currentChartStartDate = viewStartDate;
     const currentChartEndDate = endOfMonth(addMonths(viewStartDate, GANTT_VIEW_MONTHS - 1));
@@ -385,23 +393,37 @@ const GanttChart: React.FC = () => {
           const taskStartInView = max([taskStartActual, chartStartDate]);
           const taskEndInView = min([taskEndActual, chartEndDate]);
 
-          if (taskStartInView > taskEndInView) return null;
+          if (taskStartInView > taskEndInView && !task.isMilestone) return null; // Milestones can render if their single day is in view
 
           const taskStartDayOffset = differenceInDays(taskStartInView, chartStartDate);
-          const taskDurationInViewDays = differenceInDays(taskEndInView, taskStartInView) + 1;
+          const taskDurationInViewDays = task.isMilestone ? 1 : differenceInDays(taskEndInView, taskStartInView) + 1;
 
-          if (taskDurationInViewDays <= 0) return null;
+          if (taskDurationInViewDays <= 0 && !task.isMilestone) return null;
 
-          const barLeftPosition = taskStartDayOffset * DAY_CELL_WIDTH;
-          const barWidth = taskDurationInViewDays * DAY_CELL_WIDTH;
+          // For milestones, barLeftPosition should center it on the day. For tasks, it's the start.
+          let barLeftPosition = taskStartDayOffset * DAY_CELL_WIDTH;
+          if (task.isMilestone) {
+            barLeftPosition += (DAY_CELL_WIDTH / 2) - (MILESTONE_SIZE / 2);
+          }
 
+          const barWidth = task.isMilestone ? MILESTONE_SIZE : taskDurationInViewDays * DAY_CELL_WIDTH;
+          
           const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING - 4;
           const taskBarTop = (ROW_HEIGHT - taskBarHeight) / 2;
+          
+          const milestoneTop = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
+
 
           let tooltipText = `${task.title}: ${task.progress}% (${format(taskStartActual, 'P')} - ${format(taskEndActual, 'P')})`;
           if (task.dependencies && task.dependencies.length > 0) {
             tooltipText += ` | Depends on: ${task.dependencies.join(', ')}`;
           }
+          
+          // Ensure milestone is within view for rendering
+          if (task.isMilestone && !isWithinInterval(taskStartActual, { start: chartStartDate, end: chartEndDate })) {
+            return null;
+          }
+
 
           return (
             <div
@@ -427,25 +449,26 @@ const GanttChart: React.FC = () => {
                   <div
                     title={tooltipText}
                     className={cn(
-                      "absolute rounded-sm transition-all duration-150 ease-in-out group cursor-pointer",
-                      getTaskBarColor(task.status, task.isMilestone)
+                      "absolute transition-all duration-150 ease-in-out group cursor-pointer",
+                      getTaskBarColor(task.status, task.isMilestone),
+                      !task.isMilestone && "rounded-sm" // Milestones are not rounded
                     )}
                     style={{
                       left: `${barLeftPosition}px`,
-                      width: `${Math.max(task.isMilestone ? 12 : 5, barWidth)}px`,
-                      height: `${taskBarHeight}px`,
-                      top: `${taskBarTop}px`,
+                      width: task.isMilestone ? `${MILESTONE_SIZE}px` : `${Math.max(5, barWidth)}px`,
+                      height: task.isMilestone ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
+                      top: task.isMilestone ? `${milestoneTop}px` : `${taskBarTop}px`,
                     }}
                   >
                     {!task.isMilestone && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && (
                        <div
-                          className="absolute top-0 left-0 h-full bg-black/40 rounded-sm"
+                          className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" // Progress bar can remain rounded
                           style={{ width: `${task.progress}%`}}
                        />
                     )}
                     {task.isMilestone && (
                        <div className="absolute inset-0 flex items-center justify-center">
-                         <svg viewBox="0 0 100 100" className="w-3/4 h-3/4 fill-current text-white/80" preserveAspectRatio="none">
+                         <svg viewBox="0 0 100 100" className="w-full h-full fill-current text-white/80" preserveAspectRatio="none">
                            <polygon points="50,0 100,50 50,100 0,50" />
                          </svg>
                        </div>
@@ -467,3 +490,4 @@ const GanttChart: React.FC = () => {
 };
 
 export default GanttChart;
+
