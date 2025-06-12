@@ -21,14 +21,14 @@ interface GanttChartProps {
   tasks: Task[];
 }
 
-const DAY_CELL_WIDTH = 30; // Width of a single day cell in pixels
-const ROW_HEIGHT = 44; // Increased height for better progress display
-const SIDEBAR_WIDTH = 300; // Width of the task details sidebar
-const HEADER_HEIGHT = 60; // Combined height of month and week headers
-const TASK_BAR_VERTICAL_PADDING = 8; // Total vertical padding around the task bar (top+bottom)
+const DAY_CELL_WIDTH = 30; 
+const ROW_HEIGHT = 48; // Increased slightly for better text fit in left panel
+const SIDEBAR_WIDTH = 450; // Increased width to accommodate new columns in left panel
+const HEADER_HEIGHT = 60; 
+const TASK_BAR_VERTICAL_PADDING = 8; 
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => {
-  if (isMilestone) return 'bg-purple-500 hover:bg-purple-600'; // Distinct color for milestones
+  if (isMilestone) return 'bg-purple-500 hover:bg-purple-600'; 
   if (!status) return 'bg-primary hover:bg-primary/90';
   switch (status.toLowerCase()) {
     case 'done':
@@ -54,6 +54,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
     dueDate: startOfDay(new Date(task.dueDate!)),
     progress: typeof task.progress === 'number' && task.progress >= 0 && task.progress <= 100 ? task.progress : 0,
     isMilestone: task.isMilestone === true || (task.isMilestone !== false && isSameDay(new Date(task.startDate!), new Date(task.dueDate!))),
+    dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
   }));
 
   if (validTasks.length === 0) {
@@ -64,7 +65,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
   const overallEndDate = max(validTasks.map(t => t.dueDate));
   
   const chartStartDate = addDays(overallStartDate, -2); 
-  const chartEndDate = addDays(overallEndDate, 14); // Extend further for better "Today Line" visibility
+  const chartEndDate = addDays(overallEndDate, 14); 
 
   const totalDaysInChart = differenceInDays(chartEndDate, chartStartDate) + 1;
   if (totalDaysInChart <= 0) {
@@ -74,7 +75,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
 
   const weeksInChart = eachWeekOfInterval(
     { start: chartStartDate, end: chartEndDate },
-    { weekStartsOn: 1 } // Monday
+    { weekStartsOn: 1 } 
   );
 
   const getMonthYear = (date: Date) => format(date, 'MMM yyyy');
@@ -99,11 +100,19 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
   }
 
   return (
-    <div className="gantt-chart-container text-xs select-none" style={{ minWidth: SIDEBAR_WIDTH + (totalDaysInChart * DAY_CELL_WIDTH * 0.3) }}> {/* Adjusted minWidth */}
+    <div className="gantt-chart-container text-xs select-none" style={{ minWidth: SIDEBAR_WIDTH + (totalDaysInChart * DAY_CELL_WIDTH * 0.3) }}>
       {/* Headers */}
       <div className="sticky top-0 z-20 bg-card grid" style={{ gridTemplateColumns: `${SIDEBAR_WIDTH}px 1fr`}}>
-        {/* Top-left empty cell / Controls */}
-        <div className="h-[60px] border-b border-r border-border flex items-center p-2 font-semibold text-sm">Task Details</div>
+        {/* Left Panel Header */}
+        <div className="h-[60px] border-b border-r border-border flex items-center p-2 font-semibold text-sm">
+          <div className="grid grid-cols-[40px_1fr_70px_70px_60px] w-full items-center gap-2">
+            <span className="text-center text-muted-foreground text-[10px] uppercase">WBS</span>
+            <span className="text-muted-foreground text-[10px] uppercase">Task Name</span>
+            <span className="text-center text-muted-foreground text-[10px] uppercase">Start</span>
+            <span className="text-center text-muted-foreground text-[10px] uppercase">End</span>
+            <span className="text-center text-muted-foreground text-[10px] uppercase">Prog.</span>
+          </div>
+        </div>
         {/* Month and Week Headers */}
         <div className="overflow-hidden">
           {/* Month Headers */}
@@ -130,17 +139,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
       </div>
 
       {/* Task Rows and Timeline Grid */}
-      <div className="relative"> {/* Container for tasks and grid lines */}
-        {/* Vertical Grid Lines for each day (subtle) - OPTIONAL, can be intensive for many days */}
-        {/* Background Grid (less performant for many lines, consider SVG for complex grids) */}
-        {/*
-        <div className="absolute inset-0 grid" style={{ gridTemplateColumns: `repeat(${totalDaysInChart}, ${DAY_CELL_WIDTH}px)` }}>
-          {Array.from({ length: totalDaysInChart }).map((_, i) => (
-            <div key={`v-grid-${i}`} className="border-r border-border/30 h-full"></div>
-          ))}
-        </div>
-        */}
-
+      <div className="relative">
         {/* "Today" Line */}
         {showTodayLine && (
           <div 
@@ -157,38 +156,40 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
           const taskEndDayIndex = differenceInDays(task.dueDate, chartStartDate);
           
           const barLeftPercent = Math.max(0, (taskStartDayIndex / totalDaysInChart) * 100);
-          // Ensure duration is at least 1 day for visibility, even for milestones on the same day
           const taskDurationDays = Math.max(1, differenceInDays(task.dueDate, task.startDate) + 1);
           const barWidthPercent = (taskDurationDays / totalDaysInChart) * 100;
           
-          const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING;
-          const taskBarTop = TASK_BAR_VERTICAL_PADDING / 2;
+          const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING - 4; // Adjusted for padding within row
+          const taskBarTop = (ROW_HEIGHT - taskBarHeight) / 2;
+
+          let tooltipText = `${task.title}: ${task.progress}% (${format(task.startDate, 'P')} - ${format(task.dueDate, 'P')})`;
+          if (task.dependencies && task.dependencies.length > 0) {
+            tooltipText += ` | Depends on: ${task.dependencies.join(', ')}`;
+          }
 
           return (
             <div
               key={task.id}
-              className="grid border-b border-border hover:bg-muted/10 relative" // Added relative for stacking context if needed
+              className="grid border-b border-border hover:bg-muted/10 relative"
               style={{ 
                 gridTemplateColumns: `${SIDEBAR_WIDTH}px 1fr`,
                 height: `${ROW_HEIGHT}px`
               }}
             >
-              {/* Task Details Pane */}
-              <div className="flex flex-col justify-center p-2 border-r border-border truncate">
+              {/* Task Details Pane (Left Panel Row) */}
+              <div className="grid grid-cols-[40px_1fr_70px_70px_60px] w-full items-center gap-2 p-2 border-r border-border">
+                <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
                 <span className="font-medium truncate text-xs" title={task.title}>{task.title}</span>
-                <div className="text-muted-foreground text-[10px] flex justify-between">
-                  <span>
-                    {format(task.startDate, 'dd MMM')} - {format(task.dueDate, 'dd MMM yy')}
-                  </span>
-                  {task.progress !== undefined && <span className="font-semibold">{task.progress}%</span>}
-                </div>
+                <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
+                <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
+                <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
               </div>
 
               {/* Task Bar Pane */}
-              <div className="relative border-r border-border overflow-hidden"> {/* Grid lines could be added via background */}
-                {barWidthPercent > 0 && ( /* Only render if width is positive */
+              <div className="relative border-r border-border overflow-hidden">
+                {barWidthPercent > 0 && (
                   <div
-                    title={`${task.title}: ${task.progress}% (${format(task.startDate, 'P')} - ${format(task.dueDate, 'P')})`}
+                    title={tooltipText}
                     className={cn(
                       "absolute rounded-sm transition-all duration-150 ease-in-out group cursor-pointer",
                       getTaskBarColor(task.status, task.isMilestone)
@@ -198,17 +199,15 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
                       width: `${barWidthPercent}%`,
                       height: `${taskBarHeight}px`,
                       top: `${taskBarTop}px`,
-                      minWidth: task.isMilestone ? '12px' : '5px', // Ensure milestone is visible
+                      minWidth: task.isMilestone ? '12px' : '5px', 
                     }}
                   >
-                    {/* Progress Fill */}
                     {!task.isMilestone && task.progress !== undefined && task.progress > 0 && (
                        <div 
                           className="absolute top-0 left-0 h-full bg-black/20 rounded-sm"
                           style={{ width: `${task.progress}%`}}
                        />
                     )}
-                    {/* Milestone Shape (simple for now) */}
                     {task.isMilestone && (
                        <div className="absolute inset-0 flex items-center justify-center">
                          <svg viewBox="0 0 100 100" className="w-3/4 h-3/4 fill-current text-white/80" preserveAspectRatio="none">
@@ -216,8 +215,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ tasks }) => {
                          </svg>
                        </div>
                     )}
-                    {/* Task Title on Bar (if space permits and not milestone) */}
-                    {!task.isMilestone && barWidthPercent > 3 && ( /* Threshold for showing title */
+                    {!task.isMilestone && barWidthPercent > 3 && (
                       <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden pr-1">
                         {task.title}
                       </span>
