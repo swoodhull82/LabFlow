@@ -10,8 +10,8 @@ export interface RetryOptions {
 }
 
 const DEFAULT_RETRY_OPTIONS: Required<Omit<RetryOptions, 'onRetry'>> & { onRetry?: RetryOptions['onRetry'] } = {
-  maxAttempts: 3,
-  delayMs: 1000, // Increased from 500ms
+  maxAttempts: 4, // Increased from 3 to 4
+  delayMs: 1000, 
   shouldRetry: (error: any) => {
     if (error && typeof error === 'object') {
       // Do not retry if the request was explicitly aborted
