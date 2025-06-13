@@ -1,3 +1,4 @@
+
 'use client';
 
 export interface RetryOptions {
@@ -5,10 +6,13 @@ export interface RetryOptions {
   delayMs?: number;
   shouldRetry?: (error: any) => boolean;
   onRetry?: (attempt: number, maxAttempts: number, error: any) => void;
-  context?: string; // Added context for logging
-  signal?: AbortSignal; // Explicitly add signal to RetryOptions if not already implied
+  context?: string;
+  signal?: AbortSignal;
 }
 
+const DEFAULT_RETRY_OPTIONS: RetryOptions = {
+  maxAttempts: 4, // Increased from 3 in a previous step
+  delayMs: 1000,
   shouldRetry: (error: any) => {
     if (error && typeof error === 'object') {
       // Prioritize abort signal checks done explicitly in withRetry
@@ -19,12 +23,14 @@ export interface RetryOptions {
       if (error.isCircuitOpenError === true || error.circuitJustOpened === true) {
         return false;
       }
+      // Retry on network errors (status 0) or common server gateway errors
       return error.status === 0 || error.status === 502 || error.status === 503 || error.status === 504;
     }
     return false;
   },
   context: 'operation', // Default context
-  // signal: undefined, // Default signal is undefined
+  // signal: undefined, // Default signal is undefined, can be omitted
+  // onRetry: undefined, // Default onRetry is undefined, can be omitted
 };
 
 enum CircuitState {
@@ -48,12 +54,12 @@ export async function withRetry<T>(
   options?: RetryOptions
 ): Promise<T> {
   const opts = { ...DEFAULT_RETRY_OPTIONS, ...options };
-  const context = opts.context;
+  const context = opts.context!; // context will have a default from DEFAULT_RETRY_OPTIONS
 
   // Helper to standardize abort error throwing
   const throwAbortError = (messagePrefix: string, originalError?: any) => {
     const message = `[withRetry:${context}] ${messagePrefix}. Circuit: ${circuit.state}.`;
-    console.warn(message); // Keep this log minimal but informative
+    console.warn(message);
     const abortError = new Error(message);
     (abortError as any).isAbort = true;
     (abortError as any).context = context;
@@ -62,9 +68,6 @@ export async function withRetry<T>(
     }
     throw abortError;
   };
-
-  // Initial signal state log (optional, for debugging)
-  // console.log(`[withRetry:${context}] Initial signal.aborted: ${opts.signal?.aborted}`);
 
   if (!circuits.has(context)) {
     circuits.set(context, { state: CircuitState.Closed, failures: 0 });
@@ -87,19 +90,15 @@ export async function withRetry<T>(
   }
 
   let lastError: any;
-  const attemptsForThisRun = circuit.state === CircuitState.HalfOpen ? 1 : opts.maxAttempts;
+  const attemptsForThisRun = circuit.state === CircuitState.HalfOpen ? 1 : opts.maxAttempts!;
 
   for (let attempt = 1; attempt <= attemptsForThisRun; attempt++) {
-    // Check signal before each attempt
     if (opts.signal?.aborted) {
       throwAbortError(`Aborted before attempt ${attempt}`);
     }
-    // Log attempt and signal state (optional, for debugging)
-    // console.log(`[withRetry:${context}] Attempt ${attempt}/${attemptsForThisRun}. Signal.aborted: ${opts.signal?.aborted}. Circuit: ${circuit.state}`);
 
     try {
       const result = await asyncFn();
-      // Success
       if (circuit.state === CircuitState.HalfOpen || circuit.failures > 0 || circuit.state === CircuitState.Open) {
         console.log(`[withRetry:${context}] Circuit is now Closed due to successful attempt (was ${circuit.state}).`);
         circuit.state = CircuitState.Closed;
@@ -110,38 +109,30 @@ export async function withRetry<T>(
     } catch (error) {
       lastError = error;
 
-      // Primary check: if the signal is aborted, this takes precedence.
       if (opts.signal?.aborted) {
         throwAbortError(`Aborted during/after attempt ${attempt} (caught error: ${error?.message || error})`, error);
       }
 
-      // Secondary check: if the error itself is an abort error (e.g., from underlying fetch)
       if (error && typeof error === 'object' && (error.isAbort === true || (typeof error.message === 'string' && error.message.toLowerCase().includes('aborted')))) {
         console.warn(`[withRetry:${context}] Caught abort-like error on attempt ${attempt}: ${error.message}. Circuit: ${circuit.state}.`);
-        // Standardize and rethrow if not already handled by signal check
-        if (!(error as any).isAbort) (error as any).isAbort = true; // Ensure our standard flag
+        if (!(error as any).isAbort) (error as any).isAbort = true;
         if (!(error as any).context) (error as any).context = context;
         throw error;
       }
 
-      if (opts.shouldRetry(error)) {
+      if (opts.shouldRetry!(error)) { // Use non-null assertion as shouldRetry has a default
         if (opts.onRetry) {
           opts.onRetry(attempt, attemptsForThisRun, error);
         }
 
         if (attempt < attemptsForThisRun) {
-          const delay = circuit.state === CircuitState.HalfOpen ? opts.delayMs : opts.delayMs * Math.pow(2, attempt - 1);
-          // Log before delay (optional, for debugging)
-          // console.log(`[withRetry:${context}] Attempt ${attempt} failed. Waiting ${delay}ms. Signal.aborted: ${opts.signal?.aborted}. Circuit: ${circuit.state}.`);
-
+          const delay = circuit.state === CircuitState.HalfOpen ? opts.delayMs! : opts.delayMs! * Math.pow(2, attempt - 1);
           await new Promise(resolve => setTimeout(resolve, delay));
 
-          // Check signal AGAIN after delay
           if (opts.signal?.aborted) {
             throwAbortError(`Aborted during retry delay after attempt ${attempt}`);
           }
         } else {
-          // All attempts for THIS RUN failed
           console.warn(`[withRetry:${context}] All ${attemptsForThisRun} attempts failed (Circuit: ${circuit.state}). Last error: ${error.message || JSON.stringify(error)}`);
 
           if (circuit.state === CircuitState.HalfOpen) {
@@ -164,13 +155,12 @@ export async function withRetry<T>(
           throw lastError;
         }
       } else {
-        // Error is not retryable (this includes aborts caught by shouldRetry if not by explicit checks above)
-        // console.warn(`[withRetry:${context}] Error not retryable or abort detected by shouldRetry on attempt ${attempt}: ${error.message}. Circuit: ${circuit.state}.`);
         throw error;
       }
     }
   }
 
-  if (lastError) throw lastError;
+  if (lastError) throw lastError; // Should be unreachable if loop completes, but good practice
+  // This line should ideally not be reached if the loop logic is correct.
   throw new Error(`[withRetry:${context}] Unexpected exit: Max attempts ${attemptsForThisRun} reached without success or explicit error handling.`);
 }
