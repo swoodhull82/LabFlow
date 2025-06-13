@@ -33,13 +33,11 @@ const createUserFromModel = (pbUserModel: any): User | null => {
     userRole = "Chem I";
   }
 
-  // Validate the role from PocketBase. If it's not one of the VALID_ROLES,
-  // default to "Chem I" and log a warning.
   if (!VALID_ROLES.includes(userRole)) {
     console.warn(
       `User ${pbUserModel.email || 'Unknown'} has an invalid role ('${(pbUserModel as any).role}') from PocketBase. Defaulting to 'Chem I'. Consider updating the role in PocketBase.`
     );
-    userRole = "Chem I"; // Default to a safe, non-privileged role
+    userRole = "Chem I"; 
   }
 
   return {
@@ -71,8 +69,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setUser(appUser);
           localStorage.setItem("labflowUserRole", appUser.role);
         } else {
-          // This case means createUserFromModel returned null, though model was truthy.
-          // This might happen if model is an empty object or somehow invalid for createUserFromModel.
           console.error("AuthStore model was present but failed to create app user object.");
           setUser(null);
           localStorage.removeItem("labflowUserRole");
@@ -84,53 +80,62 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setLoading(false); 
     };
 
-    // Subscribe to authStore changes. The `true` flag calls handleAuthChange immediately
-    // to set the initial state based on any persisted token.
     const unsubscribe = client.authStore.onChange(handleAuthChange, true);
 
     return () => {
-      unsubscribe(); // Cleanup subscription on unmount
+      unsubscribe(); 
     };
-  }, []); // Empty dependency array: set up subscription once
+  }, []); 
 
 
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
       await client.collection('users').authWithPassword(email, password);
-      // authStore.onChange will handle setting the user state.
-      // We just need to get the user details for the toast and routing.
       const model = client.authStore.model;
       if (model) {
-        const appUser = createUserFromModel(model); // Use the helper
+        const appUser = createUserFromModel(model); 
         if (appUser) {
           toast({ title: "Login Successful", description: `Welcome back, ${appUser.name}!` });
           router.push("/dashboard");
         } else {
-          // This should be rare if authWithPassword succeeded and model is present.
           throw new Error("Authentication successful but failed to process user model.");
         }
       } else {
         throw new Error("Authentication successful but no user model found in authStore.");
       }
     } catch (error: any) {
-      console.error("Login failed:", error);
-      let errorMessage = "Login failed. Please check your credentials.";
-      if (error.data && error.data.data) {
-        const fieldErrors = Object.values(error.data.data).map((err: any) => err.message).join(", ");
-        if (fieldErrors) errorMessage = fieldErrors;
-      } else if (error.message && !error.message.startsWith("PocketBase_ClientResponseError")) { // Avoid generic PB messages if possible
-        errorMessage = error.message;
-      } else if (error.originalError && error.originalError.message) {
-        errorMessage = error.originalError.message;
-      } else if (error.status === 0) {
-        errorMessage = "Could not connect to the server. Please check your internet connection.";
-      } else if (error.status === 400 || error.status === 401 || error.status === 403) {
-         errorMessage = "Invalid email or password. Please try again.";
+      console.error("Login failed (raw error object):", error);
+      let errorMessage = "An unexpected error occurred during login. Please try again.";
+
+      if (error && typeof error === 'object') {
+        if ('status' in error && error.status === 0) {
+          errorMessage = "Failed to connect to the LabFlow server. Please check your internet connection or try again later if the server is temporarily unavailable.";
+        } else if ('status' in error && (error.status === 400 || error.status === 401 || error.status === 403)) {
+          if (error.data?.data && Object.keys(error.data.data).length > 0) {
+            const fieldErrors = Object.values(error.data.data).map((err: any) => err.message).join(" ");
+            errorMessage = `Login failed: ${fieldErrors}`;
+          } else if (error.data?.message) {
+            errorMessage = error.data.message; 
+          } else {
+            errorMessage = "Invalid email or password. Please try again.";
+          }
+        } else if (error.data?.data && Object.keys(error.data.data).length > 0) {
+          const fieldErrors = Object.values(error.data.data).map((err: any) => err.message).join(" ");
+          errorMessage = `Login error: ${fieldErrors}`;
+        } else if (error.message && typeof error.message === 'string' && !error.message.startsWith("PocketBase_ClientResponseError")) {
+          errorMessage = error.message;
+        } else if (error.originalError?.message && typeof error.originalError.message === 'string') {
+          errorMessage = error.originalError.message;
+        } else if (error.message && typeof error.message === 'string') {
+            errorMessage = `Login failed: ${error.message}. Please ensure the server is reachable.`;
+        }
+      } else if (typeof error === 'string') {
+        errorMessage = error;
       }
       
+      console.error("Login failed (processed errorMessage):", errorMessage);
       toast({ title: "Login Failed", description: errorMessage, variant: "destructive" });
-      // User state will be set to null by the onChange listener if authStore becomes invalid.
     } finally {
       setLoading(false);
     }
@@ -138,8 +143,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = () => {
     client.authStore.clear();
-    // authStore.onChange will handle setting user to null and removing from localStorage.
-    router.push("/"); // Redirect to login page.
+    router.push("/"); 
     toast({ title: "Logged Out", description: "You have been successfully logged out." });
   };
 
@@ -157,3 +161,4 @@ export const useAuth = () => {
   }
   return context;
 };
+
