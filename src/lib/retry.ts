@@ -9,9 +9,6 @@ export interface RetryOptions {
   signal?: AbortSignal; // Explicitly add signal to RetryOptions if not already implied
 }
 
-const DEFAULT_RETRY_OPTIONS: Required<Omit<RetryOptions, 'onRetry' | 'signal'>> & { onRetry?: RetryOptions['onRetry'], signal?: RetryOptions['signal'] } = {
-  maxAttempts: 3,
-  delayMs: 1000,
   shouldRetry: (error: any) => {
     if (error && typeof error === 'object') {
       // Prioritize abort signal checks done explicitly in withRetry
