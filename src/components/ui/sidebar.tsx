@@ -110,15 +110,27 @@ const SidebarProvider = React.forwardRef<
 
     React.useEffect(() => {
       const handleOutsideClick = (event: MouseEvent) => {
-        // Mobile sidebar (Sheet) typically handles its own overlay clicks to close.
-        // This logic is primarily for the desktop sidebar.
-        if (!isMobile && open && desktopSidebarRef.current && !desktopSidebarRef.current.contains(event.target as Node)) {
-          // Check if the click was on the trigger button to avoid immediate re-opening.
-          const targetElement = event.target as HTMLElement;
-          if (!targetElement.closest('[data-sidebar="trigger"]')) {
-            setOpen(false);
-          }
+        if (isMobile || !open || !desktopSidebarRef.current) {
+          return;
         }
+
+        const target = event.target as Node;
+
+        // Don't close if the click is on the sidebar itself or the trigger button
+        if (desktopSidebarRef.current.contains(target) || (target as HTMLElement).closest('[data-sidebar="trigger"]')) {
+          return;
+        }
+
+        // Don't close if the click is inside any Radix UI portaled content
+        // (Dialogs, Popovers, DropdownMenus, Tooltips, Selects etc.)
+        // These often render outside the main DOM hierarchy but are interactive elements.
+        if ((target as HTMLElement).closest(
+          '[data-radix-popper-content-wrapper], [role="dialog"], [data-radix-dialog-content], [role="alertdialog"], [data-radix-dropdown-menu-content], [data-radix-select-content], [data-radix-tooltip-content]'
+        )) {
+          return;
+        }
+        
+        setOpen(false);
       };
 
       document.addEventListener("mousedown", handleOutsideClick);
@@ -172,7 +184,7 @@ const SidebarProvider = React.forwardRef<
 SidebarProvider.displayName = "SidebarProvider"
 
 const Sidebar = React.forwardRef<
-  HTMLDivElement, // This ref is for the outer div (spacer or main container)
+  HTMLDivElement, 
   React.ComponentProps<"div"> & {
     side?: "left" | "right"
     variant?: "sidebar" | "floating" | "inset"
@@ -188,7 +200,7 @@ const Sidebar = React.forwardRef<
       children,
       ...props
     },
-    outerRef // Renamed from ref to outerRef for clarity
+    outerRef 
   ) => {
     const { isMobile, state, openMobile, setOpenMobile, desktopSidebarRef } = useSidebar()
 
@@ -199,7 +211,7 @@ const Sidebar = React.forwardRef<
             "flex h-full w-[--sidebar-width] flex-col bg-sidebar text-sidebar-foreground",
             className
           )}
-          ref={outerRef} // Attach outerRef here
+          ref={outerRef} 
           {...props}
         >
           {children}
@@ -229,7 +241,7 @@ const Sidebar = React.forwardRef<
 
     return (
       <div
-        ref={outerRef} // Attach outerRef to the main desktop container/spacer
+        ref={outerRef} 
         className="group peer hidden md:block text-sidebar-foreground"
         data-state={state}
         data-collapsible={state === "collapsed" ? collapsible : ""}
@@ -257,11 +269,10 @@ const Sidebar = React.forwardRef<
               : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l",
             className
           )}
-          {...props} // Spread remaining props to this div, which might not be what's intended if props are for the outerRef element.
-                     // However, since outerRef is already applied, this might be okay if no conflicting HTML attributes are passed.
+          {...props} 
         >
           <div
-            ref={desktopSidebarRef} // Attach the context ref to the inner, visually fixed sidebar element
+            ref={desktopSidebarRef} 
             data-sidebar="sidebar"
             className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow"
           >
@@ -283,7 +294,7 @@ const SidebarTrigger = React.forwardRef<
   return (
     <Button
       ref={ref}
-      data-sidebar="trigger" // Added data attribute for outside click detection
+      data-sidebar="trigger" 
       variant="ghost"
       size="icon"
       className={cn("h-7 w-7", className)}
@@ -773,3 +784,4 @@ export {
   SidebarTrigger,
   useSidebar,
 }
+
