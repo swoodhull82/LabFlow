@@ -32,16 +32,16 @@ interface NavItem {
   href: string;
   label: string;
   icon: React.ElementType;
-  supervisorOnly?: boolean;
+  supervisorOnly?: boolean; // True if only Supervisor OR Team Lead can see
 }
 
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/tasks", label: "Tasks", icon: ClipboardList },
-  { href: "/timeline", label: "Timeline", icon: ListChecks }, // New Timeline item
+  { href: "/timeline", label: "Timeline", icon: ListChecks },
   { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true },
-  { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true },
+  { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true }, // Stays supervisorOnly, specific logic below
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -50,9 +50,19 @@ export function SidebarNav() {
   const { user, logout } = useAuth();
   const { toggleSidebar, state } = useSidebar();
 
-  const filteredNavItems = navItems.filter(item => 
-    !item.supervisorOnly || (user && (user.role === "Supervisor" || user.role === "Team Lead"))
-  ).sort((a, b) => { // Keep settings and logout at the bottom conceptually if ever needed
+  const filteredNavItems = navItems.filter(item => {
+    // Specific rule for Activity Log: strictly Supervisor only
+    if (item.href === "/activity-log") {
+      return user && user.role === "Supervisor";
+    }
+    // General rule for other items marked as supervisorOnly (e.g., Employees)
+    // Allows Supervisor or Team Lead
+    if (item.supervisorOnly) {
+      return user && (user.role === "Supervisor" || user.role === "Team Lead");
+    }
+    // For items not marked supervisorOnly at all
+    return true;
+  }).sort((a, b) => { 
     if (a.label === "Settings") return 1;
     if (b.label === "Settings") return -1;
     return 0;
