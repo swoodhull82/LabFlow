@@ -8,7 +8,7 @@ const COLLECTION_NAME = "tasks";
 
 interface PocketBaseRequestOptions {
   signal?: AbortSignal;
-  onRetry?: (attempt: number, maxAttempts: number, error: any) => void; // Add this
+  onRetry?: (attempt: number, maxAttempts: number, error: any) => void; 
   [key: string]: any; 
 }
 
@@ -24,19 +24,24 @@ const pbRecordToTask = (record: any): Task => {
   } as Task;
 };
 
+const DEFAULT_TASK_LIST_FIELDS = 'id,title,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies';
+const DEFAULT_TASK_DETAIL_FIELDS = 'id,title,description,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies,attachments';
+
 
 export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<Task[]> => {
   try {
-    const { onRetry, ...restOptions } = options || {}; // Destructure onRetry
+    const { onRetry, signal, ...otherOptions } = options || {}; 
+    const requestParams = {
+      sort: '-created',
+      fields: DEFAULT_TASK_LIST_FIELDS,
+      ...otherOptions, 
+    };
     const records = await withRetry(() => 
-      pb.collection(COLLECTION_NAME).getFullList({
-        sort: '-created',
-        ...restOptions, // Pass remaining options
-      }),
+      pb.collection(COLLECTION_NAME).getFullList(requestParams, { signal }),
       {
-        ...restOptions, // Pass other options like signal, context
+        signal, 
         context: "fetching tasks list",
-        onRetry // Pass the callback
+        onRetry 
       }
     );
     return records.map(pbRecordToTask);
@@ -47,12 +52,16 @@ export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOption
 
 export const getTaskById = async (pb: PocketBase, id: string, options?: PocketBaseRequestOptions): Promise<Task | null> => {
   try {
-    const { onRetry, ...restOptions } = options || {}; // Destructure onRetry
-    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id, restOptions),
+    const { onRetry, signal, ...otherOptions } = options || {}; 
+    const requestParams = {
+      fields: DEFAULT_TASK_DETAIL_FIELDS,
+      ...otherOptions,
+    };
+    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id, requestParams, { signal }),
     {
-      ...restOptions,
+      signal,
       context: `fetching task by ID ${id}`,
-      onRetry // Pass the callback
+      onRetry 
     });
     return pbRecordToTask(record);
   } catch (error) {
@@ -64,9 +73,6 @@ export const getTaskById = async (pb: PocketBase, id: string, options?: PocketBa
 };
 
 export const createTask = async (pb: PocketBase, taskData: FormData, options?: PocketBaseRequestOptions): Promise<Task> => {
-  // Note: createTask is not being wrapped withRetry in this subtask,
-  // but options are added for consistency if future needs arise e.g. for signal.
-  // For now, options (like signal) are not used in create.
   try {
     const record = await pb.collection(COLLECTION_NAME).create(taskData, { signal: options?.signal });
     return pbRecordToTask(record);
@@ -78,8 +84,6 @@ export const createTask = async (pb: PocketBase, taskData: FormData, options?: P
 
 export const updateTask = async (pb: PocketBase, id: string, taskData: FormData | Partial<Task>, options?: PocketBaseRequestOptions): Promise<Task> => {
   try {
-    // Note: The check for taskData.dependencies was here, but PocketBase SDK handles array-to-JSON conversion for JSON fields.
-    // It's usually not necessary to manually stringify. This part of the code can remain as is if no issues.
     const { signal } = options || {};
     const record = await withRetry(() =>
       pb.collection(COLLECTION_NAME).update(id, taskData, { signal }),
@@ -87,8 +91,6 @@ export const updateTask = async (pb: PocketBase, id: string, taskData: FormData 
     );
     return pbRecordToTask(record);
   } catch (error) {
-    // The console.error is kept, as withRetry might throw an error after retries,
-    // or if the error is not retryable (e.g. validation error from PB).
     console.error(`Failed to update task ${id}:`, error);
     throw error;
   }
@@ -106,5 +108,4 @@ export const deleteTask = async (pb: PocketBase, id: string, options?: PocketBas
     throw error;
   }
 };
-
 
