@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, chemistryIconData } from "@/context/AuthContext";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarImage } from "@/components/ui/avatar"; // Removed AvatarFallback
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import {
   Select,
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { useTheme } from "next-themes";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Loader2, ImageUp, Palette, Trash2, User } from "lucide-react"; // Added User
+import { Save, Loader2, ImageUp, Palette, Trash2 } from "lucide-react"; // Removed User
 
 const LOCAL_STORAGE_KEYS = {
   emailNotifications: "labflow-emailNotificationsEnabled",
@@ -136,9 +136,7 @@ export default function SettingsPage() {
                     ) : user.avatarUrl ? (
                       <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
                     ) : null}
-                    <AvatarFallback>
-                      <User className="h-full w-full p-4 text-muted-foreground" />
-                    </AvatarFallback>
+                    {/* AvatarFallback removed */}
                   </Avatar>
                   
                   <input 
@@ -287,3 +285,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+

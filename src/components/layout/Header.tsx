@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarImage } from "@/components/ui/avatar"; // Removed AvatarFallback
 import { Bell, LogOut, Settings, User as UserIcon, Menu } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
@@ -48,9 +48,7 @@ export function Header() {
                   ) : user.avatarUrl ? (
                     <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
                   ) : null}
-                  <AvatarFallback>
-                    <UserIcon className="h-full w-full p-1 text-muted-foreground" />
-                  </AvatarFallback>
+                  {/* AvatarFallback removed */}
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
@@ -64,11 +62,11 @@ export function Header() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push('/settings')}>
                 <UserIcon className="mr-2 h-4 w-4" />
                 <span>Profile</span>
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push('/settings')}>
                 <Settings className="mr-2 h-4 w-4" />
                 <span>Settings</span>
               </DropdownMenuItem>
@@ -84,3 +82,6 @@ export function Header() {
     </header>
   );
 }
+
+// Added import for router if it was missing for navigation
+import { useRouter } from 'next/navigation';
