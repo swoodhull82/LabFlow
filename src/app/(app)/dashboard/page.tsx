@@ -138,12 +138,12 @@ export default function DashboardPage() {
   
   const [selectedQuarterlyYear, setSelectedQuarterlyYear] = useState<number>(new Date().getFullYear());
   const [quarterlyTaskCompletionData, setQuarterlyTaskCompletionData] = useState<QuarterlyCompletionDataPoint[]>([]);
-  const [allFetchedTasks, setAllFetchedTasks] = useState<Task[]>([]); // Store all tasks to avoid re-fetching on year change
+  const [allFetchedTasks, setAllFetchedTasks] = useState<Task[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  const processData = useCallback((tasksToProcess: Task[], employeesToProcess: Employee[], yearForQuarterlyChart: number) => {
+  const processData = useCallback((tasksToProcess: Task[], yearForQuarterlyChart: number) => {
     const today = startOfDay(new Date());
     const nextSevenDays = addDays(today, 7);
 
@@ -222,9 +222,8 @@ export default function DashboardPage() {
       .sort((a,b) => b.activeTasks - a.activeTasks);
     setActiveTasksByEmployeeData(employeeDataForChart);
 
-    // --- Quarterly Completion Rate Logic ---
     const quarterlyAgg: { [quarterKey: string]: { total: number; completed: number; } } = {};
-    const goalRates = [25, 50, 75, 100]; // Q1, Q2, Q3, Q4 goals
+    const goalRates = [25, 50, 75, 100]; 
 
     tasksToProcess.forEach(task => {
         if (task.dueDate) {
@@ -271,12 +270,12 @@ export default function DashboardPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [fetchedTasks, fetchedEmployees] = await Promise.all([
+      const [fetchedTasks, _fetchedEmployees] = await Promise.all([ // _fetchedEmployees not directly passed to processData
         getTasks(pb, { signal }),
-        getEmployees(pb, { signal })
+        getEmployees(pb, { signal }) // Still fetch employees if needed elsewhere, or remove if not
       ]);
-      setAllFetchedTasks(fetchedTasks); // Store all tasks
-      processData(fetchedTasks, fetchedEmployees, selectedQuarterlyYear); // Initial process with current year
+      setAllFetchedTasks(fetchedTasks); 
+      processData(fetchedTasks, selectedQuarterlyYear); 
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
@@ -298,7 +297,7 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [toast, processData, selectedQuarterlyYear]); // Added selectedQuarterlyYear dependency
+  }, [toast, processData, selectedQuarterlyYear]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -312,13 +311,11 @@ export default function DashboardPage() {
     };
   }, [pbClient, fetchDashboardData]);
 
-  // Re-process data when selectedQuarterlyYear changes, if tasks are already fetched
   useEffect(() => {
-    if (allFetchedTasks.length > 0) { // Assuming employees data doesn't change with year for this chart
-      const employees = activeTasksByEmployeeData.map(e => ({ name: e.employee })) as Employee[]; // simplified, might need full employee objects if processData uses more
-      processData(allFetchedTasks, employees, selectedQuarterlyYear);
+    if (allFetchedTasks.length > 0) {
+      processData(allFetchedTasks, selectedQuarterlyYear);
     }
-  }, [selectedQuarterlyYear, allFetchedTasks, processData, activeTasksByEmployeeData]);
+  }, [selectedQuarterlyYear, allFetchedTasks, processData]);
 
 
   const refetchData = () => {
@@ -533,6 +530,7 @@ export default function DashboardPage() {
     
 
     
+
 
 
 
