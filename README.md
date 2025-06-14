@@ -9,3 +9,15 @@ To get started, take a look at src/app/page.tsx.
 <!-- Note: net::ERR_ADDRESS_INVALID errors for www.google-analytics.com are external to the LabFlow application and likely due to local network, DNS, or browser extension issues. -->
 <!-- No-op: The "autocancelled" warnings on the dashboard are due to the useEffect cleanup aborting fetch requests, likely from React Strict Mode or rapid component remounts. The system correctly handles these as non-critical aborts, logging them for diagnosis but not displaying them as user errors. -->
 <!-- Tech stack discussion: Key stacks include Next.js, React, ShadCN UI, Tailwind CSS, TypeScript, PocketBase, React Hook Form, Zod, Recharts, Lucide React, date-fns, and GitHub Pages for deployment. -->
+
+## PocketBase 'users' Collection Schema (Inferred from Frontend)
+
+Based on the application's frontend code, the 'users' collection in PocketBase is expected to have the following schema:
+
+*   **`id`**: (Text, System Field) - Unique identifier.
+*   **`email`**: (Email, Required, Unique) - For login and display.
+*   **`password`**: (Password) - For authentication.
+*   **`name`**: (Text, Optional) - User's display name.
+*   **`role`**: (Text or Select, Optional) - User's role (e.g., "Supervisor", "Team Lead", "Chem I", "Chem II").
+*   **`avatar`**: (File, Optional, Max 1 file) - For uploaded profile pictures.
+*   **`selected_lucide_icon`**: (Text, Optional) - Name of the selected Lucide icon for the profile.
