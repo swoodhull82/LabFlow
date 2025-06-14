@@ -79,7 +79,7 @@ export default function SettingsPage() {
                     className="h-24 w-24"
                   >
                     {user.lucideIconComponent ? (
-                      React.createElement(user.lucideIconComponent, { className: "h-full w-full p-4 text-muted-foreground" }) // Adjusted padding for larger avatar
+                      React.createElement(user.lucideIconComponent, { className: "h-full w-full p-2 text-muted-foreground" }) 
                     ) : user.avatarUrl ? (
                       <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
                     ) : null}

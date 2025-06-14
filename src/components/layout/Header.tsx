@@ -44,7 +44,7 @@ export function Header() {
                   className="h-9 w-9"
                 >
                   {user.lucideIconComponent ? (
-                    React.createElement(user.lucideIconComponent, { className: "h-full w-full p-1.5 text-muted-foreground" })
+                    React.createElement(user.lucideIconComponent, { className: "h-full w-full p-1 text-muted-foreground" })
                   ) : user.avatarUrl ? (
                     <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
                   ) : null}
