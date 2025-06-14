@@ -161,7 +161,7 @@ export default function NewTaskPage() {
     const controller = new AbortController();
     if (pbClient) {
       fetchAndSetEmployees(pbClient, controller.signal);
-      if (title === "Validation") { // Only fetch tasks for dependencies if type is Validation
+      if (title === "Validation") { 
         fetchAllTasksForDependencySelection(pbClient, controller.signal);
       } else {
         setAllTasksForSelection([]);
@@ -224,8 +224,8 @@ export default function NewTaskPage() {
       toast({ title: "Validation Error", description: "Task priority is required.", variant: "destructive" });
       return;
     }
-     if (!recurrence) {
-      toast({ title: "Validation Error", description: "Task recurrence is required.", variant: "destructive" });
+    if (title !== "Validation" && (!recurrence || !TASK_RECURRENCES.includes(recurrence))) {
+      toast({ title: "Validation Error", description: "Task recurrence is required for non-Validation tasks.", variant: "destructive" });
       return;
     }
     if (title === "Validation" && isMilestone && !startDate) {
@@ -249,8 +249,10 @@ export default function NewTaskPage() {
         if (selectedDependencies.length > 0) {
             formData.append("dependencies", JSON.stringify(selectedDependencies));
         }
+        formData.append("recurrence", "None"); // Validation tasks always have "None" recurrence
     } else {
         formData.append("isMilestone", "false");
+        formData.append("recurrence", recurrence);
     }
 
 
@@ -265,7 +267,6 @@ export default function NewTaskPage() {
         formData.append("dueDate", dueDate.toISOString());
     }
 
-    formData.append("recurrence", recurrence);
     if (assignedToText) {
       formData.append("assignedTo_text", assignedToText);
     }
@@ -330,7 +331,7 @@ export default function NewTaskPage() {
     } finally {
       setIsSubmitting(false);
     }
-  }
+  };
   
   const isLoadingPrerequisites = isLoadingEmployees || (title === "Validation" && isLoadingTasksForSelection);
 
@@ -519,20 +520,22 @@ export default function NewTaskPage() {
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <Label htmlFor="recurrence">Recurrence</Label>
-                <Select value={recurrence} onValueChange={(value: TaskRecurrence) => setRecurrence(value)} >
-                  <SelectTrigger id="recurrence">
-                    <SelectValue placeholder="Select recurrence" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TASK_RECURRENCES.map(r => (
-                      <SelectItem key={r} value={r}>{r}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
+             {title !== "Validation" && (
+                <div>
+                  <Label htmlFor="recurrence">Recurrence</Label>
+                  <Select value={recurrence} onValueChange={(value: TaskRecurrence) => setRecurrence(value)} >
+                    <SelectTrigger id="recurrence">
+                      <SelectValue placeholder="Select recurrence" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TASK_RECURRENCES.map(r => (
+                        <SelectItem key={r} value={r}>{r}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className={title === "Validation" ? "md:col-span-2" : ""}> {/* Make assignedTo span full width if recurrence is hidden */}
                 <Label htmlFor="assignedTo">Assigned To</Label>
                 <Select 
                   onValueChange={(value: string) => setAssignedToText(value === "__NONE__" ? undefined : value)} 

@@ -129,7 +129,7 @@ const taskEditFormSchema = z.object({
   priority: z.string().min(1, "Priority is required.") as z.ZodType<TaskPriority>,
   startDate: z.date().optional(),
   dueDate: z.date().optional(),
-  recurrence: z.string().min(1, "Recurrence is required.") as z.ZodType<TaskRecurrence>,
+  recurrence: z.string().optional() as z.ZodType<TaskRecurrence | undefined>,
   assignedTo_text: z.string().optional(),
   dependencies: z.array(z.string()).optional(),
   isMilestone: z.boolean().optional(),
@@ -157,7 +157,7 @@ const taskEditFormSchema = z.object({
         path: ["startDate"],
       });
     }
-  } else { // If not "Validation"
+  } else { 
     if (data.isMilestone) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -170,6 +170,14 @@ const taskEditFormSchema = z.object({
         code: z.ZodIssueCode.custom,
         message: "Dependencies are only applicable to 'Validation' tasks.",
         path: ["dependencies"],
+      });
+    }
+    // Recurrence is required for non-Validation tasks
+    if (!data.recurrence || !TASK_RECURRENCES.includes(data.recurrence)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Recurrence is required and must be a valid option for non-Validation tasks.",
+        path: ["recurrence"],
       });
     }
   }
@@ -215,12 +223,13 @@ export default function TasksPage() {
       instrument_subtype: undefined,
       dependencies: [],
       isMilestone: false,
+      recurrence: "None",
     }
   });
 
   const watchedTitle = form.watch("title");
   const watchedIsMilestone = form.watch("isMilestone");
-  const watchedStartDate = form.watch("startDate"); // Watch start date for milestone logic
+  const watchedStartDate = form.watch("startDate"); 
 
   useEffect(() => {
     const subscription = form.watch((value, { name }) => {
@@ -231,6 +240,12 @@ export default function TasksPage() {
         if (value.title !== "Validation") {
           form.setValue("isMilestone", false, { shouldValidate: true });
           form.setValue("dependencies", [], { shouldValidate: true });
+           if (!form.getValues("recurrence")) { // If recurrence became required, ensure it has a default
+            form.setValue("recurrence", "None", { shouldValidate: true });
+          }
+        } else {
+          // If title changed to "Validation", recurrence is not directly set by user
+          // It will be handled during submission
         }
       }
       if (name === "isMilestone" || name === "startDate") {
@@ -348,7 +363,7 @@ export default function TasksPage() {
       const fetchedTasks = await getTasks(pb, { 
         signal, 
         onRetry: handleDepRetry,
-        filter: 'title = "Validation"' // Only fetch Validation tasks for dependency selection
+        filter: 'title = "Validation"' 
       });
       
       setAllTasksForSelection(currentTaskId ? fetchedTasks.filter(t => t.id !== currentTaskId) : fetchedTasks);
@@ -413,7 +428,7 @@ export default function TasksPage() {
         priority: editingTask.priority,
         startDate: editingTask.startDate ? new Date(editingTask.startDate) : undefined,
         dueDate: editingTask.dueDate ? new Date(editingTask.dueDate) : undefined,
-        recurrence: editingTask.recurrence,
+        recurrence: editingTask.title === "Validation" ? "None" : (editingTask.recurrence || "None"),
         assignedTo_text: editingTask.assignedTo_text || "",
         dependencies: Array.isArray(editingTask.dependencies) ? editingTask.dependencies : [],
         isMilestone: editingTask.isMilestone || false,
@@ -492,7 +507,7 @@ export default function TasksPage() {
       priority: data.priority,
       startDate: data.startDate,
       dueDate: (data.title === "Validation" && data.isMilestone && data.startDate) ? data.startDate : data.dueDate,
-      recurrence: data.recurrence,
+      recurrence: data.title === "Validation" ? "None" : data.recurrence!,
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
       isMilestone: data.title === "Validation" ? data.isMilestone : false,
       dependencies: data.title === "Validation" ? (data.dependencies || []) : [],
@@ -658,10 +673,12 @@ export default function TasksPage() {
                             if (value !== "Validation") {
                               form.setValue("isMilestone", false, { shouldValidate: true });
                               form.setValue("dependencies", [], { shouldValidate: true });
+                               if (!form.getValues("recurrence")) { 
+                                form.setValue("recurrence", "None", { shouldValidate: true });
+                              }
                             }
                           }} 
                           value={field.value}
-                          // Disable if editing a Validation task, as its type shouldn't change from this dialog
                           disabled={editingTask?.title === "Validation"}
                         >
                         <FormControl>
@@ -879,33 +896,35 @@ export default function TasksPage() {
                     />
                 </div>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                        control={form.control}
-                        name="recurrence"
-                        render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Recurrence</FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                                <SelectTrigger>
-                                <SelectValue placeholder="Select recurrence" />
-                                </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                                {TASK_RECURRENCES.map(r => (
-                                <SelectItem key={r} value={r}>{r}</SelectItem>
-                                ))}
-                            </SelectContent>
-                            </Select>
-                            <FormMessage />
-                        </FormItem>
-                        )}
-                    />
+                    {watchedTitle !== "Validation" && (
+                      <FormField
+                          control={form.control}
+                          name="recurrence"
+                          render={({ field }) => (
+                          <FormItem>
+                              <FormLabel>Recurrence</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value || "None"}>
+                              <FormControl>
+                                  <SelectTrigger>
+                                  <SelectValue placeholder="Select recurrence" />
+                                  </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                  {TASK_RECURRENCES.map(r => (
+                                  <SelectItem key={r} value={r}>{r}</SelectItem>
+                                  ))}
+                              </SelectContent>
+                              </Select>
+                              <FormMessage />
+                          </FormItem>
+                          )}
+                      />
+                    )}
                     <FormField
                         control={form.control}
                         name="assignedTo_text"
                         render={({ field }) => (
-                        <FormItem>
+                        <FormItem className={watchedTitle === "Validation" ? "md:col-span-2" : ""}>
                             <FormLabel>Assigned To (Optional)</FormLabel>
                             <Select 
                               onValueChange={field.onChange} 
