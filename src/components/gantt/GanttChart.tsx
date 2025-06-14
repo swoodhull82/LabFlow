@@ -471,7 +471,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'crosshair';
     };
 
-    const openQuickEditPopover = (task: Task) => {
+    const openQuickEditPopover = useCallback((task: Task) => {
       setQuickEditPopoverState({
         taskId: task.id,
         currentTitle: task.title,
@@ -479,13 +479,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         currentInstrumentSubtype: task.instrument_subtype,
         currentStatus: task.status,
         currentProgress: task.progress || 0,
-        currentSteps: task.task_type === "VALIDATION_PROJECT" ? (task.steps || []) : [],
+        currentSteps: task.task_type === "VALIDATION_PROJECT" ? ((task as any).steps || []) : [],
         newStepText: "",
       });
       setIsQuickEditPopoverOpen(true);
-    };
+    }, []);
     
-    const handleTaskBarClick = (e: React.MouseEvent, task: Task) => {
+    const handleTaskBarClick = useCallback((e: React.MouseEvent, task: Task) => {
         if (e.detail !== 1 || Math.abs(e.movementX) > 2 || Math.abs(e.movementY) > 2) { 
           return;
         }
@@ -496,34 +496,33 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
           return;
         }
         openQuickEditPopover(task);
-      };
+      }, [openQuickEditPopover]);
     
-    const handleLeftPanelItemClick = (e: React.MouseEvent, task: Task) => {
+    const handleLeftPanelItemClick = useCallback((e: React.MouseEvent, task: Task) => {
       if (task.task_type === "VALIDATION_PROJECT") {
         e.stopPropagation();
         openQuickEditPopover(task);
       }
-      // For other task types, clicking the name in the left panel does nothing currently.
-    };
+    }, [openQuickEditPopover]);
     
-    const handleAddStepInQuickEdit = () => {
+    const handleAddStepInQuickEdit = useCallback(() => {
         if (quickEditPopoverState.newStepText.trim() === "") return;
         setQuickEditPopoverState(prev => ({
             ...prev,
             currentSteps: [...prev.currentSteps, prev.newStepText.trim()],
             newStepText: ""
         }));
-    };
+    }, [quickEditPopoverState.newStepText]);
 
-    const handleDeleteStepInQuickEdit = (indexToDelete: number) => {
+    const handleDeleteStepInQuickEdit = useCallback((indexToDelete: number) => {
         setQuickEditPopoverState(prev => ({
             ...prev,
             currentSteps: prev.currentSteps.filter((_, index) => index !== indexToDelete)
         }));
-    };
+    }, []);
 
 
-    const handleSaveQuickEdit = () => {
+    const handleSaveQuickEdit = useCallback(() => {
         if (!quickEditPopoverState.taskId) return;
         
         const updates: Partial<Pick<Task, 'title' | 'status' | 'progress' | 'instrument_subtype' | 'task_type' | 'steps'>> = {
@@ -547,7 +546,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         handleTaskUpdate(quickEditPopoverState.taskId, updates);
         setIsQuickEditPopoverOpen(false);
         setQuickEditPopoverState({taskId: null, currentTitle: "", currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0, currentSteps: [], newStepText: ""});
-    };
+    }, [quickEditPopoverState, handleTaskUpdate]);
 
 
     useEffect(() => {
@@ -839,7 +838,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                       if (!open) {
                         setIsQuickEditPopoverOpen(false);
                         setQuickEditPopoverState({taskId: null, currentTitle: "", currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0, currentSteps: [], newStepText: ""});
-                      } else if (task.id !== quickEditPopoverState.taskId) { // Should not happen if open is managed correctly
+                      } else if (task.id !== quickEditPopoverState.taskId) { 
                          openQuickEditPopover(task);
                       }
                     }}>
@@ -1119,4 +1118,5 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 };
 
 export default GanttChart;
+
 

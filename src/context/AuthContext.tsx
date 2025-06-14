@@ -97,14 +97,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     if (isValid && model) {
       const appUser = createUserFromModel(model);
-      setUser(currentUser => {
-        if (!appUser) return null;
-        // Basic shallow comparison, might need deep comparison if appUser structure becomes complex
-        if (currentUser && JSON.stringify(currentUser) === JSON.stringify(appUser)) {
-          return currentUser;
-        }
-        return appUser;
-      });
+      setUser(appUser); // Simplified user state update
 
       if (appUser) {
         localStorage.setItem("labflowUserRole", appUser.role);
@@ -264,3 +257,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

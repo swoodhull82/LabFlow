@@ -236,7 +236,6 @@ export default function TasksPage() {
 
   const watchedTaskType = form.watch("task_type");
   const watchedIsMilestone = form.watch("isMilestone");
-  const watchedStartDate = form.watch("startDate"); 
   const watchedSteps = form.watch("steps");
   const watchedFormStartDate = form.watch("startDate");
   const watchedFormDueDate = form.watch("dueDate");
@@ -450,14 +449,15 @@ export default function TasksPage() {
   }, [editingTask, form]);
 
 
-  const handleToggleTaskStatus = async (taskId: string, currentStatus: TaskStatus) => {
+  const handleToggleTaskStatus = useCallback(async (taskId: string, currentStatus: TaskStatus) => {
     if (!pbClient) {
       toast({ title: "Error", description: "Client not available.", variant: "destructive" });
       return;
     }
 
     const newStatus: TaskStatus = currentStatus === "Done" ? "To Do" : "Done";
-    const optimisticUpdatedTasks = tasks.map(task => 
+    const currentTasks = tasks; // Keep a reference to revert on error
+    const optimisticUpdatedTasks = currentTasks.map(task => 
       task.id === taskId ? { ...task, status: newStatus } : task
     );
     setTasks(optimisticUpdatedTasks);
@@ -470,12 +470,12 @@ export default function TasksPage() {
       toast({ title: "Success", description: `Task marked as ${newStatus}.` });
     } catch (err) {
       console.warn("Error updating task status:", err); 
-      setTasks(tasks); 
+      setTasks(currentTasks); 
       toast({ title: "Error", description: `Failed to update task status: ${getDetailedErrorMessage(err as any)}`, variant: "destructive" });
     }
-  };
+  }, [pbClient, toast, tasks]);
 
-  const handleDeleteTask = async (taskId: string) => {
+  const handleDeleteTask = useCallback(async (taskId: string) => {
     if (!pbClient) {
         toast({ title: "Error", description: "Client not available.", variant: "destructive" });
         return;
@@ -490,12 +490,12 @@ export default function TasksPage() {
       setTasks(originalTasks);
       toast({ title: "Error", description: getDetailedErrorMessage(err as any), variant: "destructive" });
     }
-  };
+  }, [pbClient, toast, tasks]);
 
-  const handleEditClick = (task: Task) => {
+  const handleEditClick = useCallback((task: Task) => {
     setEditingTask(task);
     setIsEditDialogOpen(true);
-  };
+  }, []);
 
   const handleEditDialogClose = () => {
     setIsEditDialogOpen(false);
@@ -1115,3 +1115,4 @@ export default function TasksPage() {
     </div>
   );
 }
+
