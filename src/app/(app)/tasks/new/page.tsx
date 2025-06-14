@@ -13,8 +13,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle, Link as LinkIcon, Milestone } from "lucide-react";
 import { format } from "date-fns";
-import React, { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { createTask, getTasks } from "@/services/taskService";
@@ -53,8 +53,21 @@ export default function NewTaskPage() {
   const { pbClient, user } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const defaultTypeFromQuery = searchParams.get("defaultType");
 
-  const [title, setTitle] = useState<string>(PREDEFINED_TASK_TITLES[0] || "");
+  const isValidationTaskMode = defaultTypeFromQuery === "Validation";
+  
+  const availableTaskTitles = useMemo(() => {
+    if (isValidationTaskMode) {
+      return PREDEFINED_TASK_TITLES.filter(t => t === "Validation");
+    }
+    return PREDEFINED_TASK_TITLES.filter(t => t !== "Validation");
+  }, [isValidationTaskMode]);
+
+  const [title, setTitle] = useState<string>(
+    isValidationTaskMode ? "Validation" : (availableTaskTitles[0] || "")
+  );
   const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<TaskStatus>(TASK_STATUSES[0] || "To Do");
@@ -118,8 +131,9 @@ export default function NewTaskPage() {
     setIsLoadingTasksForSelection(true);
     setFetchTasksError(null);
     try {
-      const fetchedTasks = await getTasks(pb, { signal });
-      setAllTasksForSelection(fetchedTasks.filter(task => task.title === "Validation")); // Only allow Validation tasks as dependencies
+      // Only fetch Validation tasks for dependency selection
+      const fetchedTasks = await getTasks(pb, { signal, filter: 'title = "Validation"' });
+      setAllTasksForSelection(fetchedTasks);
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
@@ -237,7 +251,6 @@ export default function NewTaskPage() {
         }
     } else {
         formData.append("isMilestone", "false");
-        // Do not append dependencies if not a Validation task
     }
 
 
@@ -266,8 +279,12 @@ export default function NewTaskPage() {
 
     try {
       await createTask(pbClient, formData);
-      toast({ title: "Success", description: "New task created successfully!" });
-      router.push("/tasks");
+      toast({ title: "Success", description: `New ${title} task created successfully!` });
+      if (isValidationTaskMode) {
+        router.push("/validations");
+      } else {
+        router.push("/tasks");
+      }
     } catch (err: any) {
       console.error("Failed to create task (full error object):", err); 
       let detailedMessage = "Failed to create task. Please try again.";
@@ -338,9 +355,11 @@ export default function NewTaskPage() {
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl md:text-3xl font-headline font-semibold">Add New Task</h1>
+        <h1 className="text-2xl md:text-3xl font-headline font-semibold">
+          {isValidationTaskMode ? "Add New Validation Task" : "Add New Task"}
+        </h1>
         <Button variant="outline" asChild>
-          <Link href="/tasks">Cancel</Link>
+          <Link href={isValidationTaskMode ? "/validations" : "/tasks"}>Cancel</Link>
         </Button>
       </div>
 
@@ -353,19 +372,23 @@ export default function NewTaskPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <Label htmlFor="title">Task Type</Label>
-              <Select value={title} onValueChange={(value: string) => {
-                setTitle(value);
-                setInstrumentSubtype(undefined); 
-                if (value !== "Validation") {
-                  setIsMilestone(false);
-                  setSelectedDependencies([]);
-                }
-              }}>
+              <Select 
+                value={title} 
+                onValueChange={(value: string) => {
+                  setTitle(value);
+                  setInstrumentSubtype(undefined); 
+                  if (value !== "Validation") {
+                    setIsMilestone(false);
+                    setSelectedDependencies([]);
+                  }
+                }}
+                disabled={isValidationTaskMode && title === "Validation"}
+              >
                 <SelectTrigger id="title">
                   <SelectValue placeholder="Select task type" />
                 </SelectTrigger>
                 <SelectContent>
-                  {PREDEFINED_TASK_TITLES.map(taskTitle => (
+                  {availableTaskTitles.map(taskTitle => (
                     <SelectItem key={taskTitle} value={taskTitle}>{taskTitle}</SelectItem>
                   ))}
                 </SelectContent>

@@ -112,7 +112,11 @@ interface QuickEditPopoverState {
   currentProgress: number;
 }
 
-const GanttChart: React.FC = () => {
+interface GanttChartProps {
+  filterTaskType?: string; // e.g., "Validation"
+}
+
+const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType }) => {
   const { pbClient } = useAuth();
   const { toast } = useToast();
   const [allTasks, setAllTasks] = useState<Task[]>([]);
@@ -146,7 +150,12 @@ const GanttChart: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const fetchedTasks = await getTasks(pb, { signal });
+      const fetchOptions: any = { signal };
+      if (filterTaskType) {
+        fetchOptions.filter = `title = "${filterTaskType}"`;
+      }
+
+      const fetchedTasks = await getTasks(pb, fetchOptions);
       const validRawTasks = fetchedTasks.filter(task =>
         task.startDate && task.dueDate &&
         isValid(new Date(task.startDate)) && isValid(new Date(task.dueDate))
@@ -180,7 +189,7 @@ const GanttChart: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [toast]);
+  }, [toast, filterTaskType]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -647,12 +656,18 @@ const GanttChart: React.FC = () => {
 
   const renderNoTasksMessage = () => (
     <div className="flex flex-col items-center justify-center h-full p-4 text-center text-sm">
-        <p className="text-muted-foreground">No tasks found for current view.</p>
+        <p className="text-muted-foreground">
+          {filterTaskType ? `No ${filterTaskType} tasks found for current view.` : "No tasks found for current view."}
+        </p>
         <p className="text-xs mt-1 text-muted-foreground">
             {allTasks.length === 0 ? "Ensure tasks have valid start/due dates." : "Try adjusting date range or zoom."}
         </p>
     </div>
   );
+
+  const availableTaskTypesForQuickEdit = filterTaskType === "Validation" 
+    ? PREDEFINED_TASK_TITLES.filter(t => t === "Validation") 
+    : PREDEFINED_TASK_TITLES.filter(t => t !== "Validation");
 
   return (
     <TooltipProvider>
@@ -891,12 +906,13 @@ const GanttChart: React.FC = () => {
                                 <Select
                                     value={quickEditPopoverState.currentTitle}
                                     onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentTitle: value, currentInstrumentSubtype: (value !== "MDL" && value !== "SOP") ? undefined : prev.currentInstrumentSubtype}))}
+                                    disabled={filterTaskType === "Validation"}
                                 >
                                     <SelectTrigger id={`qe-title-${task.id}`} className="col-span-2 h-8">
                                         <SelectValue placeholder="Select type" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {PREDEFINED_TASK_TITLES.map(title => (
+                                        {availableTaskTypesForQuickEdit.map(title => (
                                             <SelectItem key={title} value={title}>{title}</SelectItem>
                                         ))}
                                     </SelectContent>

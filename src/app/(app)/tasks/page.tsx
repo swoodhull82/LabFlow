@@ -211,7 +211,7 @@ export default function TasksPage() {
   const form = useForm<TaskEditFormData>({
     resolver: zodResolver(taskEditFormSchema),
     defaultValues: {
-      title: PREDEFINED_TASK_TITLES[0],
+      title: PREDEFINED_TASK_TITLES.find(t => t !== "Validation") || PREDEFINED_TASK_TITLES[0],
       instrument_subtype: undefined,
       dependencies: [],
       isMilestone: false,
@@ -266,7 +266,12 @@ export default function TasksPage() {
     };
 
     try {
-      const fetchedTasks = await getTasks(pb, { signal, onRetry: handleRetryAttempt });
+      // Filter out "Validation" tasks
+      const fetchedTasks = await getTasks(pb, { 
+        signal, 
+        onRetry: handleRetryAttempt,
+        filter: 'title != "Validation"' 
+      });
       setTasks(fetchedTasks);
       setRetryStatusMessage(null); 
     } catch (err: any) {
@@ -340,9 +345,13 @@ export default function TasksPage() {
     };
 
     try {
-      const fetchedTasks = await getTasks(pb, { signal, onRetry: handleDepRetry });
-      const validationTasks = fetchedTasks.filter(t => t.title === "Validation");
-      setAllTasksForSelection(currentTaskId ? validationTasks.filter(t => t.id !== currentTaskId) : validationTasks);
+      const fetchedTasks = await getTasks(pb, { 
+        signal, 
+        onRetry: handleDepRetry,
+        filter: 'title = "Validation"' // Only fetch Validation tasks for dependency selection
+      });
+      
+      setAllTasksForSelection(currentTaskId ? fetchedTasks.filter(t => t.id !== currentTaskId) : fetchedTasks);
       setDependenciesRetryMessage(null); 
     } catch (err: any) {
       setDependenciesRetryMessage(null); 
@@ -515,6 +524,8 @@ export default function TasksPage() {
   }
 
   const isLoadingInitialData = isLoading || isLoadingEmployees;
+  const availableTaskTypesForEdit = PREDEFINED_TASK_TITLES.filter(t => t !== "Validation" || (editingTask && editingTask.title === "Validation"));
+
 
   return (
     <div className="space-y-6">
@@ -535,7 +546,7 @@ export default function TasksPage() {
       <Card className="shadow-md">
         <CardHeader>
           <CardTitle className="font-headline">All Tasks</CardTitle>
-          <CardDescription>View, manage, and track all laboratory tasks.</CardDescription>
+          <CardDescription>View, manage, and track all laboratory tasks (excluding Validation tasks).</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoadingInitialData && (
@@ -650,6 +661,8 @@ export default function TasksPage() {
                             }
                           }} 
                           value={field.value}
+                          // Disable if editing a Validation task, as its type shouldn't change from this dialog
+                          disabled={editingTask?.title === "Validation"}
                         >
                         <FormControl>
                           <SelectTrigger>
@@ -657,8 +670,10 @@ export default function TasksPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {PREDEFINED_TASK_TITLES.map(taskTitle => (
-                            <SelectItem key={taskTitle} value={taskTitle}>{taskTitle}</SelectItem>
+                          {availableTaskTypesForEdit.map(taskTitle => (
+                            <SelectItem key={taskTitle} value={taskTitle} disabled={editingTask?.title !== "Validation" && taskTitle === "Validation"}>
+                              {taskTitle}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
