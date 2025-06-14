@@ -11,22 +11,35 @@ import { FlaskConical, Beaker, Atom, TestTube, Microscope, Pipette, Biohazard, F
 const POCKETBASE_URL = 'https://swoodhu.pockethost.io/';
 const client = new PocketBase(POCKETBASE_URL);
 
+export const chemistryIconData: { name: string; component: React.ElementType }[] = [
+  { name: "FlaskConical", component: FlaskConical },
+  { name: "Beaker", component: Beaker },
+  { name: "Atom", component: Atom },
+  { name: "TestTube", component: TestTube },
+  { name: "Microscope", component: Microscope },
+  { name: "Pipette", component: Pipette },
+  { name: "Biohazard", component: Biohazard },
+  { name: "FlaskRound", component: FlaskRound },
+];
+
+const chemistryLucideComponentsOnly = chemistryIconData.map(d => d.component);
+const chemistryIconMapByName = new Map(chemistryIconData.map(d => [d.name, d.component]));
+
+
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   loading: boolean;
   pbClient: PocketBase;
-  updateUserAvatar: (avatarFile: File) => Promise<void>; // Added for avatar updates
+  updateUserAvatar: (avatarFile: File) => Promise<void>;
+  updateUserSelectedIcon: (iconName: string) => Promise<void>;
+  clearAvatarAndSelection: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const VALID_ROLES: UserRole[] = ["Supervisor", "Team Lead", "Chem I", "Chem II"];
-
-const chemistryIcons: React.ElementType[] = [
-  FlaskConical, Beaker, Atom, TestTube, Microscope, Pipette, Biohazard, FlaskRound
-];
 
 // Helper function to create User object from PocketBase model
 const createUserFromModel = (pbUserModel: any): User | null => {
@@ -50,17 +63,21 @@ const createUserFromModel = (pbUserModel: any): User | null => {
     email: pbUserModel.email || "",
     name: (pbUserModel as any).name || pbUserModel.email?.split("@")[0] || "User",
     role: userRole,
-    avatarUrl: null, 
+    avatarUrl: null,
     lucideIconComponent: undefined,
+    selected_lucide_icon: (pbUserModel as any).selected_lucide_icon || undefined,
   };
 
   if ((pbUserModel as any).avatar && (pbUserModel as any).avatar !== "") {
     appUser.avatarUrl = client.files.getUrl(pbUserModel, (pbUserModel as any).avatar, { thumb: "100x100" });
-    appUser.lucideIconComponent = undefined; 
+    appUser.lucideIconComponent = undefined;
+  } else if (appUser.selected_lucide_icon && chemistryIconMapByName.has(appUser.selected_lucide_icon)) {
+    appUser.lucideIconComponent = chemistryIconMapByName.get(appUser.selected_lucide_icon);
+    appUser.avatarUrl = null;
   } else {
-    const iconIndex = (pbUserModel.id.charCodeAt(pbUserModel.id.length - 1) % chemistryIcons.length);
-    appUser.lucideIconComponent = chemistryIcons[iconIndex];
-    appUser.avatarUrl = null; 
+    const iconIndex = (pbUserModel.id.charCodeAt(pbUserModel.id.length - 1) % chemistryLucideComponentsOnly.length);
+    appUser.lucideIconComponent = chemistryLucideComponentsOnly[iconIndex];
+    appUser.avatarUrl = null;
   }
   
   return appUser;
@@ -82,13 +99,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const appUser = createUserFromModel(model);
       setUser(currentUser => {
         if (!appUser) return null;
-        if (currentUser &&
-            currentUser.id === appUser.id &&
-            currentUser.name === appUser.name &&
-            currentUser.email === appUser.email &&
-            currentUser.role === appUser.role &&
-            currentUser.avatarUrl === appUser.avatarUrl &&
-            currentUser.lucideIconComponent === appUser.lucideIconComponent) {
+        // Basic shallow comparison, might need deep comparison if appUser structure becomes complex
+        if (currentUser && JSON.stringify(currentUser) === JSON.stringify(appUser)) {
           return currentUser;
         }
         return appUser;
@@ -169,7 +181,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const formData = new FormData();
       formData.append('avatar', avatarFile);
-      // The SDK should update client.authStore.model automatically, triggering onChange
+      formData.append('selected_lucide_icon', ''); // Clear selected icon preference
+
       await client.collection('users').update(user.id, formData);
       toast({ title: "Avatar Updated", description: "Your profile picture has been changed." });
     } catch (error: any) {
@@ -187,14 +200,55 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [user, toast]);
 
+  const updateUserSelectedIcon = useCallback(async (iconName: string) => {
+    if (!user || !client.authStore.model) {
+      toast({ title: "Error", description: "User not authenticated.", variant: "destructive" });
+      throw new Error("User not authenticated or model not available.");
+    }
+    try {
+      const data = {
+        avatar: null, // Clear uploaded avatar
+        selected_lucide_icon: iconName,
+      };
+      await client.collection('users').update(user.id, data);
+      toast({ title: "Icon Updated", description: "Your profile icon has been changed." });
+    } catch (error: any) {
+      console.error("Failed to update selected icon:", error);
+      toast({ title: "Icon Update Failed", description: "Could not update your icon preference.", variant: "destructive" });
+      throw error;
+    }
+  }, [user, toast]);
+
+  const clearAvatarAndSelection = useCallback(async () => {
+    if (!user || !client.authStore.model) {
+      toast({ title: "Error", description: "User not authenticated.", variant: "destructive" });
+      throw new Error("User not authenticated or model not available.");
+    }
+    try {
+      const data = {
+        avatar: null,
+        selected_lucide_icon: null,
+      };
+      await client.collection('users').update(user.id, data);
+      toast({ title: "Avatar Reset", description: "Your profile picture has been reset to the default." });
+    } catch (error: any) {
+      console.error("Failed to clear avatar and selection:", error);
+      toast({ title: "Avatar Reset Failed", description: "Could not reset your avatar.", variant: "destructive" });
+      throw error;
+    }
+  }, [user, toast]);
+
+
   const contextValue = useMemo(() => ({
     user,
     login,
     logout,
     loading,
     pbClient: client,
-    updateUserAvatar, 
-  }), [user, login, logout, loading, updateUserAvatar]);
+    updateUserAvatar,
+    updateUserSelectedIcon,
+    clearAvatarAndSelection,
+  }), [user, login, logout, loading, updateUserAvatar, updateUserSelectedIcon, clearAvatarAndSelection]);
 
   return (
     <AuthContext.Provider value={contextValue}>

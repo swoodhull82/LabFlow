@@ -8,6 +8,7 @@ export interface User {
   role: UserRole;
   avatarUrl?: string | null;
   lucideIconComponent?: React.ElementType; // To store the Lucide icon component
+  selected_lucide_icon?: string; // Stores the name of the user-selected Lucide icon
 }
 
 export type TaskStatus = "To Do" | "In Progress" | "Blocked" | "Done" | "Overdue";

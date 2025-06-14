@@ -8,8 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth, chemistryIconData } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -19,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { useTheme } from "next-themes";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Loader2 } from "lucide-react";
+import { Save, Loader2, ImageUp, Palette, Trash2 } from "lucide-react"; // Added Palette, ImageUp, Trash2
 
 const LOCAL_STORAGE_KEYS = {
   emailNotifications: "labflow-emailNotificationsEnabled",
@@ -27,7 +28,7 @@ const LOCAL_STORAGE_KEYS = {
 };
 
 export default function SettingsPage() {
-  const { user, updateUserAvatar } = useAuth();
+  const { user, updateUserAvatar, updateUserSelectedIcon, clearAvatarAndSelection } = useAuth();
   const { theme, setTheme } = useTheme(); 
   const { toast } = useToast();
 
@@ -37,6 +38,7 @@ export default function SettingsPage() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isAvatarDialogOpen, setIsAvatarDialogOpen] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -67,6 +69,7 @@ export default function SettingsPage() {
         return;
       }
       setIsUploading(true);
+      setIsAvatarDialogOpen(false); // Close dialog before upload starts
       try {
         await updateUserAvatar(file);
         // Success toast is handled in AuthContext
@@ -79,6 +82,32 @@ export default function SettingsPage() {
           fileInputRef.current.value = ""; // Reset file input
         }
       }
+    }
+  };
+
+  const handleIconSelect = async (iconName: string) => {
+    if (!user || !updateUserSelectedIcon) return;
+    setIsUploading(true); // Use same loading state for simplicity
+    setIsAvatarDialogOpen(false);
+    try {
+      await updateUserSelectedIcon(iconName);
+    } catch (error) {
+      console.error("Icon selection failed:", error);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleRevertToDefault = async () => {
+    if (!user || !clearAvatarAndSelection) return;
+    setIsUploading(true);
+    setIsAvatarDialogOpen(false);
+    try {
+      await clearAvatarAndSelection();
+    } catch (error) {
+      console.error("Revert to default failed:", error);
+    } finally {
+      setIsUploading(false);
     }
   };
   
@@ -101,9 +130,7 @@ export default function SettingsPage() {
               <div className="flex flex-col items-center space-y-2">
                 {user && (
                   <>
-                  <Avatar 
-                    className="h-24 w-24"
-                  >
+                  <Avatar className="h-24 w-24">
                     {user.lucideIconComponent ? (
                       React.createElement(user.lucideIconComponent, { className: "h-full w-full p-2 text-muted-foreground" }) 
                     ) : user.avatarUrl ? (
@@ -111,6 +138,7 @@ export default function SettingsPage() {
                     ) : null}
                     <AvatarFallback className="text-3xl">{user.name ? user.name.split(' ').map(n=>n[0]).join('').substring(0,2) : user.email[0].toUpperCase()}</AvatarFallback>
                   </Avatar>
+                  
                   <input 
                     type="file" 
                     ref={fileInputRef} 
@@ -118,17 +146,71 @@ export default function SettingsPage() {
                     style={{ display: 'none' }} 
                     accept="image/png, image/jpeg, image/gif" 
                   />
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={() => !isUploading && fileInputRef.current?.click()}
-                    disabled={isUploading}
-                  >
-                    {isUploading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : null}
-                    {isUploading ? "Uploading..." : "Change Photo"}
-                  </Button>
+                  <Dialog open={isAvatarDialogOpen} onOpenChange={setIsAvatarDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" disabled={isUploading}>
+                        {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        {isUploading ? "Updating..." : "Change Photo"}
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Change Profile Photo</DialogTitle>
+                        <DialogDescription>
+                          Choose a chemistry icon, upload your own photo, or revert to the default.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div>
+                          <h3 className="mb-2 text-sm font-medium text-foreground">Select an Icon</h3>
+                          <div className="grid grid-cols-4 gap-2">
+                            {chemistryIconData.map(icon => (
+                              <Button
+                                key={icon.name}
+                                variant="outline"
+                                size="icon"
+                                className="h-16 w-16 flex items-center justify-center"
+                                onClick={() => handleIconSelect(icon.name)}
+                                title={`Select ${icon.name}`}
+                              >
+                                <icon.component className="h-8 w-8" />
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                        <Separator />
+                        <div>
+                           <h3 className="mb-2 text-sm font-medium text-foreground">Upload Custom Photo</h3>
+                           <Button 
+                            variant="outline" 
+                            className="w-full"
+                            onClick={() => {
+                              setIsAvatarDialogOpen(false); // Close dialog first
+                              fileInputRef.current?.click();
+                            }}
+                          >
+                            <ImageUp className="mr-2 h-4 w-4" /> Upload Photo
+                          </Button>
+                        </div>
+                         <Separator />
+                        <div>
+                           <h3 className="mb-2 text-sm font-medium text-foreground">Default</h3>
+                           <Button 
+                            variant="outline" 
+                            className="w-full"
+                            onClick={handleRevertToDefault}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" /> Use Default Lab Icon
+                          </Button>
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <DialogClose asChild>
+                            <Button type="button" variant="ghost">Cancel</Button>
+                        </DialogClose>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                   </>
                 )}
               </div>
