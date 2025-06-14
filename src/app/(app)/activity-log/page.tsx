@@ -48,7 +48,7 @@ export default function ActivityLogPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const canViewPage = user?.role === 'Supervisor' || user?.role === 'Team Lead';
+  const canViewPage = user?.role === 'Supervisor';
 
   const fetchLogEntries = useCallback(async (pb: PocketBase, signal?: AbortSignal) => {
     setIsLoading(true);
@@ -85,7 +85,7 @@ export default function ActivityLogPage() {
     }
 
     if (!canViewPage) {
-      toast({ title: "Access Denied", description: "This page is for Supervisors and Team Leads only.", variant: "destructive" });
+      toast({ title: "Access Denied", description: "This page is for Supervisors only.", variant: "destructive" });
       router.push('/dashboard');
       return;
     }
@@ -120,7 +120,7 @@ export default function ActivityLogPage() {
             <CardTitle className="text-center">Access Denied</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-center text-muted-foreground">This page is for Supervisors and Team Leads only.</p>
+            <p className="text-center text-muted-foreground">This page is for Supervisors only.</p>
             <Button onClick={() => router.push('/dashboard')} className="w-full mt-6">Go to Dashboard</Button>
           </CardContent>
         </Card>

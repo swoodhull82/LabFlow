@@ -55,7 +55,7 @@ export default function NewEmployeePage() {
   const [fetchManagersError, setFetchManagersError] = useState<string | null>(null);
 
 
-  const canManageEmployees = user?.role === 'Supervisor' || user?.role === 'Team Lead';
+  const canManageEmployees = user?.role === 'Supervisor';
 
   const form = useForm<EmployeeFormData>({
     resolver: zodResolver(employeeFormSchema),
@@ -70,7 +70,7 @@ export default function NewEmployeePage() {
 
   useEffect(() => {
     if (user && !canManageEmployees) {
-      toast({ title: "Access Denied", description: "You are not authorized to add employees.", variant: "destructive" });
+      toast({ title: "Access Denied", description: "You are not authorized to add new employees. This page is for Supervisors only.", variant: "destructive" });
       router.push("/dashboard");
     }
   }, [user, router, toast, canManageEmployees]);
@@ -178,7 +178,7 @@ export default function NewEmployeePage() {
             </CardHeader>
             <CardContent>
                 <p className="text-center text-muted-foreground">
-                    You are not authorized to view this page.
+                    You are not authorized to view this page. This page is for Supervisors only.
                 </p>
                  <Button onClick={() => router.push('/dashboard')} className="w-full mt-6">
                     Go to Dashboard
