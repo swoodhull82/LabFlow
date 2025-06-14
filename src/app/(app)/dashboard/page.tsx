@@ -254,7 +254,7 @@ export default function DashboardPage() {
     }
     setLiveMonthlyTaskCompletionData(monthlyChartDataPoints);
 
-  }, [chartFills]); // chartFills is now stable
+  }, []);
 
 
   const fetchDashboardData = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
@@ -313,7 +313,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-headline font-semibold">Dashboard</h1>
+      <h1 className="text-2xl md:text-3xl font-headline font-semibold">Dashboard</h1>
       
       {error && !isLoading ? (
         <div className="flex flex-col items-center justify-center py-10 text-destructive bg-destructive/10 rounded-lg">
@@ -474,6 +474,7 @@ export default function DashboardPage() {
     
 
     
+
 
 
 

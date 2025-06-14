@@ -31,12 +31,17 @@ const pbTaskToCalendarEvent = (taskRecord: any): CalendarEvent => {
 
 export const getCalendarEvents = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<CalendarEvent[]> => {
   try {
+    const { signal, ...otherOptions } = options || {};
+    const defaultFields = 'id,title,dueDate,description,status,userId,created,updated';
+    const requestParams = {
+      filter: 'dueDate != null && dueDate != ""', 
+      sort: '-dueDate', 
+      fields: defaultFields,
+      ...otherOptions, // Allow overriding filter, sort, and fields if provided in options
+    };
+
     const records = await withRetry(() => 
-      pb.collection(TASK_COLLECTION_NAME).getFullList({
-        filter: 'dueDate != null && dueDate != ""', 
-        sort: '-dueDate', 
-        ...options,
-      }),
+      pb.collection(TASK_COLLECTION_NAME).getFullList(requestParams, { signal }),
       { ...options, context: "fetching tasks for calendar" }
     );
     return records.map(pbTaskToCalendarEvent).filter(event => event.eventDate); 
@@ -44,3 +49,4 @@ export const getCalendarEvents = async (pb: PocketBase, options?: PocketBaseRequ
     throw error;
   }
 };
+

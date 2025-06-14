@@ -8,7 +8,7 @@ const COLLECTION_NAME = "employees";
 
 interface PocketBaseRequestOptions {
   signal?: AbortSignal;
-  onRetry?: (attempt: number, maxAttempts: number, error: any) => void; // Add this
+  onRetry?: (attempt: number, maxAttempts: number, error: any) => void; 
   [key: string]: any;
 }
 
@@ -30,18 +30,22 @@ const pbRecordToEmployee = (record: any): Employee => {
   };
 };
 
+const DEFAULT_EMPLOYEE_FIELDS = 'id,name,email,role,department_text,reportsTo_text,userId,created,updated';
+
 export const getEmployees = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<Employee[]> => {
   try {
-    const { onRetry, ...restOptions } = options || {}; // Destructure onRetry
+    const { onRetry, signal, ...otherOptions } = options || {}; 
+    const requestParams = {
+      sort: 'name',
+      fields: DEFAULT_EMPLOYEE_FIELDS,
+      ...otherOptions, 
+    };
     const records = await withRetry(() => 
-      pb.collection(COLLECTION_NAME).getFullList({
-        sort: 'name',
-        ...restOptions, // Pass remaining options
-      }),
+      pb.collection(COLLECTION_NAME).getFullList(requestParams, { signal }),
       {
-        ...restOptions, // Pass other options like signal, context
+        signal, // Pass signal for retry logic
         context: "fetching employees list",
-        onRetry // Pass the callback
+        onRetry 
       }
     );
     return records.map(pbRecordToEmployee);
@@ -51,8 +55,6 @@ export const getEmployees = async (pb: PocketBase, options?: PocketBaseRequestOp
 };
 
 export const createEmployee = async (pb: PocketBase, employeeData: Partial<Omit<Employee, 'id' | 'created' | 'updated'>> | FormData, options?: PocketBaseRequestOptions): Promise<Employee> => {
-  // Note: createEmployee is not being wrapped withRetry in this subtask,
-  // but options are added for consistency if future needs arise e.g. for signal.
   try {
     const record = await pb.collection(COLLECTION_NAME).create(employeeData, { signal: options?.signal });
     return pbRecordToEmployee(record);
@@ -91,12 +93,16 @@ export const deleteEmployee = async (pb: PocketBase, id: string, options?: Pocke
 
 export const getEmployeeById = async (pb: PocketBase, id: string, options?: PocketBaseRequestOptions): Promise<Employee | null> => {
   try {
-    const { onRetry, ...restOptions } = options || {}; // Destructure onRetry
-    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id, restOptions),
+    const { onRetry, signal, ...otherOptions } = options || {}; 
+    const requestParams = {
+      fields: DEFAULT_EMPLOYEE_FIELDS,
+      ...otherOptions,
+    };
+    const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id, requestParams, { signal }),
     {
-      ...restOptions,
+      signal,
       context: `fetching employee by ID ${id}`,
-      onRetry // Pass the callback
+      onRetry 
     });
     return pbRecordToEmployee(record);
   } catch (error) {
@@ -106,3 +112,4 @@ export const getEmployeeById = async (pb: PocketBase, id: string, options?: Pock
     throw error;
   }
 };
+

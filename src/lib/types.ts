@@ -6,7 +6,9 @@ export interface User {
   email: string;
   name?: string;
   role: UserRole;
-  avatarUrl?: string;
+  avatarUrl?: string | null;
+  lucideIconComponent?: React.ElementType; // To store the Lucide icon component
+  selected_lucide_icon?: string; // Stores the name of the user-selected Lucide icon
 }
 
 export type TaskStatus = "To Do" | "In Progress" | "Blocked" | "Done" | "Overdue";
@@ -33,6 +35,7 @@ export interface Task {
   progress?: number; // Percentage 0-100
   isMilestone?: boolean;
   dependencies?: string[]; // Array of task IDs
+  instrument_subtype?: string;
 }
 
 export interface CalendarEvent {
@@ -70,9 +73,4 @@ export interface ActivityLogEntry {
   action: string; // Description of the action, e.g., "Created new task"
   details?: string; // Optional additional details about the event
   created: Date | string; // Timestamp of the event
-  updated: Date | string;
-  collectionId?: string;
-  collectionName?: string;
-  expand?: any;
-}
-
+  updated: Date |

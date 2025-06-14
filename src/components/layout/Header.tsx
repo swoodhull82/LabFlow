@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -9,15 +10,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Bell, LogOut, Settings, User as UserIcon, Menu } from "lucide-react";
+import { Avatar, AvatarImage } from "@/components/ui/avatar";
+import { Bell, LogOut, Settings, Menu } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
-import { APP_NAME } from "@/lib/constants";
+import React from "react"; 
+import { useRouter } from 'next/navigation';
 
 export function Header() {
   const { user, logout } = useAuth();
   const { toggleSidebar, isMobile } = useSidebar();
+  const router = useRouter();
 
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6 shadow-sm">
@@ -39,9 +42,14 @@ export function Header() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-                <Avatar className="h-9 w-9">
-                  <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
-                  <AvatarFallback>{user.name ? user.name[0].toUpperCase() : user.email[0].toUpperCase()}</AvatarFallback>
+                <Avatar 
+                  className="h-9 w-9 flex items-center justify-center"
+                >
+                  {user.lucideIconComponent ? (
+                    React.createElement(user.lucideIconComponent, { className: "h-full w-full text-muted-foreground" })
+                  ) : user.avatarUrl ? (
+                    <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
+                  ) : null}
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
@@ -55,13 +63,9 @@ export function Header() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
-                <UserIcon className="mr-2 h-4 w-4" />
-                <span>Profile</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push('/settings')}>
                 <Settings className="mr-2 h-4 w-4" />
-                <span>Settings</span>
+                <span>Settings & Profile</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={logout}>
@@ -75,3 +79,4 @@ export function Header() {
     </header>
   );
 }
+

@@ -20,10 +20,16 @@ import {
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
-import { getTasks } from "@/services/taskService";
+import { getTasks, updateTask as updateTaskService } from "@/services/taskService"; // Renamed import
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
-import { Button as ShadcnButton } from "@/components/ui/button";
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, Edit2, Save, X, Link as LinkIcon } from "lucide-react";
+import { Button as ShadcnButton } from "@/components/ui/button"; // Aliased to avoid conflict
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TASK_STATUSES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
 
 const ROW_HEIGHT = 48; // px, height of each task row
@@ -38,6 +44,8 @@ const DEFAULT_DAY_CELL_WIDTH = 30; // px
 
 const DEPENDENCY_LINE_OFFSET = 15; // px, for the horizontal part of the elbow connector
 const ARROW_SIZE = 5; // px, for arrowhead marker
+const RESIZE_HANDLE_WIDTH = 8; // px
+const MIN_TASK_DURATION_DAYS = 1;
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => {
   if (isMilestone) return 'bg-purple-500 hover:bg-purple-600';
@@ -58,25 +66,20 @@ const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => 
   }
 };
 
-const getDetailedErrorMessage = (error: any): string => {
-  let message = "An unexpected error occurred while fetching tasks for the timeline.";
+const getDetailedErrorMessage = (error: any, context?: string): string => {
+  let message = `An unexpected error occurred while ${context || 'processing your request'}.`;
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      message = "Failed to load timeline data: Could not connect to the server. Please check your internet connection and try again.";
-    } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
+      message = `Failed to connect to the server while ${context || 'processing'}. Please check your internet connection.`;
+    } else if (error.data?.message) {
       message = error.data.message;
-    } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
+    } else if (error.message && !error.message.startsWith("PocketBase_ClientResponseError")) {
       message = error.message;
-    } else if (error.originalError && typeof error.originalError.message === 'string') {
-        message = error.originalError.message;
-    } else if (error.message && typeof error.message === 'string') {
-      message = error.message;
+    } else if (error.originalError?.message) {
+      message = error.originalError.message;
     }
-
-    if ('status' in error && error.status !== 0) {
-      const status = error.status;
-      if (status === 404) message = `The 'tasks' collection was not found (404). ${message}`;
-      else if (status === 403) message = `You do not have permission to view tasks (403). ${message}`;
+     if ('status' in error && error.status && error.status !==0) {
+      message = `${message} (Status: ${error.status})`;
     }
   } else if (typeof error === 'string') {
     message = error;
@@ -84,6 +87,30 @@ const getDetailedErrorMessage = (error: any): string => {
   return message;
 };
 
+interface DragState {
+  type: 'drag' | 'resize-start' | 'resize-end';
+  taskId: string;
+  initialMouseX: number;
+  originalStartDate: Date;
+  originalDueDate: Date;
+  currentMouseX?: number;
+}
+
+interface DependencyDrawState {
+  sourceTaskId: string;
+  sourceTaskBarEndX: number;
+  sourceTaskBarCenterY: number;
+  currentMouseX: number;
+  currentMouseY: number;
+}
+
+interface QuickEditPopoverState {
+  taskId: string | null;
+  currentTitle: string;
+  currentInstrumentSubtype?: string;
+  currentStatus: TaskStatus;
+  currentProgress: number;
+}
 
 const GanttChart: React.FC = () => {
   const { pbClient } = useAuth();
@@ -93,9 +120,23 @@ const GanttChart: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [viewStartDate, setViewStartDate] = useState<Date>(startOfMonth(new Date()));
   const [dayCellWidth, setDayCellWidth] = useState<number>(DEFAULT_DAY_CELL_WIDTH);
+  const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [dependencyDrawState, setDependencyDrawState] = useState<DependencyDrawState | null>(null);
   
   const timelineScrollContainerRef = useRef<HTMLDivElement>(null);
   const leftPanelScrollContainerRef = useRef<HTMLDivElement>(null);
+  const ganttBodyRef = useRef<HTMLDivElement>(null);
+
+  const [quickEditPopoverState, setQuickEditPopoverState] = useState<QuickEditPopoverState>({
+    taskId: null,
+    currentTitle: PREDEFINED_TASK_TITLES[0] || "",
+    currentInstrumentSubtype: undefined,
+    currentStatus: 'To Do',
+    currentProgress: 0,
+  });
+  const [isQuickEditPopoverOpen, setIsQuickEditPopoverOpen] = useState(false);
+
 
   const fetchTimelineTasks = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -126,12 +167,12 @@ const GanttChart: React.FC = () => {
       if (isAutocancel) {
         console.warn(`GanttChart: Timeline tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
       } else if (isNetworkErrorNotAutocancel) {
-        const detailedError = getDetailedErrorMessage(err);
+        const detailedError = getDetailedErrorMessage(err, "fetching timeline data");
         setError(detailedError);
         toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
         console.warn("GanttChart: Timeline tasks fetch (network error):", detailedError, err);
       } else {
-        const detailedError = getDetailedErrorMessage(err);
+        const detailedError = getDetailedErrorMessage(err, "fetching timeline data");
         setError(detailedError);
         toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
         console.warn("GanttChart: Error fetching tasks for timeline (after retries):", detailedError, err);
@@ -211,15 +252,34 @@ const GanttChart: React.FC = () => {
         task: Task & { startDate: Date; dueDate: Date; isMilestone: boolean; dependencies: string[] };
         index: number;
         barStartX: number;
-        barEndX: number; // For non-milestones, this is barStartX + width
+        barEndX: number; 
         barWidth: number;
         barCenterY: number;
         isMilestone: boolean;
+        effectiveStartDate: Date;
+        effectiveDueDate: Date;
     }>();
 
     tasksToDisplay.forEach((task, index) => {
-        const taskStartActual = task.startDate;
-        const taskEndActual = task.dueDate;
+        let taskStartActual = task.startDate;
+        let taskEndActual = task.dueDate;
+
+        if (dragState && dragState.taskId === task.id) {
+            const dragOffsetDays = Math.round(( (dragState.currentMouseX ?? dragState.initialMouseX) - dragState.initialMouseX) / dayCellWidth);
+            
+            if (dragState.type === 'drag') {
+                taskStartActual = addDays(dragState.originalStartDate, dragOffsetDays);
+                taskEndActual = addDays(dragState.originalDueDate, dragOffsetDays);
+            } else if (dragState.type === 'resize-start') {
+                taskStartActual = addDays(dragState.originalStartDate, dragOffsetDays);
+                taskStartActual = min([taskStartActual, addDays(dragState.originalDueDate, - (MIN_TASK_DURATION_DAYS-1) )]);
+                taskEndActual = dragState.originalDueDate;
+            } else if (dragState.type === 'resize-end') {
+                taskStartActual = dragState.originalStartDate;
+                taskEndActual = addDays(dragState.originalDueDate, dragOffsetDays);
+                taskEndActual = max([taskEndActual, addDays(dragState.originalStartDate, (MIN_TASK_DURATION_DAYS-1) )]);
+            }
+        }
         
         const taskStartInView = max([taskStartActual, chartStartDate]);
         const taskEndInView = min([taskEndActual, chartEndDate]);
@@ -238,9 +298,9 @@ const GanttChart: React.FC = () => {
             barLeftPosition += (dayCellWidth / 2) - (MILESTONE_SIZE / 2);
         }
         
-        const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2; // Adjusted for padding on both sides
-        const taskBarTop = TASK_BAR_VERTICAL_PADDING; // Relative to the row
-        const milestoneTop = (ROW_HEIGHT - MILESTONE_SIZE) / 2; // Relative to the row
+        const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2;
+        const taskBarTop = TASK_BAR_VERTICAL_PADDING;
+        const milestoneTop = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
 
         map.set(task.id, {
             task,
@@ -251,11 +311,12 @@ const GanttChart: React.FC = () => {
             barCenterY: (index * ROW_HEIGHT) + 
                         (task.isMilestone ? milestoneTop + MILESTONE_SIZE / 2 : taskBarTop + taskBarHeight / 2),
             isMilestone: !!task.isMilestone,
+            effectiveStartDate: taskStartActual,
+            effectiveDueDate: taskEndActual,
         });
     });
     return map;
-  }, [tasksToDisplay, chartStartDate, chartEndDate, dayCellWidth]);
-
+  }, [tasksToDisplay, chartStartDate, chartEndDate, dayCellWidth, dragState]);
 
   const dependencyLines = useMemo(() => {
     const lines: { id: string, d: string }[] = [];
@@ -283,6 +344,211 @@ const GanttChart: React.FC = () => {
     return lines;
   }, [tasksToDisplay, taskRenderDetailsMap]);
 
+    const handleTaskUpdate = useCallback(async (
+        taskId: string, 
+        updates: Partial<Pick<Task, 'startDate' | 'dueDate' | 'dependencies' | 'title' | 'status' | 'progress' | 'instrument_subtype'>>
+    ) => {
+        if (!pbClient) return;
+        const taskToUpdate = allTasks.find(t => t.id === taskId);
+        if (!taskToUpdate) return;
+
+        const payload: Partial<Task> = { ...updates };
+        if (updates.startDate) payload.startDate = new Date(updates.startDate).toISOString();
+        if (updates.dueDate) payload.dueDate = new Date(updates.dueDate).toISOString();
+        
+        try {
+            await updateTaskService(pbClient, taskId, payload);
+            toast({ title: "Task Updated", description: `Task "${taskToUpdate.title}" was successfully updated.` });
+            fetchTimelineTasks(pbClient); 
+        } catch (err) {
+            toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${taskToUpdate.title}"`), variant: "destructive" });
+            fetchTimelineTasks(pbClient);
+        }
+    }, [pbClient, allTasks, toast, fetchTimelineTasks]);
+
+
+    const handleMouseDownOnTaskBar = (e: React.MouseEvent, task: Task) => {
+        if (e.button !== 0) return; 
+        if (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) return; 
+
+        const taskDetails = taskRenderDetailsMap.get(task.id);
+        if (!taskDetails) return;
+        
+        e.preventDefault();
+        e.stopPropagation();
+
+        setDragState({
+            type: 'drag',
+            taskId: task.id,
+            initialMouseX: e.clientX,
+            originalStartDate: taskDetails.effectiveStartDate,
+            originalDueDate: taskDetails.effectiveDueDate,
+        });
+        if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'grabbing';
+        document.body.style.userSelect = 'none';
+    };
+    
+    const handleMouseDownOnResizeHandle = (e: React.MouseEvent, task: Task, handleType: 'start' | 'end') => {
+        if (e.button !== 0) return;
+        const taskDetails = taskRenderDetailsMap.get(task.id);
+        if (!taskDetails) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        
+        setDragState({
+            type: handleType === 'start' ? 'resize-start' : 'resize-end',
+            taskId: task.id,
+            initialMouseX: e.clientX,
+            originalStartDate: taskDetails.effectiveStartDate,
+            originalDueDate: taskDetails.effectiveDueDate,
+        });
+        if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'ew-resize';
+        document.body.style.userSelect = 'none';
+    };
+
+    const handleMouseDownOnDependencyConnector = (e: React.MouseEvent, task: Task) => {
+        if (e.button !== 0) return;
+        const taskDetails = taskRenderDetailsMap.get(task.id);
+        if (!taskDetails || taskDetails.isMilestone) return; 
+        
+        e.preventDefault();
+        e.stopPropagation();
+
+        const ganttRect = ganttBodyRef.current?.getBoundingClientRect();
+        const timelineScroll = timelineScrollContainerRef.current;
+        if (!ganttRect || !timelineScroll) return;
+
+        const initialMouseXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
+        const initialMouseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60;
+
+        setDependencyDrawState({
+            sourceTaskId: task.id,
+            sourceTaskBarEndX: taskDetails.barEndX,
+            sourceTaskBarCenterY: taskDetails.barCenterY,
+            currentMouseX: initialMouseXInGrid,
+            currentMouseY: initialMouseYInGrid,
+        });
+        if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'crosshair';
+    };
+
+    const handleTaskBarClick = (e: React.MouseEvent, task: Task) => {
+        if (e.detail !== 1 || Math.abs(e.movementX) > 2 || Math.abs(e.movementY) > 2) { 
+          return;
+        }
+        const targetElement = e.target as HTMLElement;
+        if (targetElement.classList.contains('resize-handle') || 
+            targetElement.classList.contains('dependency-connector') || 
+            targetElement.closest('.dependency-connector')) {
+          return;
+        }
+        
+        setQuickEditPopoverState({
+          taskId: task.id,
+          currentTitle: task.title,
+          currentInstrumentSubtype: task.instrument_subtype,
+          currentStatus: task.status,
+          currentProgress: task.progress || 0,
+        });
+        setIsQuickEditPopoverOpen(true);
+      };
+
+    const handleSaveQuickEdit = () => {
+        if (!quickEditPopoverState.taskId) return;
+        
+        const updates: Partial<Pick<Task, 'title' | 'status' | 'progress' | 'instrument_subtype'>> = {
+            title: quickEditPopoverState.currentTitle,
+            instrument_subtype: (quickEditPopoverState.currentTitle === "MDL" || quickEditPopoverState.currentTitle === "SOP") ? quickEditPopoverState.currentInstrumentSubtype : undefined,
+            status: quickEditPopoverState.currentStatus,
+            progress: quickEditPopoverState.currentProgress,
+        };
+        handleTaskUpdate(quickEditPopoverState.taskId, updates);
+        setIsQuickEditPopoverOpen(false);
+        setQuickEditPopoverState({taskId: null, currentTitle: PREDEFINED_TASK_TITLES[0] || "", currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0});
+    };
+
+
+    useEffect(() => {
+        const handleWindowMouseMove = (e: MouseEvent) => {
+            if (dragState) {
+                setDragState(prev => prev ? { ...prev, currentMouseX: e.clientX } : null);
+            } else if (dependencyDrawState && ganttBodyRef.current) {
+                 const ganttRect = ganttBodyRef.current.getBoundingClientRect();
+                 const timelineScroll = timelineScrollContainerRef.current;
+                 if (!timelineScroll) return;
+                
+                 const currentXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
+                 const currentYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Adjust for headers
+                 setDependencyDrawState(prev => prev ? { ...prev, currentMouseX: currentXInGrid, currentMouseY: currentYInGrid } : null);
+            }
+        };
+
+        const handleWindowMouseUp = (e: MouseEvent) => {
+            if (dragState) {
+                const taskDetails = taskRenderDetailsMap.get(dragState.taskId);
+                if (taskDetails) {
+                    handleTaskUpdate(dragState.taskId, {
+                        startDate: taskDetails.effectiveStartDate,
+                        dueDate: taskDetails.effectiveDueDate,
+                    });
+                }
+                setDragState(null);
+                if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'default';
+                document.body.style.userSelect = '';
+            } else if (dependencyDrawState) {
+                const ganttRect = ganttBodyRef.current?.getBoundingClientRect();
+                const timelineScroll = timelineScrollContainerRef.current;
+
+                if (ganttRect && timelineScroll) {
+                    const releaseXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
+                    const releaseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60;
+                    
+                    let targetDropTaskId: string | null = null;
+                    for (const [taskId, details] of taskRenderDetailsMap.entries()) {
+                        if (taskId === dependencyDrawState.sourceTaskId) continue; 
+
+                        const taskRowTop = details.index * ROW_HEIGHT;
+                        const taskRowBottom = taskRowTop + ROW_HEIGHT;
+                        
+                        if (releaseYInGrid >= taskRowTop && releaseYInGrid <= taskRowBottom &&
+                            releaseXInGrid >= details.barStartX - dayCellWidth / 2 && releaseXInGrid <= details.barStartX + dayCellWidth / 2) {
+                             targetDropTaskId = taskId;
+                             break;
+                        }
+                    }
+
+                    if (targetDropTaskId) {
+                        const sourceTask = allTasks.find(t => t.id === dependencyDrawState.sourceTaskId);
+                        const targetTask = allTasks.find(t => t.id === targetDropTaskId);
+                        if (sourceTask && targetTask) {
+                            const currentTargetDeps = targetTask.dependencies || [];
+                            const currentSourceDeps = sourceTask.dependencies || [];
+
+                            if (!currentTargetDeps.includes(sourceTask.id) && !currentSourceDeps.includes(targetTask.id)) { 
+                                handleTaskUpdate(targetTask.id, { dependencies: [...currentTargetDeps, sourceTask.id] });
+                            } else {
+                                toast({ title: "Invalid Dependency", description: "Cannot create duplicate or circular dependency.", variant: "destructive"});
+                            }
+                        }
+                    }
+                }
+                setDependencyDrawState(null);
+                if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'default';
+            }
+        };
+        
+        if (dragState || dependencyDrawState) {
+            window.addEventListener('mousemove', handleWindowMouseMove);
+            window.addEventListener('mouseup', handleWindowMouseUp);
+        }
+
+        return () => {
+            window.removeEventListener('mousemove', handleWindowMouseMove);
+            window.removeEventListener('mouseup', handleWindowMouseUp);
+        };
+    }, [dragState, dependencyDrawState, dayCellWidth, taskRenderDetailsMap, handleTaskUpdate, allTasks, toast]);
+
+
   const handlePrevMonth = () => setViewStartDate(prev => subMonths(prev, 1));
   const handleNextMonth = () => setViewStartDate(prev => addMonths(prev, 1));
   const handleZoomIn = () => setDayCellWidth(prev => Math.min(MAX_DAY_CELL_WIDTH, prev + 5));
@@ -290,18 +556,13 @@ const GanttChart: React.FC = () => {
   const refetchTasks = () => pbClient && fetchTimelineTasks(pbClient);
 
   useEffect(() => {
-    // Basic vertical scroll synchronization
-    // More advanced sync (e.g., accounting for different scroll speeds or momentum) is complex.
     let primaryScroller: 'left' | 'right' | null = null;
 
     const handleLeftScroll = () => {
       if (primaryScroller === 'right') return;
       primaryScroller = 'left';
       if (leftPanelScrollContainerRef.current && timelineScrollContainerRef.current) {
-        // Sync vertical scroll of timeline grid to left panel's task list
-        // This assumes the timelineScrollContainerRef's direct child (timeline-inner-content)
-        // is the one that should have its scrollTop set.
-        const rightInnerScroll = timelineScrollContainerRef.current.querySelector('.timeline-inner-content');
+        const rightInnerScroll = timelineScrollContainerRef.current.querySelector('.timeline-inner-content-scrollable-body');
         if (rightInnerScroll) {
           rightInnerScroll.scrollTop = leftPanelScrollContainerRef.current.scrollTop;
         }
@@ -313,8 +574,7 @@ const GanttChart: React.FC = () => {
       if (primaryScroller === 'left') return;
       primaryScroller = 'right';
       if (leftPanelScrollContainerRef.current && timelineScrollContainerRef.current) {
-        // Sync vertical scroll of left panel to timeline grid
-        const rightInnerScroll = timelineScrollContainerRef.current.querySelector('.timeline-inner-content');
+        const rightInnerScroll = timelineScrollContainerRef.current.querySelector('.timeline-inner-content-scrollable-body');
         if (rightInnerScroll) {
           leftPanelScrollContainerRef.current.scrollTop = rightInnerScroll.scrollTop;
         }
@@ -323,7 +583,7 @@ const GanttChart: React.FC = () => {
     };
     
     const leftEl = leftPanelScrollContainerRef.current;
-    const rightInnerEl = timelineScrollContainerRef.current?.querySelector('.timeline-inner-content');
+    const rightInnerEl = timelineScrollContainerRef.current?.querySelector('.timeline-inner-content-scrollable-body');
 
     leftEl?.addEventListener('scroll', handleLeftScroll);
     rightInnerEl?.addEventListener('scroll', handleRightScroll);
@@ -332,7 +592,7 @@ const GanttChart: React.FC = () => {
       leftEl?.removeEventListener('scroll', handleLeftScroll);
       rightInnerEl?.removeEventListener('scroll', handleRightScroll);
     };
-  }, [tasksToDisplay]); // Rerun if tasks change, as scroll heights might change
+  }, [tasksToDisplay]); 
 
 
   if (isLoading) {
@@ -373,8 +633,8 @@ const GanttChart: React.FC = () => {
   );
 
   return (
-    <div className="gantt-chart-root flex flex-col h-[calc(100vh-200px)] overflow-hidden"> {/* Adjust height as needed */}
-      {/* Control Header */}
+    <TooltipProvider>
+    <div ref={ganttBodyRef} className="gantt-chart-root flex flex-col h-[calc(100vh-200px)] overflow-hidden">
       <div className="flex justify-between items-center p-2 border-b border-border bg-card flex-shrink-0">
          <h2 className="text-lg font-semibold text-card-foreground">Project Timeline</h2>
          <div className="flex items-center gap-2">
@@ -386,9 +646,7 @@ const GanttChart: React.FC = () => {
          </div>
       </div>
 
-      {/* Main Gantt Body (Left Panel + Right Scrollable Timeline) */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Fixed Left Panel (Task List) */}
         <div 
             style={{ width: `${LEFT_PANEL_WIDTH}px` }} 
             className="flex-shrink-0 bg-card border-r border-border flex flex-col"
@@ -407,11 +665,23 @@ const GanttChart: React.FC = () => {
             {tasksToDisplay.map((task, taskIndex) => (
               <div 
                 key={task.id} 
-                className="grid grid-cols-[40px_1fr_70px_70px_60px] items-center gap-2 p-2 border-b border-border text-xs hover:bg-muted/50"
+                className={cn(
+                  "grid grid-cols-[40px_1fr_70px_70px_60px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150",
+                  task.id === hoveredTaskId ? 'bg-primary/10 dark:bg-primary/20' : '',
+                  (dragState && dragState.taskId !== task.id && dragState.type !== 'draw-dependency') || 
+                  (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) || 
+                  (hoveredTaskId && task.id !== hoveredTaskId) ? 'opacity-60' : 'opacity-100'
+                )}
                 style={{ height: `${ROW_HEIGHT}px` }}
+                onMouseEnter={() => setHoveredTaskId(task.id)}
+                onMouseLeave={() => setHoveredTaskId(null)}
               >
                 <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
-                <span className="font-medium truncate" title={task.title}>{task.title}</span>
+                <span className="font-medium truncate cursor-default" title={task.title} >
+                   {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype
+                    ? `${task.title} (${task.instrument_subtype})`
+                    : task.title}
+                </span>
                 <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
                 <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
                 <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
@@ -420,14 +690,14 @@ const GanttChart: React.FC = () => {
           </div>
         </div>
 
-        {/* Scrollable Right Panel (Timeline) */}
-        <div className="flex-1 overflow-x-auto" ref={timelineScrollContainerRef}>
-           <div style={{ width: `${timelineGridWidth}px`, minWidth: '100%' }} className="relative timeline-inner-content">
+        <div className="flex-1 overflow-auto" ref={timelineScrollContainerRef}>
+           <div className="relative timeline-inner-content">
             <div className="sticky top-0 z-20 bg-card">
-              <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: monthHeaders.map(m => `${m.span * dayCellWidth}px`).join(' ') }}>
+              <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: monthHeaders.map(m => `${m.span * dayCellWidth}px`).join(' ') || '1fr' }}>
                 {monthHeaders.map((month, index) => (
                   <div key={index} className="flex items-center justify-center border-r border-border font-semibold text-xs">{month.name}</div>
                 ))}
+                 {monthHeaders.length === 0 && <div className="h-full col-span-1"></div>}
               </div>
               <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${totalDaysInView > 0 ? totalDaysInView : 1}, ${dayCellWidth}px)`}}>
                 {Array.from({ length: totalDaysInView > 0 ? totalDaysInView : 0 }).map((_, dayIndex) => {
@@ -442,9 +712,9 @@ const GanttChart: React.FC = () => {
                  {totalDaysInView <= 0 && <div className="h-full col-span-1"></div>}
               </div>
             </div>
-
+            <div className="relative timeline-inner-content-scrollable-body" style={{height: `${timelineGridHeight}px`, width: `${timelineGridWidth}px`}}>
             {tasksToDisplay.length > 0 && (
-              <div className="relative" style={{ height: `${timelineGridHeight}px` }}>
+              <>
                 {tasksToDisplay.map((_, taskIndex) => (
                     <div key={`row-line-${taskIndex}`} className="absolute left-0 right-0 border-b border-border/30" style={{ top: `${(taskIndex + 1) * ROW_HEIGHT -1}px`, height: '1px', zIndex: 1 }}></div>
                 ))}
@@ -463,50 +733,238 @@ const GanttChart: React.FC = () => {
                   const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2;
                   const taskBarTopOffset = TASK_BAR_VERTICAL_PADDING;
                   const milestoneTopOffset = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
+                  const isBeingDragged = dragState?.taskId === task.id;
+                  const isBeingDepDrawnFrom = dependencyDrawState?.sourceTaskId === task.id;
 
-                  const tooltipLines = [
-                    `Task: ${task.title}`, `Status: ${task.status}`, `Priority: ${task.priority}`,
-                    `Progress: ${task.progress}%`,
-                    `Dates: ${format(task.startDate, 'MMM d, yyyy')} - ${format(task.dueDate, 'MMM d, yyyy')}`,
-                    `Assigned to: ${task.assignedTo_text || "Unassigned"}`,
-                    `Depends on: ${task.dependencies && task.dependencies.length > 0 ? task.dependencies.map(depId => allTasks.find(t=>t.id===depId)?.title || depId).join(', ') : "None"}`
-                  ];
-                  const tooltipText = tooltipLines.join('\n');
 
                   return (
-                    <div
-                      key={task.id}
-                      title={tooltipText}
-                      className={cn(
-                        "absolute transition-all duration-150 ease-in-out group cursor-pointer z-10",
-                        getTaskBarColor(task.status, isMilestone),
-                        !isMilestone && "rounded-sm"
-                      )}
-                      style={{
-                        left: `${barStartX}px`,
-                        width: `${barWidth < 0 ? 0 : barWidth}px`, // Ensure width is not negative
-                        top: `${(taskIndex * ROW_HEIGHT) + (isMilestone ? milestoneTopOffset : taskBarTopOffset)}px`,
-                        height: isMilestone ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
-                      }}
-                    >
-                      {!isMilestone && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && barWidth > 0 && (
-                        <div className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" style={{ width: `${task.progress}%`}} />
-                      )}
-                      {isMilestone && (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <svg viewBox="0 0 100 100" className="w-full h-full fill-current text-white/80" preserveAspectRatio="none">
-                            <polygon points="50,0 100,50 50,100 0,50" />
-                          </svg>
+                    <Popover key={`${task.id}-popover`} open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id} onOpenChange={(open) => {
+                      if (!open) {
+                        setIsQuickEditPopoverOpen(false);
+                        setQuickEditPopoverState({taskId: null, currentTitle: PREDEFINED_TASK_TITLES[0] || "", currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0});
+                      } else if (task.id !== quickEditPopoverState.taskId) {
+                         setQuickEditPopoverState({
+                           taskId: task.id,
+                           currentTitle: task.title,
+                           currentInstrumentSubtype: task.instrument_subtype,
+                           currentStatus: task.status,
+                           currentProgress: task.progress || 0,
+                         });
+                         setIsQuickEditPopoverOpen(true);
+                      }
+                    }}>
+                    <Tooltip delayDuration={isBeingDragged || isBeingDepDrawnFrom || (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) ? 999999 : 100}>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                        <div
+                          onMouseDown={(e) => handleMouseDownOnTaskBar(e, task)}
+                          onClick={(e) => handleTaskBarClick(e, task)}
+                          onMouseEnter={() => setHoveredTaskId(task.id)}
+                          onMouseLeave={() => setHoveredTaskId(null)}
+                          className={cn(
+                            "absolute transition-opacity duration-150 ease-in-out group cursor-grab z-10",
+                            getTaskBarColor(task.status, isMilestone),
+                            !isMilestone && "rounded-sm",
+                            (isBeingDragged || isBeingDepDrawnFrom) ? 'ring-2 ring-ring ring-offset-background ring-offset-1 shadow-lg' : 
+                            (task.id === hoveredTaskId ? 'ring-1 ring-primary/70' : ''),
+                            ( (dragState && dragState.taskId !== task.id) || 
+                              (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) || 
+                              (hoveredTaskId && task.id !== hoveredTaskId) ) ? 'opacity-50' : 'opacity-100'
+                          )}
+                          style={{
+                            left: `${barStartX}px`,
+                            width: `${barWidth < 0 ? 0 : barWidth}px`,
+                            top: `${(taskIndex * ROW_HEIGHT) + (isMilestone ? milestoneTopOffset : taskBarTopOffset)}px`,
+                            height: isMilestone ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
+                          }}
+                        >
+                          {!isMilestone && (
+                            <>
+                            <div 
+                                className="resize-handle absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
+                                onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'start')}
+                                title="Resize start date"
+                            >
+                                <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
+                            </div>
+                            <div 
+                                className="resize-handle absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
+                                onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'end')}
+                                title="Resize end date"
+                            >
+                                <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
+                            </div>
+                            <div
+                              className="dependency-connector absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)}
+                              title="Draw dependency"
+                            />
+                            </>
+                          )}
+                          {!isMilestone && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && barWidth > 0 && (
+                            <div className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" style={{ width: `${task.progress}%`}} />
+                          )}
+                          {isMilestone && (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <svg viewBox="0 0 100 100" className="w-full h-full fill-current text-white/80" preserveAspectRatio="none">
+                                <polygon points="50,0 100,50 50,100 0,50" />
+                              </svg>
+                            </div>
+                          )}
+                          {!isMilestone && barWidth > (dayCellWidth * 0.75) && (
+                             <div className="absolute inset-0 flex items-center px-1.5 overflow-hidden">
+                                <span className="text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden text-ellipsis">
+                                  {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype ? `${task.title} (${task.instrument_subtype})` : task.title}
+                                </span>
+                            </div>
+                          )}
                         </div>
-                      )}
-                      {!isMilestone && barWidth > (dayCellWidth * 0.75) && (
-                        <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden pr-1">
-                          {task.title}
-                        </span>
-                      )}
-                    </div>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent className="p-2 shadow-lg bg-popover text-popover-foreground rounded-md border max-w-xs w-auto z-50">
+                        <div className="space-y-1">
+                          <p className="font-semibold text-sm">
+                             {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype ? `${task.title} (${task.instrument_subtype})` : task.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground">Status: <span className="font-medium text-foreground">{task.status}</span></p>
+                          <p className="text-xs text-muted-foreground">Priority: <span className="font-medium text-foreground">{task.priority}</span></p>
+                          <p className="text-xs text-muted-foreground">Progress: <span className="font-medium text-foreground">{task.progress || 0}%</span></p>
+                          <p className="text-xs text-muted-foreground">
+                            Dates: {format(task.startDate, 'MMM d, yy')} - {format(task.dueDate, 'MMM d, yy')}
+                          </p>
+                          {task.assignedTo_text && (
+                            <p className="text-xs text-muted-foreground">Assigned to: <span className="font-medium text-foreground">{task.assignedTo_text}</span></p>
+                          )}
+                          {task.dependencies && task.dependencies.length > 0 && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mt-1">Depends on:</p>
+                              <ul className="list-disc list-inside pl-2 space-y-0.5">
+                                {task.dependencies.map(depId => {
+                                  const depTaskDetails = allTasks.find(t => t.id === depId);
+                                  return <li key={depId} className="text-xs font-medium text-foreground truncate" title={depTaskDetails?.title}>{depTaskDetails?.title || 'Unknown Task'}</li>;
+                                })}
+                              </ul>
+                            </div>
+                          )}
+                           {!task.dependencies || task.dependencies.length === 0 && (
+                             <p className="text-xs text-muted-foreground">Dependencies: None</p>
+                           )}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                    <PopoverContent className="w-80 z-50" side="bottom" align="start">
+                        <div className="grid gap-4">
+                        <div className="space-y-2">
+                            <h4 className="font-medium leading-none">Quick Edit: {quickEditPopoverState.currentTitle}{(quickEditPopoverState.currentTitle === "MDL" || quickEditPopoverState.currentTitle === "SOP") && quickEditPopoverState.currentInstrumentSubtype ? ` (${quickEditPopoverState.currentInstrumentSubtype})` : ""}</h4>
+                            <p className="text-sm text-muted-foreground">
+                            Modify task details.
+                            </p>
+                        </div>
+                        <div className="grid gap-2">
+                            <div className="grid grid-cols-3 items-center gap-4">
+                                <Label htmlFor={`qe-title-${task.id}`}>Type</Label>
+                                <Select
+                                    value={quickEditPopoverState.currentTitle}
+                                    onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentTitle: value, currentInstrumentSubtype: (value !== "MDL" && value !== "SOP") ? undefined : prev.currentInstrumentSubtype}))}
+                                >
+                                    <SelectTrigger id={`qe-title-${task.id}`} className="col-span-2 h-8">
+                                        <SelectValue placeholder="Select type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {PREDEFINED_TASK_TITLES.map(title => (
+                                            <SelectItem key={title} value={title}>{title}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            {quickEditPopoverState.currentTitle === "MDL" && (
+                                <div className="grid grid-cols-3 items-center gap-4">
+                                <Label htmlFor={`qe-instrument-${task.id}`}>Instrument</Label>
+                                <Select
+                                    value={quickEditPopoverState.currentInstrumentSubtype || ""}
+                                    onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentInstrumentSubtype: value}))}
+                                >
+                                    <SelectTrigger id={`qe-instrument-${task.id}`} className="col-span-2 h-8">
+                                        <SelectValue placeholder="Select instrument" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {INSTRUMENT_SUBTYPES.map(subtype => (
+                                            <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                </div>
+                            )}
+                             {quickEditPopoverState.currentTitle === "SOP" && (
+                                <div className="grid grid-cols-3 items-center gap-4">
+                                <Label htmlFor={`qe-sop-${task.id}`}>SOP Code</Label>
+                                <Select
+                                    value={quickEditPopoverState.currentInstrumentSubtype || ""}
+                                    onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentInstrumentSubtype: value}))}
+                                >
+                                    <SelectTrigger id={`qe-sop-${task.id}`} className="col-span-2 h-8">
+                                        <SelectValue placeholder="Select SOP Code" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {SOP_SUBTYPES.map(subtype => (
+                                            <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                </div>
+                            )}
+                            <div className="grid grid-cols-3 items-center gap-4">
+                            <Label htmlFor={`qe-status-${task.id}`}>Status</Label>
+                            <Select 
+                                value={quickEditPopoverState.currentStatus} 
+                                onValueChange={(value: TaskStatus) => setQuickEditPopoverState(prev => ({...prev, currentStatus: value}))}
+                            >
+                                <SelectTrigger id={`qe-status-${task.id}`} className="col-span-2 h-8">
+                                <SelectValue placeholder="Select status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                {TASK_STATUSES.map(status => (
+                                    <SelectItem key={status} value={status}>{status}</SelectItem>
+                                ))}
+                                </SelectContent>
+                            </Select>
+                            </div>
+                            <div className="grid grid-cols-3 items-center gap-4">
+                            <Label htmlFor={`qe-progress-${task.id}`}>Progress (%)</Label>
+                            <Input
+                                id={`qe-progress-${task.id}`}
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={quickEditPopoverState.currentProgress}
+                                onChange={(e) => setQuickEditPopoverState(prev => ({...prev, currentProgress: parseInt(e.target.value, 10) || 0}))}
+                                className="col-span-2 h-8"
+                            />
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <ShadcnButton variant="ghost" size="sm" onClick={() => setIsQuickEditPopoverOpen(false)}>Cancel</ShadcnButton>
+                            <ShadcnButton size="sm" onClick={handleSaveQuickEdit}><Save className="mr-1 h-4 w-4" />Save</ShadcnButton>
+                        </div>
+                        </div>
+                    </PopoverContent>
+                  </Popover>
                   );
                 })}
+
+                {dependencyDrawState && (
+                    <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-40" style={{ width: timelineGridWidth, height: timelineGridHeight }}>
+                        <line
+                            x1={dependencyDrawState.sourceTaskBarEndX}
+                            y1={dependencyDrawState.sourceTaskBarCenterY}
+                            x2={dependencyDrawState.currentMouseX}
+                            y2={dependencyDrawState.currentMouseY}
+                            stroke="hsl(var(--primary))"
+                            strokeWidth="2"
+                            strokeDasharray="4 2"
+                        />
+                    </svg>
+                )}
 
                 {dependencyLines.length > 0 && (
                   <svg
@@ -526,20 +984,20 @@ const GanttChart: React.FC = () => {
                     ))}
                   </svg>
                 )}
-              </div>
+              </>
             )}
             {tasksToDisplay.length === 0 && !isLoading && (
                 <div style={{height: ROW_HEIGHT*3}} className="flex items-center justify-center">
                  {renderNoTasksMessage()}
                 </div>
             )}
+            </div>
           </div>
         </div>
       </div>
     </div> 
+    </TooltipProvider>
   );
 };
 
 export default GanttChart;
-
-    

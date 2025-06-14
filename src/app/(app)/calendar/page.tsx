@@ -165,7 +165,7 @@ export default function CalendarPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-headline font-semibold">Task Calendar</h1>
+      <h1 className="text-2xl md:text-3xl font-headline font-semibold">Task Calendar</h1>
       {isLoading && (
         <div className="flex justify-center items-center py-10">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />

@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle, Link as LinkIcon, CheckSquare, Square } from "lucide-react";
+import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle, Link as LinkIcon, Milestone } from "lucide-react";
 import { format } from "date-fns";
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -21,7 +21,7 @@ import { createTask, getTasks } from "@/services/taskService";
 import { getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee, TaskStatus, TaskPriority, TaskRecurrence, Task } from "@/lib/types";
-import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES } from "@/lib/constants";
+import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
 
 const getDetailedEmployeeFetchErrorMessage = (error: any): string => {
@@ -54,7 +54,8 @@ export default function NewTaskPage() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState<string>(PREDEFINED_TASK_TITLES[0] || "");
+  const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<TaskStatus>(TASK_STATUSES[0] || "To Do");
   const [priority, setPriority] = useState<TaskPriority>(TASK_PRIORITIES.find(p => p.toLowerCase() === 'medium') || TASK_PRIORITIES[0] || "Medium");
@@ -64,6 +65,7 @@ export default function NewTaskPage() {
   const [assignedToText, setAssignedToText] = useState<string | undefined>();
   const [attachments, setAttachments] = useState<FileList | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isMilestone, setIsMilestone] = useState(false);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
@@ -155,6 +157,16 @@ export default function NewTaskPage() {
     };
   }, [pbClient, fetchAndSetEmployees, fetchAllTasksForDependencySelection]);
 
+  useEffect(() => {
+    if (isMilestone && startDate) {
+      setDueDate(startDate);
+    }
+    // Clear subtype if title changes to one that doesn't use it
+    if (title !== "MDL" && title !== "SOP") {
+      setInstrumentSubtype(undefined);
+    }
+  }, [isMilestone, startDate, title]);
+
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
@@ -178,6 +190,10 @@ export default function NewTaskPage() {
       toast({ title: "Validation Error", description: "Task title is required.", variant: "destructive" });
       return;
     }
+    if ((title === "MDL" || title === "SOP") && !instrumentSubtype) {
+      toast({ title: "Validation Error", description: `Subtype is required for ${title} tasks.`, variant: "destructive" });
+      return;
+    }
     if (!status) {
       toast({ title: "Validation Error", description: "Task status is required.", variant: "destructive" });
       return;
@@ -190,20 +206,34 @@ export default function NewTaskPage() {
       toast({ title: "Validation Error", description: "Task recurrence is required.", variant: "destructive" });
       return;
     }
+    if (isMilestone && !startDate) {
+      toast({ title: "Validation Error", description: "Milestone date (Start Date) is required for a milestone.", variant: "destructive" });
+      return;
+    }
 
     setIsSubmitting(true);
 
     const formData = new FormData();
     formData.append("title", title);
+    if ((title === "MDL" || title === "SOP") && instrumentSubtype) {
+      formData.append("instrument_subtype", instrumentSubtype);
+    }
     formData.append("description", description);
     formData.append("status", status);
     formData.append("priority", priority);
+    formData.append("isMilestone", isMilestone.toString());
+
     if (startDate) {
       formData.append("startDate", startDate.toISOString());
+      if (isMilestone) {
+        formData.append("dueDate", startDate.toISOString());
+      } else if (dueDate) {
+        formData.append("dueDate", dueDate.toISOString());
+      }
+    } else if (dueDate && !isMilestone) { 
+        formData.append("dueDate", dueDate.toISOString());
     }
-    if (dueDate) {
-      formData.append("dueDate", dueDate.toISOString());
-    }
+
     formData.append("recurrence", recurrence);
     if (assignedToText) {
       formData.append("assignedTo_text", assignedToText);
@@ -213,7 +243,6 @@ export default function NewTaskPage() {
     if (selectedDependencies.length > 0) {
       formData.append("dependencies", JSON.stringify(selectedDependencies));
     }
-
 
     if (attachments) {
       for (let i = 0; i < attachments.length; i++) {
@@ -274,7 +303,6 @@ export default function NewTaskPage() {
   
   const isLoadingPrerequisites = isLoadingEmployees || isLoadingTasksForSelection;
 
-
   if (!pbClient && !isLoadingPrerequisites) {
     return (
       <div className="space-y-6 max-w-2xl mx-auto">
@@ -296,7 +324,7 @@ export default function NewTaskPage() {
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-headline font-semibold">Add New Task</h1>
+        <h1 className="text-2xl md:text-3xl font-headline font-semibold">Add New Task</h1>
         <Button variant="outline" asChild>
           <Link href="/tasks">Cancel</Link>
         </Button>
@@ -310,9 +338,54 @@ export default function NewTaskPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <Label htmlFor="title">Title</Label>
-              <Input id="title" placeholder="e.g., Calibrate pH meter" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <Label htmlFor="title">Task Type</Label>
+              <Select value={title} onValueChange={(value: string) => {
+                setTitle(value);
+                setInstrumentSubtype(undefined); // Clear subtype when main type changes
+              }}>
+                <SelectTrigger id="title">
+                  <SelectValue placeholder="Select task type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PREDEFINED_TASK_TITLES.map(taskTitle => (
+                    <SelectItem key={taskTitle} value={taskTitle}>{taskTitle}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
+
+            {title === "MDL" && (
+              <div>
+                <Label htmlFor="instrumentSubtype">Instrument Subtype</Label>
+                <Select value={instrumentSubtype} onValueChange={(value: string) => setInstrumentSubtype(value)}>
+                  <SelectTrigger id="instrumentSubtype">
+                    <SelectValue placeholder="Select instrument for MDL" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INSTRUMENT_SUBTYPES.map(subtype => (
+                      <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {title === "SOP" && (
+              <div>
+                <Label htmlFor="sopSubtype">SOP Subtype</Label>
+                <Select value={instrumentSubtype} onValueChange={(value: string) => setInstrumentSubtype(value)}>
+                  <SelectTrigger id="sopSubtype">
+                    <SelectValue placeholder="Select SOP subtype" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SOP_SUBTYPES.map(subtype => (
+                      <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div>
               <Label htmlFor="description">Description</Label>
               <Textarea id="description" placeholder="Add any relevant details or instructions..." value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -345,9 +418,17 @@ export default function NewTaskPage() {
                 </Select>
               </div>
             </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox id="isMilestone" checked={isMilestone} onCheckedChange={(checked) => setIsMilestone(Boolean(checked))} />
+              <Label htmlFor="isMilestone" className="flex items-center cursor-pointer">
+                <Milestone className="mr-2 h-4 w-4 text-muted-foreground" /> Mark as Milestone
+              </Label>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <Label htmlFor="startDate">Start Date</Label>
+                <Label htmlFor="startDate">{isMilestone ? "Milestone Date" : "Start Date"}</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -375,6 +456,7 @@ export default function NewTaskPage() {
                     <Button
                       variant={"outline"}
                       className="w-full justify-start text-left font-normal"
+                      disabled={isMilestone}
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
                       {dueDate ? format(dueDate, "PPP") : <span>Pick a date</span>}
@@ -385,10 +467,12 @@ export default function NewTaskPage() {
                       mode="single"
                       selected={dueDate}
                       onSelect={setDueDate}
+                      disabled={isMilestone}
                       initialFocus
                     />
                   </PopoverContent>
                 </Popover>
+                 {isMilestone && <p className="text-xs text-muted-foreground mt-1">Due date matches milestone date.</p>}
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -483,7 +567,6 @@ export default function NewTaskPage() {
                 </Popover>
             </div>
 
-
             <div>
               <Label htmlFor="attachments">Attachments</Label>
               <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md">
@@ -520,4 +603,3 @@ export default function NewTaskPage() {
     </div>
   );
 }
-

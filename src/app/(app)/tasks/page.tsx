@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 import type { Task, TaskStatus, TaskPriority, TaskRecurrence, Employee } from "@/lib/types";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon, Milestone } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -29,7 +29,7 @@ import type PocketBase from "pocketbase";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES } from "@/lib/constants";
+import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
 
 const getPriorityBadgeVariant = (priority?: string) => {
   if (!priority) return "default";
@@ -122,7 +122,8 @@ const getDetailedErrorMessage = (error: any, context: string = "tasks"): string 
 };
 
 const taskEditFormSchema = z.object({
-  title: z.string().min(1, "Title is required."),
+  title: z.enum(PREDEFINED_TASK_TITLES as [string, ...string[]], { errorMap: () => ({ message: "Please select a valid task type."}) }),
+  instrument_subtype: z.string().optional(),
   description: z.string().optional(),
   status: z.string().min(1, "Status is required.") as z.ZodType<TaskStatus>,
   priority: z.string().min(1, "Priority is required.") as z.ZodType<TaskPriority>,
@@ -131,7 +132,38 @@ const taskEditFormSchema = z.object({
   recurrence: z.string().min(1, "Recurrence is required.") as z.ZodType<TaskRecurrence>,
   assignedTo_text: z.string().optional(),
   dependencies: z.array(z.string()).optional(),
+  isMilestone: z.boolean().optional(),
+}).superRefine((data, ctx) => {
+  if (data.title === "MDL" && !data.instrument_subtype) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Instrument Subtype is required for MDL tasks.",
+      path: ["instrument_subtype"],
+    });
+  }
+  if (data.title === "SOP" && !data.instrument_subtype) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "SOP Subtype is required for SOP tasks.",
+      path: ["instrument_subtype"],
+    });
+  }
+  if (data.isMilestone && !data.startDate) {
+     ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Milestone date (Start Date) is required for a milestone.",
+      path: ["startDate"],
+    });
+  }
+  if (!data.isMilestone && data.startDate && data.dueDate && data.startDate > data.dueDate) {
+     ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Start date must be before or same as due date.",
+      path: ["startDate"], // Or "dueDate"
+    });
+  }
 });
+
 type TaskEditFormData = z.infer<typeof taskEditFormSchema>;
 
 
@@ -160,9 +192,40 @@ export default function TasksPage() {
   const form = useForm<TaskEditFormData>({
     resolver: zodResolver(taskEditFormSchema),
     defaultValues: {
+      title: PREDEFINED_TASK_TITLES[0],
+      instrument_subtype: undefined,
       dependencies: [],
+      isMilestone: false,
     }
   });
+
+  const watchedTitle = form.watch("title");
+  const watchedIsMilestone = form.watch("isMilestone");
+  const watchedStartDate = form.watch("startDate");
+
+  useEffect(() => {
+    const subscription = form.watch((value, { name }) => {
+      if (name === "title") {
+        if (value.title !== "MDL" && value.title !== "SOP") {
+          form.setValue("instrument_subtype", undefined, { shouldValidate: true });
+        } else {
+           // If title changes to MDL/SOP and subtype was for the *other* type, clear it
+           // This simple clear might need refinement if you want to preserve subtypes across MDL/SOP toggles
+           // and they somehow become valid for each other (which they are not currently).
+           form.setValue("instrument_subtype", undefined, { shouldValidate: true });
+        }
+      }
+      if (name === "isMilestone" || name === "startDate") {
+        if (value.isMilestone && value.startDate) {
+          if (!form.getValues("dueDate") || form.getValues("dueDate")?.getTime() !== value.startDate.getTime()) {
+            form.setValue("dueDate", value.startDate, { shouldValidate: true });
+          }
+        }
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form]);
+
 
   const fetchTasksCallback = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -218,25 +281,14 @@ export default function TasksPage() {
     }
     setIsLoadingEmployees(true);
     setFetchEmployeesError(null);
-    // Using main retryStatusMessage for this loader as per simplified plan
-    // If a separate message is desired, a new state like `employeeRetryMessage` would be needed.
-    // setRetryStatusMessage(null); // Clear if using main message, or setEmployeeRetryMsg(null) for specific one
-
     const handleEmployeeRetry = (attempt: number, maxAttempts: number, error: any) => {
-        // This will use the main retryStatusMessage. If employees load separately
-        // and have their own visual indicator, a dedicated state is better.
         setRetryStatusMessage(`Retrying employee data... Attempt ${attempt} of ${maxAttempts}`);
     };
 
     try {
       const fetchedEmployees = await getEmployees(pb, { signal, onRetry: handleEmployeeRetry });
       setEmployees(fetchedEmployees);
-      // Clear the message if it was specifically for employees and tasks are still loading/retrying
-      // This logic might need refinement based on how combined loading is presented.
-      // For now, let fetchTasksCallback handle clearing it on its success/failure.
-      // if (retryStatusMessage && retryStatusMessage.includes("employee")) setRetryStatusMessage(null);
     } catch (err: any) {
-      // if (retryStatusMessage && retryStatusMessage.includes("employee")) setRetryStatusMessage(null); // Clear on final failure
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       if (isAutocancel) {
          console.warn(`Fetch employees for task edit request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
@@ -254,7 +306,7 @@ export default function TasksPage() {
     } finally {
       setIsLoadingEmployees(false);
     }
-  }, [toast, /* retryStatusMessage, setRetryStatusMessage */]); // Add them if setRetryStatusMessage is directly used for clearing here
+  }, [toast]);
 
   const fetchAllTasksForDependencySelectionEdit = useCallback(async (pb: PocketBase | null, currentTaskId: string | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -324,6 +376,7 @@ export default function TasksPage() {
     if (editingTask) {
       form.reset({
         title: editingTask.title,
+        instrument_subtype: editingTask.instrument_subtype || undefined,
         description: editingTask.description || "",
         status: editingTask.status,
         priority: editingTask.priority,
@@ -332,6 +385,7 @@ export default function TasksPage() {
         recurrence: editingTask.recurrence,
         assignedTo_text: editingTask.assignedTo_text || "",
         dependencies: Array.isArray(editingTask.dependencies) ? editingTask.dependencies : [],
+        isMilestone: editingTask.isMilestone || false,
       });
     }
   }, [editingTask, form]);
@@ -399,16 +453,18 @@ export default function TasksPage() {
     }
     setIsSubmittingEdit(true);
 
-    const payload: Partial<Task> = {
+    const payload: Partial<Task> & { userId: string } = {
       title: data.title,
+      instrument_subtype: (data.title === "MDL" || data.title === "SOP") ? data.instrument_subtype : undefined,
       description: data.description,
       status: data.status,
       priority: data.priority,
       startDate: data.startDate,
-      dueDate: data.dueDate,
+      dueDate: data.isMilestone && data.startDate ? data.startDate : data.dueDate,
       recurrence: data.recurrence,
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
       dependencies: data.dependencies || [],
+      isMilestone: data.isMilestone,
       userId: user.id, 
     };
     
@@ -419,7 +475,11 @@ export default function TasksPage() {
       handleEditDialogClose();
     } catch (err: any) {
       console.warn("Failed to update task:", err);
-      toast({ title: "Error Updating Task", description: getDetailedErrorMessage(err), variant: "destructive" });
+      let detailedMessage = getDetailedErrorMessage(err);
+      if (err.data && err.data.data && err.data.data.instrument_subtype?.message) {
+        detailedMessage = `Instrument Subtype: ${err.data.data.instrument_subtype.message}`;
+      }
+      toast({ title: "Error Updating Task", description: detailedMessage, variant: "destructive" });
     } finally {
       setIsSubmittingEdit(false);
     }
@@ -437,7 +497,7 @@ export default function TasksPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-headline font-semibold">Task Management</h1>
+        <h1 className="text-2xl md:text-3xl font-headline font-semibold">Task Management</h1>
         <div className="flex gap-2">
           <Button variant="outline">
             <Filter className="mr-2 h-4 w-4" /> Filter
@@ -479,7 +539,7 @@ export default function TasksPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Title</TableHead>
+                  <TableHead>Task Type</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Priority</TableHead>
                   <TableHead>Due Date</TableHead>
@@ -490,7 +550,12 @@ export default function TasksPage() {
               <TableBody>
                 {tasks.map((task) => (
                   <TableRow key={task.id} className="hover:bg-muted/50 transition-colors">
-                    <TableCell className="font-medium">{task.title}</TableCell>
+                    <TableCell className="font-medium flex items-center">
+                      {task.isMilestone && <Milestone className="mr-2 h-4 w-4 text-primary" title="Milestone"/>}
+                       {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype
+                        ? `${task.title} (${task.instrument_subtype})`
+                        : task.title}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={getStatusBadgeVariant(task.status)}>{task.status}</Badge>
                     </TableCell>
@@ -552,14 +617,79 @@ export default function TasksPage() {
                   name="title"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Title</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+                      <FormLabel>Task Type</FormLabel>
+                       <Select 
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            form.setValue("instrument_subtype", undefined, { shouldValidate: true });
+                          }} 
+                          value={field.value}
+                        >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select task type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {PREDEFINED_TASK_TITLES.map(taskTitle => (
+                            <SelectItem key={taskTitle} value={taskTitle}>{taskTitle}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+
+                {watchedTitle === "MDL" && (
+                   <FormField
+                    control={form.control}
+                    name="instrument_subtype"
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel>Instrument Subtype</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || ""}>
+                            <FormControl>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select instrument for MDL" />
+                            </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                            {INSTRUMENT_SUBTYPES.map(subtype => (
+                                <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                            ))}
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                )}
+                {watchedTitle === "SOP" && (
+                   <FormField
+                    control={form.control}
+                    name="instrument_subtype" 
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel>SOP Subtype</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || ""}>
+                            <FormControl>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select SOP subtype" />
+                            </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                            {SOP_SUBTYPES.map(subtype => (
+                                <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                            ))}
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                )}
+
                 <FormField
                   control={form.control}
                   name="description"
@@ -619,13 +749,32 @@ export default function TasksPage() {
                     )}
                   />
                 </div>
+                
+                <FormField
+                  control={form.control}
+                  name="isMilestone"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center space-x-2 space-y-0 py-2">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormLabel className="font-normal flex items-center cursor-pointer mb-0!"> {/* Added mb-0! to override potential FormLabel styles */}
+                         <Milestone className="mr-2 h-4 w-4 text-muted-foreground" /> Mark as Milestone
+                      </FormLabel>
+                    </FormItem>
+                  )}
+                />
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField
                         control={form.control}
                         name="startDate"
                         render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Start Date (Optional)</FormLabel>
+                            <FormLabel>{watchedIsMilestone ? "Milestone Date" : "Start Date"} (Optional)</FormLabel>
                             <Popover>
                             <PopoverTrigger asChild>
                                 <FormControl>
@@ -663,6 +812,7 @@ export default function TasksPage() {
                                 <Button
                                     variant={"outline"}
                                     className="w-full justify-start text-left font-normal"
+                                    disabled={watchedIsMilestone}
                                 >
                                     <CalendarIcon className="mr-2 h-4 w-4" />
                                     {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
@@ -674,10 +824,12 @@ export default function TasksPage() {
                                 mode="single"
                                 selected={field.value}
                                 onSelect={field.onChange}
+                                disabled={watchedIsMilestone}
                                 initialFocus
                                 />
                             </PopoverContent>
                             </Popover>
+                            {watchedIsMilestone && <p className="text-xs text-muted-foreground mt-1">Due date matches milestone date.</p>}
                             <FormMessage />
                         </FormItem>
                         )}
@@ -788,7 +940,9 @@ export default function TasksPage() {
                                             className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 truncate"
                                             title={task.title}
                                         >
-                                            {task.title}
+                                            {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype
+                                              ? `${task.title} (${task.instrument_subtype})`
+                                              : task.title}
                                         </label>
                                         </div>
                                     ))}
@@ -827,8 +981,3 @@ export default function TasksPage() {
       )}
     </div>
   );
-}
-
-
-    
-

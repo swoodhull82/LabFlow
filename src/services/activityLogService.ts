@@ -22,11 +22,16 @@ const pbRecordToActivityLogEntry = (record: any): ActivityLogEntry => {
 
 export const getActivityLogEntries = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<ActivityLogEntry[]> => {
   try {
+    const { signal, ...otherOptions } = options || {};
+    const defaultFields = 'id,created,user_name,action,details';
+    const requestParams = {
+      sort: '-created',
+      fields: defaultFields,
+      ...otherOptions, // Allow overriding sort and fields if provided in options
+    };
+
     const records = await withRetry(() => 
-      pb.collection(COLLECTION_NAME).getFullList({
-        sort: '-created', 
-        ...options,
-      }),
+      pb.collection(COLLECTION_NAME).getFullList(requestParams, { signal }),
       { ...options, context: "fetching activity log entries" }
     );
     return records.map(pbRecordToActivityLogEntry);
@@ -48,3 +53,4 @@ export const createActivityLogEntry = async (
     throw error;
   }
 };
+
