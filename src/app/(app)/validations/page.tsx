@@ -9,21 +9,19 @@ export default function ValidationsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl md:text-3xl font-headline font-semibold">Validations</h1>
-        {/* Button moved into GanttChart header */}
+        <h1 className="text-2xl md:text-3xl font-headline font-semibold">Validation Projects</h1>
       </div>
       <p className="text-muted-foreground">
-        Visualize validation task schedules, milestones, and dependencies.
-        <span className="text-xs block mt-1">Note: Drag-and-drop rescheduling and dependency linking are supported for Validation tasks.</span>
+        Visualize validation project schedules, milestones, and dependencies.
+        <span className="text-xs block mt-1">Note: Drag-and-drop rescheduling and dependency linking are supported for Validation Projects.</span>
       </p>
 
       <Card className="shadow-md">
         <CardHeader>
-          <CardTitle className="font-headline">Validation Schedule</CardTitle>
-          <CardDescription>Overview of validation task timelines and their relationships.</CardDescription>
+          {/* Button moved into GanttChart header */}
         </CardHeader>
         <CardContent className="overflow-x-auto p-0 md:p-6">
-          <GanttChart filterTaskType="Validation" displayHeaderControls="addValidationButton" />
+          <GanttChart filterTaskType="VALIDATION_PROJECT" displayHeaderControls="addValidationButton" />
         </CardContent>
       </Card>
     </div>

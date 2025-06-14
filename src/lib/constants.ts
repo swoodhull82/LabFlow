@@ -1,5 +1,5 @@
 
-import type { TaskStatus, TaskPriority, TaskRecurrence } from "./types";
+import type { TaskStatus, TaskPriority, TaskRecurrence, TaskType } from "./types";
 
 export const TASK_STATUSES: TaskStatus[] = ["To Do", "In Progress", "Blocked", "Done", "Overdue"];
 export const TASK_PRIORITIES: TaskPriority[] = ["Low", "Medium", "High", "Urgent"];
@@ -7,7 +7,7 @@ export const TASK_RECURRENCES: TaskRecurrence[] = ["None", "Daily", "Weekly", "M
 
 export const APP_NAME = "LabFlow";
 
-export const PREDEFINED_TASK_TITLES: readonly string[] = ["MDL", "SOP", "IA", "iDOC", "oDOC", "Validation"];
+export const TASK_TYPES: readonly TaskType[] = ["MDL", "SOP", "IA", "iDOC", "oDOC", "VALIDATION_PROJECT"];
 export const INSTRUMENT_SUBTYPES: readonly string[] = ["nexiON", "agilent 7900", "DMA-80 Mercury Analyzer"];
 
 const generateSopSubtypes = (): string[] => {
@@ -32,4 +32,3 @@ const generateSopSubtypes = (): string[] => {
 };
 
 export const SOP_SUBTYPES: readonly string[] = generateSopSubtypes();
-
