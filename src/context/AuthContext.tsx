@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import React, { createContext, useContext, useState, useEffect, type ReactNode, useCallback, useMemo } from "react";
 import PocketBase from 'pocketbase';
 import { useToast } from "@/hooks/use-toast";
-import { FlaskConical, Beaker, Atom, TestTube, Microscope, Pipette, Biohazard, Helix } from 'lucide-react';
+import { FlaskConical, Beaker, Atom, TestTube, Microscope, Pipette, Biohazard, FlaskRound } from 'lucide-react';
 
 const POCKETBASE_URL = 'https://swoodhu.pockethost.io/';
 const client = new PocketBase(POCKETBASE_URL);
@@ -24,7 +24,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const VALID_ROLES: UserRole[] = ["Supervisor", "Team Lead", "Chem I", "Chem II"];
 
 const chemistryIcons: React.ElementType[] = [
-  FlaskConical, Beaker, Atom, TestTube, Microscope, Pipette, Biohazard, Helix
+  FlaskConical, Beaker, Atom, TestTube, Microscope, Pipette, Biohazard, FlaskRound
 ];
 
 // Helper function to create User object from PocketBase model
@@ -49,12 +49,13 @@ const createUserFromModel = (pbUserModel: any): User | null => {
     email: pbUserModel.email || "",
     name: (pbUserModel as any).name || pbUserModel.email?.split("@")[0] || "User",
     role: userRole,
-    avatarUrl: null, 
-    lucideIconComponent: undefined,
+    avatarUrl: null, // Initialize to null
+    lucideIconComponent: undefined, // Initialize to undefined
   };
 
   if ((pbUserModel as any).avatar && (pbUserModel as any).avatar !== "") {
     appUser.avatarUrl = client.files.getUrl(pbUserModel, (pbUserModel as any).avatar, { thumb: "100x100" });
+    appUser.lucideIconComponent = undefined; // Ensure no icon if avatar exists
   } else {
     // Select a Lucide icon deterministically based on user ID
     const iconIndex = (pbUserModel.id.charCodeAt(pbUserModel.id.length - 1) % chemistryIcons.length);
@@ -75,19 +76,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const handleAuthChange = useCallback(() => {
     const model = client.authStore.model;
     const isValid = client.authStore.isValid;
+    setLoading(true); // Set loading true while processing auth change
 
     if (isValid && model) {
       const appUser = createUserFromModel(model);
       setUser(currentUser => {
         if (!appUser) return null;
-        // Prevent unnecessary re-renders if user object is deeply equal
         if (currentUser &&
             currentUser.id === appUser.id &&
             currentUser.name === appUser.name &&
             currentUser.email === appUser.email &&
             currentUser.role === appUser.role &&
             currentUser.avatarUrl === appUser.avatarUrl &&
-            currentUser.lucideIconComponent === appUser.lucideIconComponent) { // Added lucideIconComponent check
+            currentUser.lucideIconComponent === appUser.lucideIconComponent) {
           return currentUser;
         }
         return appUser;
@@ -106,7 +107,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = client.authStore.onChange(handleAuthChange, true);
+    const unsubscribe = client.authStore.onChange(handleAuthChange, true); // Call handleAuthChange immediately
     return () => {
       unsubscribe();
     };
@@ -117,14 +118,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setLoading(true);
     try {
       await client.collection('users').authWithPassword(email, password);
-      const model = client.authStore.model;
-      if (model) {
-        const appUser = createUserFromModel(model);
-        if (appUser) {
-          toast({ title: "Login Successful", description: `Welcome back, ${appUser.name}!` });
-          router.push("/dashboard");
-        }
-      }
+      // Auth change will be picked up by the `onChange` listener, which calls `handleAuthChange`
+      // `handleAuthChange` will set the user and then set loading to false.
+      // It also handles routing and toasting.
     } catch (error: any) {
       console.error("Login failed (raw error object):", error);
       let errorMessage = "An unexpected error occurred during login. Please try again.";
@@ -157,16 +153,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       console.error("Login failed (processed errorMessage):", errorMessage);
       toast({ title: "Login Failed", description: errorMessage, variant: "destructive" });
-      setLoading(false); // Ensure loading is set to false on error
+      setLoading(false); 
     }
-    // setLoading(false) is handled in handleAuthChange after successful auth, or here on error.
-  }, [router, toast]);
+    // No explicit setLoading(false) here if successful, as handleAuthChange covers it.
+  }, [toast]); // Removed router from dependencies as navigation is in handleAuthChange
 
   const logout = useCallback(() => {
     setLoading(true);
     client.authStore.clear();
-    // setUser(null) and localStorage clear will be handled by authStore.onChange -> handleAuthChange
-    router.push("/");
+    // Auth change will be picked up by the `onChange` listener
+    router.push("/"); // Explicitly route after clearing store
     toast({ title: "Logged Out", description: "You have been successfully logged out." });
     // setLoading(false) will be handled by authStore.onChange -> handleAuthChange
   }, [router, toast]);
