@@ -8,3 +8,4 @@ To get started, take a look at src/app/page.tsx.
 <!-- User provided a server-side PocketBase hook (main.pb.js) for CORS. This file needs to be managed directly on the PocketBase server. -->
 <!-- Note: net::ERR_ADDRESS_INVALID errors for www.google-analytics.com are external to the LabFlow application and likely due to local network, DNS, or browser extension issues. -->
 <!-- No-op: The "autocancelled" warnings on the dashboard are due to the useEffect cleanup aborting fetch requests, likely from React Strict Mode or rapid component remounts. The system correctly handles these as non-critical aborts, logging them for diagnosis but not displaying them as user errors. -->
+<!-- Tech stack discussion: Key stacks include Next.js, React, ShadCN UI, Tailwind CSS, TypeScript, PocketBase, React Hook Form, Zod, Recharts, Lucide React, date-fns, and GitHub Pages for deployment. -->
