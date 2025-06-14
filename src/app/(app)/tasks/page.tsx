@@ -29,7 +29,7 @@ import type PocketBase from "pocketbase";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES } from "@/lib/constants";
+import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
 
 const getPriorityBadgeVariant = (priority?: string) => {
   if (!priority) return "default";
@@ -133,25 +133,35 @@ const taskEditFormSchema = z.object({
   assignedTo_text: z.string().optional(),
   dependencies: z.array(z.string()).optional(),
   isMilestone: z.boolean().optional(),
-}).refine(data => {
+}).superRefine((data, ctx) => {
   if (data.title === "MDL" && !data.instrument_subtype) {
-    return false; // Instrument subtype is required for MDL tasks
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Instrument Subtype is required for MDL tasks.",
+      path: ["instrument_subtype"],
+    });
   }
-  return true;
-}, {
-  message: "Instrument Subtype is required for MDL tasks.",
-  path: ["instrument_subtype"],
-}).refine(data => {
+  if (data.title === "SOP" && !data.instrument_subtype) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "SOP Subtype is required for SOP tasks.",
+      path: ["instrument_subtype"],
+    });
+  }
   if (data.isMilestone && !data.startDate) {
-    return false; // Start date is required for milestones
+     ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Milestone date (Start Date) is required for a milestone.",
+      path: ["startDate"],
+    });
   }
   if (!data.isMilestone && data.startDate && data.dueDate && data.startDate > data.dueDate) {
-    return false; // Start date cannot be after due date for non-milestones
+     ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Start date must be before or same as due date.",
+      path: ["startDate"], // Or "dueDate"
+    });
   }
-  return true;
-}, {
-  message: "Start date must be before or same as due date. For milestones, a date (Start Date) is required.",
-  path: ["startDate"], // You can also use "dueDate" or a general path
 });
 
 type TaskEditFormData = z.infer<typeof taskEditFormSchema>;
@@ -196,8 +206,13 @@ export default function TasksPage() {
   useEffect(() => {
     const subscription = form.watch((value, { name }) => {
       if (name === "title") {
-        if (value.title !== "MDL") {
+        if (value.title !== "MDL" && value.title !== "SOP") {
           form.setValue("instrument_subtype", undefined, { shouldValidate: true });
+        } else {
+           // If title changes to MDL/SOP and subtype was for the *other* type, clear it
+           // This simple clear might need refinement if you want to preserve subtypes across MDL/SOP toggles
+           // and they somehow become valid for each other (which they are not currently).
+           form.setValue("instrument_subtype", undefined, { shouldValidate: true });
         }
       }
       if (name === "isMilestone" || name === "startDate") {
@@ -440,7 +455,7 @@ export default function TasksPage() {
 
     const payload: Partial<Task> & { userId: string } = {
       title: data.title,
-      instrument_subtype: data.title === "MDL" ? data.instrument_subtype : undefined,
+      instrument_subtype: (data.title === "MDL" || data.title === "SOP") ? data.instrument_subtype : undefined,
       description: data.description,
       status: data.status,
       priority: data.priority,
@@ -537,7 +552,7 @@ export default function TasksPage() {
                   <TableRow key={task.id} className="hover:bg-muted/50 transition-colors">
                     <TableCell className="font-medium flex items-center">
                       {task.isMilestone && <Milestone className="mr-2 h-4 w-4 text-primary" title="Milestone"/>}
-                       {task.title === "MDL" && task.instrument_subtype
+                       {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype
                         ? `${task.title} (${task.instrument_subtype})`
                         : task.title}
                     </TableCell>
@@ -603,7 +618,13 @@ export default function TasksPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Task Type</FormLabel>
-                       <Select onValueChange={field.onChange} value={field.value}>
+                       <Select 
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            form.setValue("instrument_subtype", undefined, { shouldValidate: true });
+                          }} 
+                          value={field.value}
+                        >
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select task type" />
@@ -635,6 +656,30 @@ export default function TasksPage() {
                             </FormControl>
                             <SelectContent>
                             {INSTRUMENT_SUBTYPES.map(subtype => (
+                                <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                            ))}
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                )}
+                {watchedTitle === "SOP" && (
+                   <FormField
+                    control={form.control}
+                    name="instrument_subtype" 
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel>SOP Subtype</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || ""}>
+                            <FormControl>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select SOP subtype" />
+                            </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                            {SOP_SUBTYPES.map(subtype => (
                                 <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
                             ))}
                             </SelectContent>
@@ -895,7 +940,7 @@ export default function TasksPage() {
                                             className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 truncate"
                                             title={task.title}
                                         >
-                                            {task.title === "MDL" && task.instrument_subtype
+                                            {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype
                                               ? `${task.title} (${task.instrument_subtype})`
                                               : task.title}
                                         </label>

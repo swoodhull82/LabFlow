@@ -21,7 +21,7 @@ import { createTask, getTasks } from "@/services/taskService";
 import { getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee, TaskStatus, TaskPriority, TaskRecurrence, Task } from "@/lib/types";
-import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES } from "@/lib/constants";
+import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
 
 const getDetailedEmployeeFetchErrorMessage = (error: any): string => {
@@ -161,7 +161,8 @@ export default function NewTaskPage() {
     if (isMilestone && startDate) {
       setDueDate(startDate);
     }
-    if (title !== "MDL") {
+    // Clear subtype if title changes to one that doesn't use it
+    if (title !== "MDL" && title !== "SOP") {
       setInstrumentSubtype(undefined);
     }
   }, [isMilestone, startDate, title]);
@@ -189,8 +190,8 @@ export default function NewTaskPage() {
       toast({ title: "Validation Error", description: "Task title is required.", variant: "destructive" });
       return;
     }
-     if (title === "MDL" && !instrumentSubtype) {
-      toast({ title: "Validation Error", description: "Instrument Subtype is required for MDL tasks.", variant: "destructive" });
+    if ((title === "MDL" || title === "SOP") && !instrumentSubtype) {
+      toast({ title: "Validation Error", description: `Subtype is required for ${title} tasks.`, variant: "destructive" });
       return;
     }
     if (!status) {
@@ -214,7 +215,7 @@ export default function NewTaskPage() {
 
     const formData = new FormData();
     formData.append("title", title);
-    if (title === "MDL" && instrumentSubtype) {
+    if ((title === "MDL" || title === "SOP") && instrumentSubtype) {
       formData.append("instrument_subtype", instrumentSubtype);
     }
     formData.append("description", description);
@@ -338,7 +339,10 @@ export default function NewTaskPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <Label htmlFor="title">Task Type</Label>
-              <Select value={title} onValueChange={(value: string) => setTitle(value)}>
+              <Select value={title} onValueChange={(value: string) => {
+                setTitle(value);
+                setInstrumentSubtype(undefined); // Clear subtype when main type changes
+              }}>
                 <SelectTrigger id="title">
                   <SelectValue placeholder="Select task type" />
                 </SelectTrigger>
@@ -359,6 +363,22 @@ export default function NewTaskPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {INSTRUMENT_SUBTYPES.map(subtype => (
+                      <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {title === "SOP" && (
+              <div>
+                <Label htmlFor="sopSubtype">SOP Subtype</Label>
+                <Select value={instrumentSubtype} onValueChange={(value: string) => setInstrumentSubtype(value)}>
+                  <SelectTrigger id="sopSubtype">
+                    <SelectValue placeholder="Select SOP subtype" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SOP_SUBTYPES.map(subtype => (
                       <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
                     ))}
                   </SelectContent>

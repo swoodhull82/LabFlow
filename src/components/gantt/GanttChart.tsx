@@ -29,7 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TASK_STATUSES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES } from "@/lib/constants";
+import { TASK_STATUSES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
 
 const ROW_HEIGHT = 48; // px, height of each task row
@@ -458,7 +458,7 @@ const GanttChart: React.FC = () => {
         
         const updates: Partial<Pick<Task, 'title' | 'status' | 'progress' | 'instrument_subtype'>> = {
             title: quickEditPopoverState.currentTitle,
-            instrument_subtype: quickEditPopoverState.currentTitle === "MDL" ? quickEditPopoverState.currentInstrumentSubtype : undefined,
+            instrument_subtype: (quickEditPopoverState.currentTitle === "MDL" || quickEditPopoverState.currentTitle === "SOP") ? quickEditPopoverState.currentInstrumentSubtype : undefined,
             status: quickEditPopoverState.currentStatus,
             progress: quickEditPopoverState.currentProgress,
         };
@@ -678,7 +678,7 @@ const GanttChart: React.FC = () => {
               >
                 <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
                 <span className="font-medium truncate cursor-default" title={task.title} >
-                   {task.title === "MDL" && task.instrument_subtype
+                   {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype
                     ? `${task.title} (${task.instrument_subtype})`
                     : task.title}
                 </span>
@@ -814,7 +814,7 @@ const GanttChart: React.FC = () => {
                           {!isMilestone && barWidth > (dayCellWidth * 0.75) && (
                              <div className="absolute inset-0 flex items-center px-1.5 overflow-hidden">
                                 <span className="text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden text-ellipsis">
-                                  {task.title === "MDL" && task.instrument_subtype ? `${task.title} (${task.instrument_subtype})` : task.title}
+                                  {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype ? `${task.title} (${task.instrument_subtype})` : task.title}
                                 </span>
                             </div>
                           )}
@@ -823,7 +823,9 @@ const GanttChart: React.FC = () => {
                       </TooltipTrigger>
                       <TooltipContent className="p-2 shadow-lg bg-popover text-popover-foreground rounded-md border max-w-xs w-auto z-50">
                         <div className="space-y-1">
-                          <p className="font-semibold text-sm">{task.title}{task.title === "MDL" && task.instrument_subtype ? ` (${task.instrument_subtype})` : ""}</p>
+                          <p className="font-semibold text-sm">
+                             {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype ? `${task.title} (${task.instrument_subtype})` : task.title}
+                          </p>
                           <p className="text-xs text-muted-foreground">Status: <span className="font-medium text-foreground">{task.status}</span></p>
                           <p className="text-xs text-muted-foreground">Priority: <span className="font-medium text-foreground">{task.priority}</span></p>
                           <p className="text-xs text-muted-foreground">Progress: <span className="font-medium text-foreground">{task.progress || 0}%</span></p>
@@ -853,7 +855,7 @@ const GanttChart: React.FC = () => {
                     <PopoverContent className="w-80 z-50" side="bottom" align="start">
                         <div className="grid gap-4">
                         <div className="space-y-2">
-                            <h4 className="font-medium leading-none">Quick Edit: {quickEditPopoverState.currentTitle}{quickEditPopoverState.currentTitle === "MDL" && quickEditPopoverState.currentInstrumentSubtype ? ` (${quickEditPopoverState.currentInstrumentSubtype})` : ""}</h4>
+                            <h4 className="font-medium leading-none">Quick Edit: {quickEditPopoverState.currentTitle}{(quickEditPopoverState.currentTitle === "MDL" || quickEditPopoverState.currentTitle === "SOP") && quickEditPopoverState.currentInstrumentSubtype ? ` (${quickEditPopoverState.currentInstrumentSubtype})` : ""}</h4>
                             <p className="text-sm text-muted-foreground">
                             Modify task details.
                             </p>
@@ -863,7 +865,7 @@ const GanttChart: React.FC = () => {
                                 <Label htmlFor={`qe-title-${task.id}`}>Type</Label>
                                 <Select
                                     value={quickEditPopoverState.currentTitle}
-                                    onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentTitle: value, currentInstrumentSubtype: value !== "MDL" ? undefined : prev.currentInstrumentSubtype}))}
+                                    onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentTitle: value, currentInstrumentSubtype: (value !== "MDL" && value !== "SOP") ? undefined : prev.currentInstrumentSubtype}))}
                                 >
                                     <SelectTrigger id={`qe-title-${task.id}`} className="col-span-2 h-8">
                                         <SelectValue placeholder="Select type" />
@@ -887,6 +889,24 @@ const GanttChart: React.FC = () => {
                                     </SelectTrigger>
                                     <SelectContent>
                                         {INSTRUMENT_SUBTYPES.map(subtype => (
+                                            <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                </div>
+                            )}
+                             {quickEditPopoverState.currentTitle === "SOP" && (
+                                <div className="grid grid-cols-3 items-center gap-4">
+                                <Label htmlFor={`qe-sop-${task.id}`}>SOP Code</Label>
+                                <Select
+                                    value={quickEditPopoverState.currentInstrumentSubtype || ""}
+                                    onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentInstrumentSubtype: value}))}
+                                >
+                                    <SelectTrigger id={`qe-sop-${task.id}`} className="col-span-2 h-8">
+                                        <SelectValue placeholder="Select SOP Code" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {SOP_SUBTYPES.map(subtype => (
                                             <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
                                         ))}
                                     </SelectContent>
