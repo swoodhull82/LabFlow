@@ -10,4 +10,3 @@ export const APP_NAME = "LabFlow";
 export const PREDEFINED_TASK_TITLES: readonly string[] = ["MDL", "SOP", "IA", "iDOC", "oDOC"];
 export const INSTRUMENT_SUBTYPES: readonly string[] = ["nexiON", "agilent 7900", "DMA-80 Mercury Analyzer"];
 export const SOP_SUBTYPES: readonly string[] = Array.from({ length: 11 }, (_, i) => `BOL50${String(i).padStart(2, '0')}`); // BOL5000 to BOL5010
-
