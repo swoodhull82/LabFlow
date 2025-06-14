@@ -3,18 +3,20 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { BarChart, CalendarClock, CheckCircle2, AlertTriangle, Zap, Users, TrendingUp, Loader2 } from "lucide-react";
+import { BarChart, CalendarClock, CheckCircle2, AlertTriangle, Zap, Users, TrendingUp } from "lucide-react";
 import { Bar, BarChart as RechartsBarChart, Line, LineChart as RechartsLineChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import { ChartConfig, ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/AuthContext";
 import { getTasks } from "@/services/taskService";
 import { getEmployees } from "@/services/employeeService";
-import type { Task, TaskStatus, Employee } from "@/lib/types";
+import type { Task, TaskStatus, Employee, TaskType } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
-import { format, isPast, isToday, addDays, startOfDay, startOfMonth, subMonths } from "date-fns";
+import { format, isPast, isToday, addDays, startOfDay, getQuarter, getYear } from "date-fns";
 import type PocketBase from "pocketbase";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TASK_TYPES } from "@/lib/constants";
 
 interface TaskSummaryItem {
   title: string;
@@ -31,12 +33,22 @@ interface LiveEmployeeTaskData {
   fill?: string;
 }
 
-interface MonthlyCompletionDataPoint {
-  month: string;
-  total: number;
-  completed: number;
-  rate: number;
+const taskTypesForDashboardChart: Exclude<TaskType, "VALIDATION_PROJECT">[] = TASK_TYPES.filter(
+  (type): type is Exclude<TaskType, "VALIDATION_PROJECT"> => type !== "VALIDATION_PROJECT"
+);
+
+
+interface QuarterlyCompletionDataPoint {
+  quarter: string; // e.g., "Q1 24"
+  rates: {
+    [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: number;
+  };
+  totals: {
+    [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: { total: number; completed: number };
+  };
+  goalRate: number;
 }
+
 
 const initialTaskSummaryData: TaskSummaryItem[] = [
   { title: "Active Tasks", value: "0", icon: Zap, description: "Tasks currently in progress or to do.", color: "text-blue-500", bgColor: "bg-blue-50" },
@@ -58,11 +70,22 @@ const employeeTasksChartConfig = {
   activeTasks: { label: "Active Tasks", color: "hsl(var(--chart-2))" },
 } satisfies ChartConfig;
 
-const monthlyCompletionChartConfig = {
-  rate: { label: "Completion Rate (%)", color: "hsl(var(--chart-2))" },
-  completed: { label: "Completed" },
-  total: { label: "Total Due" },
-} satisfies ChartConfig;
+const quarterlyCompletionChartConfigInitial = {
+  goalRate: { label: "Goal Rate", color: "hsl(var(--muted-foreground))" }, // More neutral color for goal
+  // Add dummy entries for tooltip data if needed, or handle in tooltip directly
+} as ChartConfig;
+
+// Dynamically build the chart config for task types
+const quarterlyCompletionChartConfig = taskTypesForDashboardChart.reduce((acc, type, index) => {
+  acc[type] = { label: `${type} Rate`, color: `hsl(var(--chart-${(index % 5) + 1}))` };
+  // For tooltip to show total/completed, we can add them like this if ChartTooltipContent uses them.
+  // Or, we can construct the tooltip string manually using the `totals` field from the data point.
+  acc[`${type}_total`] = { label: `${type} Total` };
+  acc[`${type}_completed`] = { label: `${type} Completed` };
+  return acc;
+}, quarterlyCompletionChartConfigInitial);
+
+
 
 const chartFills: Record<TaskStatus | string, string> = {
   'To Do': "hsl(var(--chart-1))",
@@ -131,12 +154,15 @@ export default function DashboardPage() {
   const [taskSummaryData, setTaskSummaryData] = useState<TaskSummaryItem[]>(initialTaskSummaryData);
   const [taskDistributionData, setTaskDistributionData] = useState<{ status: string; count: number; fill: string; }[]>([]);
   const [activeTasksByEmployeeData, setActiveTasksByEmployeeData] = useState<LiveEmployeeTaskData[]>([]);
-  const [liveMonthlyTaskCompletionData, setLiveMonthlyTaskCompletionData] = useState<MonthlyCompletionDataPoint[]>([]);
   
+  const [selectedQuarterlyYear, setSelectedQuarterlyYear] = useState<number>(new Date().getFullYear());
+  const [quarterlyTaskCompletionData, setQuarterlyTaskCompletionData] = useState<QuarterlyCompletionDataPoint[]>([]);
+  const [allFetchedTasks, setAllFetchedTasks] = useState<Task[]>([]);
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  const processData = useCallback((allTasks: Task[], allEmployees: Employee[]) => {
+  const processData = useCallback((tasksToProcess: Task[], yearForQuarterlyChart: number) => {
     const today = startOfDay(new Date());
     const nextSevenDays = addDays(today, 7);
 
@@ -150,7 +176,7 @@ export default function DashboardPage() {
     };
     const employeeTaskCounts: Record<string, number> = {};
 
-    allTasks.forEach(task => {
+    tasksToProcess.forEach(task => {
       const dueDate = task.dueDate ? startOfDay(new Date(task.dueDate)) : null;
       const isTaskMarkedDone = task.status === "Done";
       
@@ -167,7 +193,7 @@ export default function DashboardPage() {
         statusCounts["To Do"]++;
       }
 
-      if (!isTaskMarkedDone && !isEffectivelyOverdue) {
+      if (!isTaskMarkedDone && !isEffectivelyOverdue && task.task_type !== "VALIDATION_PROJECT") { // Active tasks for employee chart exclude VPs
         if (task.assignedTo_text) {
           employeeTaskCounts[task.assignedTo_text] = (employeeTaskCounts[task.assignedTo_text] || 0) + 1;
         }
@@ -182,6 +208,7 @@ export default function DashboardPage() {
         if (isEffectivelyOverdue) {
           overdueSummaryCount++;
         }
+         // Active tasks for summary should also consider task_type for accuracy, if needed.
         if (!isEffectivelyOverdue && (task.status === "In Progress" || task.status === "To Do" || task.status === "Blocked")) {
           activeSummaryCount++;
         }
@@ -198,11 +225,13 @@ export default function DashboardPage() {
       { ...initialTaskSummaryData[3], value: completedTodaySummaryCount.toString() },
     ]);
 
-    const distribution = (Object.keys(statusCounts) as (TaskStatus | string)[]).map(status => ({
-      status: status,
-      count: statusCounts[status] || 0,
-      fill: chartFills[status as TaskStatus] || "hsl(var(--muted))",
-    })).filter(item => item.count > 0);
+    const distribution = (Object.keys(statusCounts) as (TaskStatus | string)[])
+      .map(status => ({
+        status: status,
+        count: statusCounts[status] || 0,
+        fill: chartFills[status as TaskStatus] || "hsl(var(--muted))",
+      }))
+      .filter(item => item.count > 0);
     setTaskDistributionData(distribution);
 
     const employeeDataForChart = Object.entries(employeeTaskCounts)
@@ -213,46 +242,67 @@ export default function DashboardPage() {
       .sort((a,b) => b.activeTasks - a.activeTasks);
     setActiveTasksByEmployeeData(employeeDataForChart);
 
-    const monthlyCompletionAgg: { [monthKey: string]: { total: number; completed: number; monthLabel: string } } = {};
-    const numMonthsToShow = 6;
-    const currentMonthStart = startOfMonth(new Date());
+    const quarterlyAggByType: {
+      [quarterKey: string]: {
+        [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: { total: number; completed: number };
+      };
+    } = {};
+    
+    tasksToProcess.forEach(task => {
+      if (task.task_type === "VALIDATION_PROJECT") return; 
 
-    for (let i = 0; i < numMonthsToShow; i++) {
-      const monthToProcess = subMonths(currentMonthStart, i);
-      const monthKey = format(monthToProcess, "yyyy-MM");
-      const monthLabel = format(monthToProcess, "MMM 'yy");
-      if (!monthlyCompletionAgg[monthKey]) {
-        monthlyCompletionAgg[monthKey] = { total: 0, completed: 0, monthLabel };
-      }
-    }
-
-    allTasks.forEach(task => {
       if (task.dueDate) {
-        const dueDateObj = startOfDay(new Date(task.dueDate));
-        const dueMonthKey = format(startOfMonth(dueDateObj), "yyyy-MM");
+          const dueDateObj = startOfDay(new Date(task.dueDate));
+          if (getYear(dueDateObj) === yearForQuarterlyChart) {
+              const quarterNum = getQuarter(dueDateObj);
+              const quarterKey = `Q${quarterNum}`;
+              const currentTaskType = task.task_type as Exclude<TaskType, "VALIDATION_PROJECT">;
 
-        if (monthlyCompletionAgg[dueMonthKey]) {
-          monthlyCompletionAgg[dueMonthKey].total++;
-          if (task.status === "Done") {
-            monthlyCompletionAgg[dueMonthKey].completed++;
+              if (!taskTypesForDashboardChart.includes(currentTaskType)) return;
+
+              if (!quarterlyAggByType[quarterKey]) {
+                quarterlyAggByType[quarterKey] = {};
+              }
+              if (!quarterlyAggByType[quarterKey][currentTaskType]) {
+                quarterlyAggByType[quarterKey][currentTaskType] = { total: 0, completed: 0 };
+              }
+
+              quarterlyAggByType[quarterKey][currentTaskType]!.total++;
+              if (task.status === "Done") {
+                quarterlyAggByType[quarterKey][currentTaskType]!.completed++;
+              }
           }
-        }
       }
     });
     
-    const monthlyChartDataPoints: MonthlyCompletionDataPoint[] = [];
-    for (let i = numMonthsToShow - 1; i >= 0; i--) {
-      const monthToProcess = subMonths(currentMonthStart, i);
-      const monthKey = format(monthToProcess, "yyyy-MM");
-      const data = monthlyCompletionAgg[monthKey] || { total: 0, completed: 0, monthLabel: format(monthToProcess, "MMM 'yy") };
-      monthlyChartDataPoints.push({
-        month: data.monthLabel,
-        total: data.total,
-        completed: data.completed,
-        rate: data.total > 0 ? parseFloat(((data.completed / data.total) * 100).toFixed(1)) : 0,
-      });
+    const quarterlyChartDataPoints: QuarterlyCompletionDataPoint[] = [];
+    const yearShort = format(new Date(yearForQuarterlyChart, 0, 1), "yy");
+    const goalRates = [25, 50, 75, 100]; 
+
+    for (let i = 1; i <= 4; i++) {
+        const quarterKey = `Q${i}`;
+        const aggForQuarter = quarterlyAggByType[quarterKey] || {};
+
+        const ratesForQuarter: QuarterlyCompletionDataPoint['rates'] = {};
+        const totalsForQuarter: QuarterlyCompletionDataPoint['totals'] = {};
+
+        taskTypesForDashboardChart.forEach(type => {
+            const dataForType = aggForQuarter[type] || { total: 0, completed: 0 };
+            ratesForQuarter[type] =
+                dataForType.total > 0
+                ? parseFloat(((dataForType.completed / dataForType.total) * 100).toFixed(1))
+                : 0;
+            totalsForQuarter[type] = dataForType;
+        });
+
+        quarterlyChartDataPoints.push({
+            quarter: `Q${i} '${yearShort}`,
+            rates: ratesForQuarter,
+            totals: totalsForQuarter,
+            goalRate: goalRates[i-1],
+        });
     }
-    setLiveMonthlyTaskCompletionData(monthlyChartDataPoints);
+    setQuarterlyTaskCompletionData(quarterlyChartDataPoints);
 
   }, []);
 
@@ -265,11 +315,12 @@ export default function DashboardPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [fetchedTasks, fetchedEmployees] = await Promise.all([
+      const [fetchedTasks, _fetchedEmployees] = await Promise.all([
         getTasks(pb, { signal }),
-        getEmployees(pb, { signal })
+        getEmployees(pb, { signal }) 
       ]);
-      processData(fetchedTasks, fetchedEmployees);
+      setAllFetchedTasks(fetchedTasks); 
+      processData(fetchedTasks, selectedQuarterlyYear); 
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
@@ -291,7 +342,7 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [toast, processData]);
+  }, [toast, processData, selectedQuarterlyYear]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -305,11 +356,26 @@ export default function DashboardPage() {
     };
   }, [pbClient, fetchDashboardData]);
 
+  useEffect(() => {
+    if (allFetchedTasks.length > 0) {
+      processData(allFetchedTasks, selectedQuarterlyYear);
+    }
+  }, [selectedQuarterlyYear, allFetchedTasks, processData]);
+
+
   const refetchData = () => {
     if (pbClient) {
       fetchDashboardData(pbClient);
     }
   };
+
+  const currentChartYear = new Date().getFullYear();
+  const yearOptions = [
+    currentChartYear,
+    currentChartYear - 1,
+    currentChartYear - 2,
+  ];
+
 
   return (
     <div className="space-y-6">
@@ -384,7 +450,7 @@ export default function DashboardPage() {
                       <Users className="mr-2 h-5 w-5 text-primary" />
                       Active Tasks by Employee
                     </CardTitle>
-                    <CardDescription>Breakdown of active tasks assigned per employee.</CardDescription>
+                    <CardDescription>Breakdown of active non-validation tasks assigned per employee.</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {activeTasksByEmployeeData.length > 0 ? (
@@ -411,54 +477,97 @@ export default function DashboardPage() {
               !error && (
                   <Card className="shadow-md md:col-span-2">
                   <CardHeader>
-                      <CardTitle className="font-headline flex items-center">
-                      <TrendingUp className="mr-2 h-5 w-5 text-primary" />
-                      Monthly Task Completion Rate
-                      </CardTitle>
-                      <CardDescription>Trend of task completion based on due dates for the last 6 months.</CardDescription>
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+                        <div>
+                            <CardTitle className="font-headline flex items-center">
+                            <TrendingUp className="mr-2 h-5 w-5 text-primary" />
+                            Quarterly Task Completion Rate (by Type)
+                            </CardTitle>
+                            <CardDescription>Trend of task completion vs. goals for the selected year.</CardDescription>
+                        </div>
+                        <Select
+                            value={selectedQuarterlyYear.toString()}
+                            onValueChange={(value) => setSelectedQuarterlyYear(parseInt(value))}
+                        >
+                            <SelectTrigger className="w-full sm:w-[120px] mt-2 sm:mt-0">
+                                <SelectValue placeholder="Select Year" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {yearOptions.map(year => (
+                                <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
                   </CardHeader>
                   <CardContent>
-                    {liveMonthlyTaskCompletionData.length > 0 ? (
-                      <ChartContainer config={monthlyCompletionChartConfig} className="h-[300px] w-full">
-                      <RechartsLineChart data={liveMonthlyTaskCompletionData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                    {quarterlyTaskCompletionData.length > 0 ? (
+                      <ChartContainer config={quarterlyCompletionChartConfig} className="h-[300px] w-full">
+                      <RechartsLineChart data={quarterlyTaskCompletionData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                          <XAxis dataKey="month" />
+                          <XAxis dataKey="quarter" />
                           <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
                           <Tooltip
-                          content={({ active, payload, label }) => {
-                              if (active && payload && payload.length) {
-                              const data = payload[0].payload as MonthlyCompletionDataPoint; 
-                              return (
-                                  <div className="p-2 rounded-md border bg-background shadow-lg">
-                                  <p className="font-medium text-sm">{label}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                      Completed: {data.completed} / {data.total}
-                                  </p>
-                                  <p className="text-xs" style={{ color: payload[0].stroke }}>
-                                      Rate: {data.rate}%
-                                  </p>
-                                  </div>
-                              );
-                              }
-                              return null;
-                          }}
-                          cursor={{fill: 'hsl(var(--muted))'}}
+                            content={({ active, payload, label }) => {
+                                if (active && payload && payload.length) {
+                                const dataPoint = quarterlyTaskCompletionData.find(d => d.quarter === label);
+                                if (!dataPoint) return null;
+
+                                return (
+                                    <div className="p-2 rounded-md border bg-background shadow-lg text-xs">
+                                    <p className="font-medium text-sm mb-1">{label}</p>
+                                    {taskTypesForDashboardChart.map(type => {
+                                        const rate = dataPoint.rates[type];
+                                        const totals = dataPoint.totals[type];
+                                        const configEntry = quarterlyCompletionChartConfig[type];
+                                        if (rate === undefined && (!totals || totals.total === 0)) return null; 
+                                        
+                                        return (
+                                        <p key={type} style={{ color: configEntry?.color as string || 'inherit' }}>
+                                            {configEntry?.label || type}: {rate !== undefined ? `${rate}%` : 'N/A'}
+                                            {totals && ` (${totals.completed}/${totals.total})`}
+                                        </p>
+                                        );
+                                    })}
+                                    <p style={{ color: quarterlyCompletionChartConfig.goalRate.color as string || 'inherit' }}>
+                                        Goal: {dataPoint.goalRate}%
+                                    </p>
+                                    </div>
+                                );
+                                }
+                                return null;
+                            }}
+                            cursor={{fill: 'hsl(var(--muted))'}}
                           />
                           <Legend />
+                          {taskTypesForDashboardChart.map(type => (
+                            <Line 
+                                key={type}
+                                type="monotone" 
+                                dataKey={`rates.${type}`}
+                                stroke={`var(--color-${type})`}
+                                strokeWidth={2} 
+                                dot={{ r: 4, fill: `var(--color-${type})` }} 
+                                activeDot={{ r: 6, fill: `var(--color-${type})`}} 
+                                name={quarterlyCompletionChartConfig[type]?.label as string || `${type} Rate`} 
+                                connectNulls={false} // Don't connect if a type has no data for a quarter
+                            />
+                          ))}
                           <Line 
-                          type="monotone" 
-                          dataKey="rate" 
-                          stroke="hsl(var(--chart-2))" 
-                          strokeWidth={2} 
-                          dot={{ r: 4, fill: "hsl(var(--chart-2))" }} 
-                          activeDot={{ r: 6, fill: "hsl(var(--chart-2))"}} 
-                          name="Completion Rate" 
+                            type="monotone" 
+                            dataKey="goalRate" 
+                            stroke={quarterlyCompletionChartConfig.goalRate.color as string}
+                            strokeDasharray="5 5"
+                            strokeWidth={2} 
+                            dot={{ r: 4, fill: quarterlyCompletionChartConfig.goalRate.color as string }} 
+                            activeDot={{ r: 6, fill: quarterlyCompletionChartConfig.goalRate.color as string }} 
+                            name="Goal Rate" 
                           />
                       </RechartsLineChart>
                       </ChartContainer>
                     ) : (
                        <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                        No task data available for the selected period.
+                        No task data available for the selected year.
                       </div>
                     )}
                   </CardContent>
@@ -479,3 +588,8 @@ export default function DashboardPage() {
 
 
 
+
+
+
+
+    
