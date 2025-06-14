@@ -22,14 +22,14 @@ import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
 import { getTasks, updateTask as updateTaskService } from "@/services/taskService"; // Renamed import
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, Edit2, Save, X } from "lucide-react";
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, Edit2, Save, X, Link as LinkIcon } from "lucide-react";
 import { Button as ShadcnButton } from "@/components/ui/button"; // Aliased to avoid conflict
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TASK_STATUSES, PREDEFINED_TASK_TITLES } from "@/lib/constants";
+import { TASK_STATUSES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
 
 const ROW_HEIGHT = 48; // px, height of each task row
@@ -88,20 +88,26 @@ const getDetailedErrorMessage = (error: any, context?: string): string => {
 };
 
 interface DragState {
-  type: 'drag' | 'resize-start' | 'resize-end' | 'draw-dependency';
+  type: 'drag' | 'resize-start' | 'resize-end';
   taskId: string;
   initialMouseX: number;
   originalStartDate: Date;
   originalDueDate: Date;
-  currentMouseX?: number; // For dependency drawing, relative to timeline grid
-  currentMouseY?: number; // For dependency drawing, relative to timeline grid
-  sourceTaskBarEndX?: number; // For dependency drawing
-  sourceTaskBarCenterY?: number; // For dependency drawing
+  currentMouseX?: number;
+}
+
+interface DependencyDrawState {
+  sourceTaskId: string;
+  sourceTaskBarEndX: number;
+  sourceTaskBarCenterY: number;
+  currentMouseX: number;
+  currentMouseY: number;
 }
 
 interface QuickEditPopoverState {
   taskId: string | null;
   currentTitle: string;
+  currentInstrumentSubtype?: string;
   currentStatus: TaskStatus;
   currentProgress: number;
 }
@@ -116,14 +122,16 @@ const GanttChart: React.FC = () => {
   const [dayCellWidth, setDayCellWidth] = useState<number>(DEFAULT_DAY_CELL_WIDTH);
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [dependencyDrawState, setDependencyDrawState] = useState<DependencyDrawState | null>(null);
   
   const timelineScrollContainerRef = useRef<HTMLDivElement>(null);
   const leftPanelScrollContainerRef = useRef<HTMLDivElement>(null);
-  const ganttBodyRef = useRef<HTMLDivElement>(null); // For cursor styling and relative mouse coords
+  const ganttBodyRef = useRef<HTMLDivElement>(null);
 
   const [quickEditPopoverState, setQuickEditPopoverState] = useState<QuickEditPopoverState>({
     taskId: null,
     currentTitle: PREDEFINED_TASK_TITLES[0] || "",
+    currentInstrumentSubtype: undefined,
     currentStatus: 'To Do',
     currentProgress: 0,
   });
@@ -256,7 +264,7 @@ const GanttChart: React.FC = () => {
         let taskStartActual = task.startDate;
         let taskEndActual = task.dueDate;
 
-        if (dragState && dragState.taskId === task.id && (dragState.type === 'drag' || dragState.type === 'resize-start' || dragState.type === 'resize-end')) {
+        if (dragState && dragState.taskId === task.id) {
             const dragOffsetDays = Math.round(( (dragState.currentMouseX ?? dragState.initialMouseX) - dragState.initialMouseX) / dayCellWidth);
             
             if (dragState.type === 'drag') {
@@ -264,12 +272,12 @@ const GanttChart: React.FC = () => {
                 taskEndActual = addDays(dragState.originalDueDate, dragOffsetDays);
             } else if (dragState.type === 'resize-start') {
                 taskStartActual = addDays(dragState.originalStartDate, dragOffsetDays);
-                taskStartActual = min([taskStartActual, addDays(dragState.originalDueDate, - (MIN_TASK_DURATION_DAYS-1) )]); // Prevent crossing due date
+                taskStartActual = min([taskStartActual, addDays(dragState.originalDueDate, - (MIN_TASK_DURATION_DAYS-1) )]);
                 taskEndActual = dragState.originalDueDate;
             } else if (dragState.type === 'resize-end') {
                 taskStartActual = dragState.originalStartDate;
                 taskEndActual = addDays(dragState.originalDueDate, dragOffsetDays);
-                taskEndActual = max([taskEndActual, addDays(dragState.originalStartDate, (MIN_TASK_DURATION_DAYS-1) )]); // Prevent crossing start date
+                taskEndActual = max([taskEndActual, addDays(dragState.originalStartDate, (MIN_TASK_DURATION_DAYS-1) )]);
             }
         }
         
@@ -338,37 +346,30 @@ const GanttChart: React.FC = () => {
 
     const handleTaskUpdate = useCallback(async (
         taskId: string, 
-        updates: Partial<Pick<Task, 'startDate' | 'dueDate' | 'dependencies' | 'title' | 'status' | 'progress'>>
+        updates: Partial<Pick<Task, 'startDate' | 'dueDate' | 'dependencies' | 'title' | 'status' | 'progress' | 'instrument_subtype'>>
     ) => {
         if (!pbClient) return;
         const taskToUpdate = allTasks.find(t => t.id === taskId);
         if (!taskToUpdate) return;
 
-        // Ensure dates are in ISO format if present
         const payload: Partial<Task> = { ...updates };
         if (updates.startDate) payload.startDate = new Date(updates.startDate).toISOString();
         if (updates.dueDate) payload.dueDate = new Date(updates.dueDate).toISOString();
-        if (updates.dependencies) payload.dependencies = updates.dependencies;
-        if (updates.title) payload.title = updates.title;
-        if (updates.status) payload.status = updates.status;
-        if (updates.progress !== undefined) payload.progress = updates.progress;
-
-
+        
         try {
             await updateTaskService(pbClient, taskId, payload);
             toast({ title: "Task Updated", description: `Task "${taskToUpdate.title}" was successfully updated.` });
             fetchTimelineTasks(pbClient); 
         } catch (err) {
             toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${taskToUpdate.title}"`), variant: "destructive" });
-            // Optionally revert optimistic updates if any were made, or simply refetch to get true state
             fetchTimelineTasks(pbClient);
         }
     }, [pbClient, allTasks, toast, fetchTimelineTasks]);
 
 
     const handleMouseDownOnTaskBar = (e: React.MouseEvent, task: Task) => {
-        if (e.button !== 0) return; // Only left click
-        if (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) return; // Prevent drag if popover is open for this task
+        if (e.button !== 0) return; 
+        if (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) return; 
 
         const taskDetails = taskRenderDetailsMap.get(task.id);
         if (!taskDetails) return;
@@ -388,7 +389,7 @@ const GanttChart: React.FC = () => {
     };
     
     const handleMouseDownOnResizeHandle = (e: React.MouseEvent, task: Task, handleType: 'start' | 'end') => {
-        if (e.button !== 0) return; // Only left click
+        if (e.button !== 0) return;
         const taskDetails = taskRenderDetailsMap.get(task.id);
         if (!taskDetails) return;
 
@@ -407,25 +408,22 @@ const GanttChart: React.FC = () => {
     };
 
     const handleMouseDownOnDependencyConnector = (e: React.MouseEvent, task: Task) => {
-        if (e.button !== 0) return; // Only left click
+        if (e.button !== 0) return;
         const taskDetails = taskRenderDetailsMap.get(task.id);
-        if (!taskDetails || taskDetails.isMilestone) return; // Cannot draw from milestones
+        if (!taskDetails || taskDetails.isMilestone) return; 
         
         e.preventDefault();
         e.stopPropagation();
 
         const ganttRect = ganttBodyRef.current?.getBoundingClientRect();
-        if (!ganttRect || !timelineScrollContainerRef.current) return;
+        const timelineScroll = timelineScrollContainerRef.current;
+        if (!ganttRect || !timelineScroll) return;
 
-        const initialMouseXInGrid = e.clientX - ganttRect.left + timelineScrollContainerRef.current.scrollLeft;
-        const initialMouseYInGrid = e.clientY - ganttRect.top + timelineScrollContainerRef.current.scrollTop - 60; // 60 for header height
+        const initialMouseXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
+        const initialMouseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60;
 
-        setDragState({
-            type: 'draw-dependency',
-            taskId: task.id,
-            initialMouseX: e.clientX, // Store viewport-relative for delta calculation
-            originalStartDate: taskDetails.effectiveStartDate, // Not strictly needed but fits DragState
-            originalDueDate: taskDetails.effectiveDueDate,   // Not strictly needed
+        setDependencyDrawState({
+            sourceTaskId: task.id,
             sourceTaskBarEndX: taskDetails.barEndX,
             sourceTaskBarCenterY: taskDetails.barCenterY,
             currentMouseX: initialMouseXInGrid,
@@ -435,19 +433,20 @@ const GanttChart: React.FC = () => {
     };
 
     const handleTaskBarClick = (e: React.MouseEvent, task: Task) => {
-        // This check ensures that click doesn't fire after a drag/resize operation
         if (e.detail !== 1 || Math.abs(e.movementX) > 2 || Math.abs(e.movementY) > 2) { 
           return;
         }
-        // Ensure not clicking on a handle or connector by checking classlist of target
         const targetElement = e.target as HTMLElement;
-        if (targetElement.classList.contains('resize-handle') || targetElement.classList.contains('dependency-connector')) {
+        if (targetElement.classList.contains('resize-handle') || 
+            targetElement.classList.contains('dependency-connector') || 
+            targetElement.closest('.dependency-connector')) {
           return;
         }
         
         setQuickEditPopoverState({
           taskId: task.id,
           currentTitle: task.title,
+          currentInstrumentSubtype: task.instrument_subtype,
           currentStatus: task.status,
           currentProgress: task.progress || 0,
         });
@@ -457,39 +456,46 @@ const GanttChart: React.FC = () => {
     const handleSaveQuickEdit = () => {
         if (!quickEditPopoverState.taskId) return;
         
-        const updates: Partial<Pick<Task, 'title' | 'status' | 'progress'>> = {
+        const updates: Partial<Pick<Task, 'title' | 'status' | 'progress' | 'instrument_subtype'>> = {
             title: quickEditPopoverState.currentTitle,
+            instrument_subtype: quickEditPopoverState.currentTitle === "MDL" ? quickEditPopoverState.currentInstrumentSubtype : undefined,
             status: quickEditPopoverState.currentStatus,
             progress: quickEditPopoverState.currentProgress,
         };
         handleTaskUpdate(quickEditPopoverState.taskId, updates);
         setIsQuickEditPopoverOpen(false);
-        setQuickEditPopoverState({taskId: null, currentTitle: PREDEFINED_TASK_TITLES[0] || "", currentStatus: 'To Do', currentProgress: 0});
+        setQuickEditPopoverState({taskId: null, currentTitle: PREDEFINED_TASK_TITLES[0] || "", currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0});
     };
 
 
     useEffect(() => {
-        const handleMouseMove = (e: MouseEvent) => {
-            if (!dragState || !ganttBodyRef.current) return;
-
-            if (dragState.type === 'draw-dependency') {
-                const ganttRect = ganttBodyRef.current.getBoundingClientRect();
-                const timelineScroll = timelineScrollContainerRef.current;
-                if (!timelineScroll) return;
+        const handleWindowMouseMove = (e: MouseEvent) => {
+            if (dragState) {
+                setDragState(prev => prev ? { ...prev, currentMouseX: e.clientX } : null);
+            } else if (dependencyDrawState && ganttBodyRef.current) {
+                 const ganttRect = ganttBodyRef.current.getBoundingClientRect();
+                 const timelineScroll = timelineScrollContainerRef.current;
+                 if (!timelineScroll) return;
                 
-                const currentXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
-                const currentYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Adjust for headers
-
-                setDragState(prev => prev ? { ...prev, currentMouseX: currentXInGrid, currentMouseY: currentYInGrid } : null);
-            } else {
-                 setDragState(prev => prev ? { ...prev, currentMouseX: e.clientX } : null);
+                 const currentXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
+                 const currentYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Adjust for headers
+                 setDependencyDrawState(prev => prev ? { ...prev, currentMouseX: currentXInGrid, currentMouseY: currentYInGrid } : null);
             }
         };
 
-        const handleMouseUp = (e: MouseEvent) => {
-            if (!dragState) return;
-
-            if (dragState.type === 'draw-dependency') {
+        const handleWindowMouseUp = (e: MouseEvent) => {
+            if (dragState) {
+                const taskDetails = taskRenderDetailsMap.get(dragState.taskId);
+                if (taskDetails) {
+                    handleTaskUpdate(dragState.taskId, {
+                        startDate: taskDetails.effectiveStartDate,
+                        dueDate: taskDetails.effectiveDueDate,
+                    });
+                }
+                setDragState(null);
+                if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'default';
+                document.body.style.userSelect = '';
+            } else if (dependencyDrawState) {
                 const ganttRect = ganttBodyRef.current?.getBoundingClientRect();
                 const timelineScroll = timelineScrollContainerRef.current;
 
@@ -499,11 +505,11 @@ const GanttChart: React.FC = () => {
                     
                     let targetDropTaskId: string | null = null;
                     for (const [taskId, details] of taskRenderDetailsMap.entries()) {
-                        if (taskId === dragState.taskId) continue; // Cannot depend on itself
+                        if (taskId === dependencyDrawState.sourceTaskId) continue; 
 
                         const taskRowTop = details.index * ROW_HEIGHT;
                         const taskRowBottom = taskRowTop + ROW_HEIGHT;
-                        // Check if Y is within task row and X is near the start of the bar
+                        
                         if (releaseYInGrid >= taskRowTop && releaseYInGrid <= taskRowBottom &&
                             releaseXInGrid >= details.barStartX - dayCellWidth / 2 && releaseXInGrid <= details.barStartX + dayCellWidth / 2) {
                              targetDropTaskId = taskId;
@@ -512,13 +518,13 @@ const GanttChart: React.FC = () => {
                     }
 
                     if (targetDropTaskId) {
-                        const sourceTask = allTasks.find(t => t.id === dragState.taskId);
+                        const sourceTask = allTasks.find(t => t.id === dependencyDrawState.sourceTaskId);
                         const targetTask = allTasks.find(t => t.id === targetDropTaskId);
                         if (sourceTask && targetTask) {
                             const currentTargetDeps = targetTask.dependencies || [];
                             const currentSourceDeps = sourceTask.dependencies || [];
 
-                            if (!currentTargetDeps.includes(sourceTask.id) && !currentSourceDeps.includes(targetTask.id)) { // Prevent duplicates and direct circular
+                            if (!currentTargetDeps.includes(sourceTask.id) && !currentSourceDeps.includes(targetTask.id)) { 
                                 handleTaskUpdate(targetTask.id, { dependencies: [...currentTargetDeps, sourceTask.id] });
                             } else {
                                 toast({ title: "Invalid Dependency", description: "Cannot create duplicate or circular dependency.", variant: "destructive"});
@@ -526,32 +532,21 @@ const GanttChart: React.FC = () => {
                         }
                     }
                 }
-
-            } else { // 'drag', 'resize-start', 'resize-end'
-                const taskDetails = taskRenderDetailsMap.get(dragState.taskId);
-                if (taskDetails) {
-                    handleTaskUpdate(dragState.taskId, {
-                        startDate: taskDetails.effectiveStartDate,
-                        dueDate: taskDetails.effectiveDueDate,
-                    });
-                }
+                setDependencyDrawState(null);
+                if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'default';
             }
-            
-            setDragState(null);
-            if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'default';
-            document.body.style.userSelect = '';
         };
-
-        if (dragState) {
-            window.addEventListener('mousemove', handleMouseMove);
-            window.addEventListener('mouseup', handleMouseUp);
+        
+        if (dragState || dependencyDrawState) {
+            window.addEventListener('mousemove', handleWindowMouseMove);
+            window.addEventListener('mouseup', handleWindowMouseUp);
         }
 
         return () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
+            window.removeEventListener('mousemove', handleWindowMouseMove);
+            window.removeEventListener('mouseup', handleWindowMouseUp);
         };
-    }, [dragState, dayCellWidth, taskRenderDetailsMap, handleTaskUpdate, allTasks, toast]);
+    }, [dragState, dependencyDrawState, dayCellWidth, taskRenderDetailsMap, handleTaskUpdate, allTasks, toast]);
 
 
   const handlePrevMonth = () => setViewStartDate(prev => subMonths(prev, 1));
@@ -567,7 +562,7 @@ const GanttChart: React.FC = () => {
       if (primaryScroller === 'right') return;
       primaryScroller = 'left';
       if (leftPanelScrollContainerRef.current && timelineScrollContainerRef.current) {
-        const rightInnerScroll = timelineScrollContainerRef.current.querySelector('.timeline-inner-content');
+        const rightInnerScroll = timelineScrollContainerRef.current.querySelector('.timeline-inner-content-scrollable-body');
         if (rightInnerScroll) {
           rightInnerScroll.scrollTop = leftPanelScrollContainerRef.current.scrollTop;
         }
@@ -579,7 +574,7 @@ const GanttChart: React.FC = () => {
       if (primaryScroller === 'left') return;
       primaryScroller = 'right';
       if (leftPanelScrollContainerRef.current && timelineScrollContainerRef.current) {
-        const rightInnerScroll = timelineScrollContainerRef.current.querySelector('.timeline-inner-content');
+        const rightInnerScroll = timelineScrollContainerRef.current.querySelector('.timeline-inner-content-scrollable-body');
         if (rightInnerScroll) {
           leftPanelScrollContainerRef.current.scrollTop = rightInnerScroll.scrollTop;
         }
@@ -588,7 +583,7 @@ const GanttChart: React.FC = () => {
     };
     
     const leftEl = leftPanelScrollContainerRef.current;
-    const rightInnerEl = timelineScrollContainerRef.current?.querySelector('.timeline-inner-content');
+    const rightInnerEl = timelineScrollContainerRef.current?.querySelector('.timeline-inner-content-scrollable-body');
 
     leftEl?.addEventListener('scroll', handleLeftScroll);
     rightInnerEl?.addEventListener('scroll', handleRightScroll);
@@ -639,8 +634,7 @@ const GanttChart: React.FC = () => {
 
   return (
     <TooltipProvider>
-    <div ref={ganttBodyRef} className="gantt-chart-root flex flex-col h-[calc(100vh-200px)] overflow-hidden"> {/* Adjust height as needed */}
-      {/* Control Header */}
+    <div ref={ganttBodyRef} className="gantt-chart-root flex flex-col h-[calc(100vh-200px)] overflow-hidden">
       <div className="flex justify-between items-center p-2 border-b border-border bg-card flex-shrink-0">
          <h2 className="text-lg font-semibold text-card-foreground">Project Timeline</h2>
          <div className="flex items-center gap-2">
@@ -652,9 +646,7 @@ const GanttChart: React.FC = () => {
          </div>
       </div>
 
-      {/* Main Gantt Body (Left Panel + Right Scrollable Timeline) */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Fixed Left Panel (Task List) */}
         <div 
             style={{ width: `${LEFT_PANEL_WIDTH}px` }} 
             className="flex-shrink-0 bg-card border-r border-border flex flex-col"
@@ -676,15 +668,19 @@ const GanttChart: React.FC = () => {
                 className={cn(
                   "grid grid-cols-[40px_1fr_70px_70px_60px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150",
                   task.id === hoveredTaskId ? 'bg-primary/10 dark:bg-primary/20' : '',
-                  (dragState && dragState.taskId !== task.id && dragState.type !== 'draw-dependency') || (hoveredTaskId && task.id !== hoveredTaskId) ? 'opacity-60' : 'opacity-100'
+                  (dragState && dragState.taskId !== task.id && dragState.type !== 'draw-dependency') || 
+                  (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) || 
+                  (hoveredTaskId && task.id !== hoveredTaskId) ? 'opacity-60' : 'opacity-100'
                 )}
                 style={{ height: `${ROW_HEIGHT}px` }}
                 onMouseEnter={() => setHoveredTaskId(task.id)}
                 onMouseLeave={() => setHoveredTaskId(null)}
               >
                 <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
-                <span className="font-medium truncate cursor-pointer hover:text-primary" title={task.title} >
-                  {task.title}
+                <span className="font-medium truncate cursor-default" title={task.title} >
+                   {task.title === "MDL" && task.instrument_subtype
+                    ? `${task.title} (${task.instrument_subtype})`
+                    : task.title}
                 </span>
                 <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
                 <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
@@ -694,14 +690,14 @@ const GanttChart: React.FC = () => {
           </div>
         </div>
 
-        {/* Scrollable Right Panel (Timeline) */}
-        <div className="flex-1 overflow-x-auto" ref={timelineScrollContainerRef}>
-           <div style={{ width: `${timelineGridWidth}px`, minWidth: '100%' }} className="relative timeline-inner-content">
+        <div className="flex-1 overflow-auto" ref={timelineScrollContainerRef}>
+           <div className="relative timeline-inner-content">
             <div className="sticky top-0 z-20 bg-card">
-              <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: monthHeaders.map(m => `${m.span * dayCellWidth}px`).join(' ') }}>
+              <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: monthHeaders.map(m => `${m.span * dayCellWidth}px`).join(' ') || '1fr' }}>
                 {monthHeaders.map((month, index) => (
                   <div key={index} className="flex items-center justify-center border-r border-border font-semibold text-xs">{month.name}</div>
                 ))}
+                 {monthHeaders.length === 0 && <div className="h-full col-span-1"></div>}
               </div>
               <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: `repeat(${totalDaysInView > 0 ? totalDaysInView : 1}, ${dayCellWidth}px)`}}>
                 {Array.from({ length: totalDaysInView > 0 ? totalDaysInView : 0 }).map((_, dayIndex) => {
@@ -716,9 +712,9 @@ const GanttChart: React.FC = () => {
                  {totalDaysInView <= 0 && <div className="h-full col-span-1"></div>}
               </div>
             </div>
-
+            <div className="relative timeline-inner-content-scrollable-body" style={{height: `${timelineGridHeight}px`, width: `${timelineGridWidth}px`}}>
             {tasksToDisplay.length > 0 && (
-              <div className="relative" style={{ height: `${timelineGridHeight}px` }}>
+              <>
                 {tasksToDisplay.map((_, taskIndex) => (
                     <div key={`row-line-${taskIndex}`} className="absolute left-0 right-0 border-b border-border/30" style={{ top: `${(taskIndex + 1) * ROW_HEIGHT -1}px`, height: '1px', zIndex: 1 }}></div>
                 ))}
@@ -737,25 +733,27 @@ const GanttChart: React.FC = () => {
                   const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2;
                   const taskBarTopOffset = TASK_BAR_VERTICAL_PADDING;
                   const milestoneTopOffset = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
-                  const isBeingDragged = dragState?.taskId === task.id && (dragState.type === 'drag' || dragState.type.startsWith('resize'));
+                  const isBeingDragged = dragState?.taskId === task.id;
+                  const isBeingDepDrawnFrom = dependencyDrawState?.sourceTaskId === task.id;
 
 
                   return (
                     <Popover key={`${task.id}-popover`} open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id} onOpenChange={(open) => {
                       if (!open) {
                         setIsQuickEditPopoverOpen(false);
-                        setQuickEditPopoverState({taskId: null, currentTitle: PREDEFINED_TASK_TITLES[0] || "", currentStatus: 'To Do', currentProgress: 0});
+                        setQuickEditPopoverState({taskId: null, currentTitle: PREDEFINED_TASK_TITLES[0] || "", currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0});
                       } else if (task.id !== quickEditPopoverState.taskId) {
                          setQuickEditPopoverState({
                            taskId: task.id,
                            currentTitle: task.title,
+                           currentInstrumentSubtype: task.instrument_subtype,
                            currentStatus: task.status,
                            currentProgress: task.progress || 0,
                          });
                          setIsQuickEditPopoverOpen(true);
                       }
                     }}>
-                    <Tooltip delayDuration={isBeingDragged || (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) ? 999999 : 100}>
+                    <Tooltip delayDuration={isBeingDragged || isBeingDepDrawnFrom || (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) ? 999999 : 100}>
                       <TooltipTrigger asChild>
                         <PopoverTrigger asChild>
                         <div
@@ -767,9 +765,11 @@ const GanttChart: React.FC = () => {
                             "absolute transition-opacity duration-150 ease-in-out group cursor-grab z-10",
                             getTaskBarColor(task.status, isMilestone),
                             !isMilestone && "rounded-sm",
-                            (isBeingDragged || (dragState?.taskId === task.id && dragState.type === 'draw-dependency')) ? 'ring-2 ring-ring ring-offset-background ring-offset-1 shadow-lg' : 
+                            (isBeingDragged || isBeingDepDrawnFrom) ? 'ring-2 ring-ring ring-offset-background ring-offset-1 shadow-lg' : 
                             (task.id === hoveredTaskId ? 'ring-1 ring-primary/70' : ''),
-                            (dragState && dragState.taskId !== task.id && dragState.type !== 'draw-dependency') || (hoveredTaskId && task.id !== hoveredTaskId) ? 'opacity-50' : 'opacity-100'
+                            ( (dragState && dragState.taskId !== task.id) || 
+                              (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) || 
+                              (hoveredTaskId && task.id !== hoveredTaskId) ) ? 'opacity-50' : 'opacity-100'
                           )}
                           style={{
                             left: `${barStartX}px`,
@@ -814,7 +814,7 @@ const GanttChart: React.FC = () => {
                           {!isMilestone && barWidth > (dayCellWidth * 0.75) && (
                              <div className="absolute inset-0 flex items-center px-1.5 overflow-hidden">
                                 <span className="text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden text-ellipsis">
-                                {task.title}
+                                  {task.title === "MDL" && task.instrument_subtype ? `${task.title} (${task.instrument_subtype})` : task.title}
                                 </span>
                             </div>
                           )}
@@ -823,7 +823,7 @@ const GanttChart: React.FC = () => {
                       </TooltipTrigger>
                       <TooltipContent className="p-2 shadow-lg bg-popover text-popover-foreground rounded-md border max-w-xs w-auto z-50">
                         <div className="space-y-1">
-                          <p className="font-semibold text-sm">{task.title}</p>
+                          <p className="font-semibold text-sm">{task.title}{task.title === "MDL" && task.instrument_subtype ? ` (${task.instrument_subtype})` : ""}</p>
                           <p className="text-xs text-muted-foreground">Status: <span className="font-medium text-foreground">{task.status}</span></p>
                           <p className="text-xs text-muted-foreground">Priority: <span className="font-medium text-foreground">{task.priority}</span></p>
                           <p className="text-xs text-muted-foreground">Progress: <span className="font-medium text-foreground">{task.progress || 0}%</span></p>
@@ -853,17 +853,17 @@ const GanttChart: React.FC = () => {
                     <PopoverContent className="w-80 z-50" side="bottom" align="start">
                         <div className="grid gap-4">
                         <div className="space-y-2">
-                            <h4 className="font-medium leading-none">Quick Edit: {task.title}</h4>
+                            <h4 className="font-medium leading-none">Quick Edit: {quickEditPopoverState.currentTitle}{quickEditPopoverState.currentTitle === "MDL" && quickEditPopoverState.currentInstrumentSubtype ? ` (${quickEditPopoverState.currentInstrumentSubtype})` : ""}</h4>
                             <p className="text-sm text-muted-foreground">
-                            Modify status or progress.
+                            Modify task details.
                             </p>
                         </div>
                         <div className="grid gap-2">
                             <div className="grid grid-cols-3 items-center gap-4">
-                                <Label htmlFor={`qe-title-${task.id}`}>Title</Label>
+                                <Label htmlFor={`qe-title-${task.id}`}>Type</Label>
                                 <Select
                                     value={quickEditPopoverState.currentTitle}
-                                    onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentTitle: value}))}
+                                    onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentTitle: value, currentInstrumentSubtype: value !== "MDL" ? undefined : prev.currentInstrumentSubtype}))}
                                 >
                                     <SelectTrigger id={`qe-title-${task.id}`} className="col-span-2 h-8">
                                         <SelectValue placeholder="Select type" />
@@ -875,6 +875,24 @@ const GanttChart: React.FC = () => {
                                     </SelectContent>
                                 </Select>
                             </div>
+                            {quickEditPopoverState.currentTitle === "MDL" && (
+                                <div className="grid grid-cols-3 items-center gap-4">
+                                <Label htmlFor={`qe-instrument-${task.id}`}>Instrument</Label>
+                                <Select
+                                    value={quickEditPopoverState.currentInstrumentSubtype || ""}
+                                    onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentInstrumentSubtype: value}))}
+                                >
+                                    <SelectTrigger id={`qe-instrument-${task.id}`} className="col-span-2 h-8">
+                                        <SelectValue placeholder="Select instrument" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {INSTRUMENT_SUBTYPES.map(subtype => (
+                                            <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                </div>
+                            )}
                             <div className="grid grid-cols-3 items-center gap-4">
                             <Label htmlFor={`qe-status-${task.id}`}>Status</Label>
                             <Select 
@@ -914,14 +932,13 @@ const GanttChart: React.FC = () => {
                   );
                 })}
 
-                {/* Dependency Drawing Line */}
-                {dragState?.type === 'draw-dependency' && dragState.sourceTaskBarEndX !== undefined && dragState.sourceTaskBarCenterY !== undefined && dragState.currentMouseX !== undefined && dragState.currentMouseY !== undefined && (
+                {dependencyDrawState && (
                     <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-40" style={{ width: timelineGridWidth, height: timelineGridHeight }}>
                         <line
-                            x1={dragState.sourceTaskBarEndX}
-                            y1={dragState.sourceTaskBarCenterY}
-                            x2={dragState.currentMouseX}
-                            y2={dragState.currentMouseY}
+                            x1={dependencyDrawState.sourceTaskBarEndX}
+                            y1={dependencyDrawState.sourceTaskBarCenterY}
+                            x2={dependencyDrawState.currentMouseX}
+                            y2={dependencyDrawState.currentMouseY}
                             stroke="hsl(var(--primary))"
                             strokeWidth="2"
                             strokeDasharray="4 2"
@@ -947,13 +964,14 @@ const GanttChart: React.FC = () => {
                     ))}
                   </svg>
                 )}
-              </div>
+              </>
             )}
             {tasksToDisplay.length === 0 && !isLoading && (
                 <div style={{height: ROW_HEIGHT*3}} className="flex items-center justify-center">
                  {renderNoTasksMessage()}
                 </div>
             )}
+            </div>
           </div>
         </div>
       </div>

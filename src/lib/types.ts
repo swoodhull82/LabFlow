@@ -35,6 +35,7 @@ export interface Task {
   progress?: number; // Percentage 0-100
   isMilestone?: boolean;
   dependencies?: string[]; // Array of task IDs
+  instrument_subtype?: string;
 }
 
 export interface CalendarEvent {

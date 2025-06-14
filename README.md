@@ -1,3 +1,4 @@
+
 # Firebase Studio
 
 This is a NextJS starter in Firebase Studio.
@@ -27,7 +28,8 @@ Based on the application's frontend code, the 'users' collection in PocketBase i
 Based on the application's frontend code, the 'tasks' collection in PocketBase is expected to have the following schema:
 
 *   **`id`**: (Text, System Field) - Unique identifier.
-*   **`title`**: (Text, Required) - The title of the task.
+*   **`title`**: (Text, Required) - The title or type of the task (e.g., "MDL", "SOP").
+*   **`instrument_subtype`**: (Text, Optional) - Specific instrument for "MDL" tasks (e.g., "nexiON", "agilent 7900").
 *   **`description`**: (Text, Optional) - A longer description of the task.
 *   **`status`**: (Text or Select, Required) - Current status (e.g., "To Do", "In Progress", "Done", "Overdue", "Blocked").
 *   **`priority`**: (Text or Select, Required) - Priority level (e.g., "Low", "Medium", "High", "Urgent").
@@ -42,4 +44,3 @@ Based on the application's frontend code, the 'tasks' collection in PocketBase i
 *   **`dependencies`**: (JSON, Optional) - Stores an array of task IDs (strings) that this task depends on.
 *   **`created`**: (Date, System Field) - Timestamp of creation.
 *   **`updated`**: (Date, System Field) - Timestamp of last update.
-```

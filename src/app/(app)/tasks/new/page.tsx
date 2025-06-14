@@ -21,7 +21,7 @@ import { createTask, getTasks } from "@/services/taskService";
 import { getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee, TaskStatus, TaskPriority, TaskRecurrence, Task } from "@/lib/types";
-import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES } from "@/lib/constants";
+import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
 
 const getDetailedEmployeeFetchErrorMessage = (error: any): string => {
@@ -55,6 +55,7 @@ export default function NewTaskPage() {
   const { toast } = useToast();
 
   const [title, setTitle] = useState<string>(PREDEFINED_TASK_TITLES[0] || "");
+  const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<TaskStatus>(TASK_STATUSES[0] || "To Do");
   const [priority, setPriority] = useState<TaskPriority>(TASK_PRIORITIES.find(p => p.toLowerCase() === 'medium') || TASK_PRIORITIES[0] || "Medium");
@@ -160,7 +161,10 @@ export default function NewTaskPage() {
     if (isMilestone && startDate) {
       setDueDate(startDate);
     }
-  }, [isMilestone, startDate]);
+    if (title !== "MDL") {
+      setInstrumentSubtype(undefined);
+    }
+  }, [isMilestone, startDate, title]);
 
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -185,6 +189,10 @@ export default function NewTaskPage() {
       toast({ title: "Validation Error", description: "Task title is required.", variant: "destructive" });
       return;
     }
+     if (title === "MDL" && !instrumentSubtype) {
+      toast({ title: "Validation Error", description: "Instrument Subtype is required for MDL tasks.", variant: "destructive" });
+      return;
+    }
     if (!status) {
       toast({ title: "Validation Error", description: "Task status is required.", variant: "destructive" });
       return;
@@ -206,6 +214,9 @@ export default function NewTaskPage() {
 
     const formData = new FormData();
     formData.append("title", title);
+    if (title === "MDL" && instrumentSubtype) {
+      formData.append("instrument_subtype", instrumentSubtype);
+    }
     formData.append("description", description);
     formData.append("status", status);
     formData.append("priority", priority);
@@ -338,6 +349,23 @@ export default function NewTaskPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {title === "MDL" && (
+              <div>
+                <Label htmlFor="instrumentSubtype">Instrument Subtype</Label>
+                <Select value={instrumentSubtype} onValueChange={(value: string) => setInstrumentSubtype(value)}>
+                  <SelectTrigger id="instrumentSubtype">
+                    <SelectValue placeholder="Select instrument for MDL" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INSTRUMENT_SUBTYPES.map(subtype => (
+                      <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div>
               <Label htmlFor="description">Description</Label>
               <Textarea id="description" placeholder="Add any relevant details or instructions..." value={description} onChange={(e) => setDescription(e.target.value)} />

@@ -29,7 +29,7 @@ import type PocketBase from "pocketbase";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES } from "@/lib/constants";
+import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES } from "@/lib/constants";
 
 const getPriorityBadgeVariant = (priority?: string) => {
   if (!priority) return "default";
@@ -123,6 +123,7 @@ const getDetailedErrorMessage = (error: any, context: string = "tasks"): string 
 
 const taskEditFormSchema = z.object({
   title: z.enum(PREDEFINED_TASK_TITLES as [string, ...string[]], { errorMap: () => ({ message: "Please select a valid task type."}) }),
+  instrument_subtype: z.string().optional(),
   description: z.string().optional(),
   status: z.string().min(1, "Status is required.") as z.ZodType<TaskStatus>,
   priority: z.string().min(1, "Priority is required.") as z.ZodType<TaskPriority>,
@@ -132,6 +133,14 @@ const taskEditFormSchema = z.object({
   assignedTo_text: z.string().optional(),
   dependencies: z.array(z.string()).optional(),
   isMilestone: z.boolean().optional(),
+}).refine(data => {
+  if (data.title === "MDL" && !data.instrument_subtype) {
+    return false; // Instrument subtype is required for MDL tasks
+  }
+  return true;
+}, {
+  message: "Instrument Subtype is required for MDL tasks.",
+  path: ["instrument_subtype"],
 }).refine(data => {
   if (data.isMilestone && !data.startDate) {
     return false; // Start date is required for milestones
@@ -174,21 +183,33 @@ export default function TasksPage() {
     resolver: zodResolver(taskEditFormSchema),
     defaultValues: {
       title: PREDEFINED_TASK_TITLES[0],
+      instrument_subtype: undefined,
       dependencies: [],
       isMilestone: false,
     }
   });
 
+  const watchedTitle = form.watch("title");
   const watchedIsMilestone = form.watch("isMilestone");
   const watchedStartDate = form.watch("startDate");
 
   useEffect(() => {
-    if (watchedIsMilestone && watchedStartDate) {
-      if (!form.getValues("dueDate") || form.getValues("dueDate")?.getTime() !== watchedStartDate.getTime()) {
-        form.setValue("dueDate", watchedStartDate, { shouldValidate: true });
+    const subscription = form.watch((value, { name }) => {
+      if (name === "title") {
+        if (value.title !== "MDL") {
+          form.setValue("instrument_subtype", undefined, { shouldValidate: true });
+        }
       }
-    }
-  }, [watchedIsMilestone, watchedStartDate, form]);
+      if (name === "isMilestone" || name === "startDate") {
+        if (value.isMilestone && value.startDate) {
+          if (!form.getValues("dueDate") || form.getValues("dueDate")?.getTime() !== value.startDate.getTime()) {
+            form.setValue("dueDate", value.startDate, { shouldValidate: true });
+          }
+        }
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form]);
 
 
   const fetchTasksCallback = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
@@ -245,25 +266,14 @@ export default function TasksPage() {
     }
     setIsLoadingEmployees(true);
     setFetchEmployeesError(null);
-    // Using main retryStatusMessage for this loader as per simplified plan
-    // If a separate message is desired, a new state like `employeeRetryMessage` would be needed.
-    // setRetryStatusMessage(null); // Clear if using main message, or setEmployeeRetryMsg(null) for specific one
-
     const handleEmployeeRetry = (attempt: number, maxAttempts: number, error: any) => {
-        // This will use the main retryStatusMessage. If employees load separately
-        // and have their own visual indicator, a dedicated state is better.
         setRetryStatusMessage(`Retrying employee data... Attempt ${attempt} of ${maxAttempts}`);
     };
 
     try {
       const fetchedEmployees = await getEmployees(pb, { signal, onRetry: handleEmployeeRetry });
       setEmployees(fetchedEmployees);
-      // Clear the message if it was specifically for employees and tasks are still loading/retrying
-      // This logic might need refinement based on how combined loading is presented.
-      // For now, let fetchTasksCallback handle clearing it on its success/failure.
-      // if (retryStatusMessage && retryStatusMessage.includes("employee")) setRetryStatusMessage(null);
     } catch (err: any) {
-      // if (retryStatusMessage && retryStatusMessage.includes("employee")) setRetryStatusMessage(null); // Clear on final failure
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       if (isAutocancel) {
          console.warn(`Fetch employees for task edit request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
@@ -281,7 +291,7 @@ export default function TasksPage() {
     } finally {
       setIsLoadingEmployees(false);
     }
-  }, [toast, /* retryStatusMessage, setRetryStatusMessage */]); // Add them if setRetryStatusMessage is directly used for clearing here
+  }, [toast]);
 
   const fetchAllTasksForDependencySelectionEdit = useCallback(async (pb: PocketBase | null, currentTaskId: string | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -351,6 +361,7 @@ export default function TasksPage() {
     if (editingTask) {
       form.reset({
         title: editingTask.title,
+        instrument_subtype: editingTask.instrument_subtype || undefined,
         description: editingTask.description || "",
         status: editingTask.status,
         priority: editingTask.priority,
@@ -429,6 +440,7 @@ export default function TasksPage() {
 
     const payload: Partial<Task> & { userId: string } = {
       title: data.title,
+      instrument_subtype: data.title === "MDL" ? data.instrument_subtype : undefined,
       description: data.description,
       status: data.status,
       priority: data.priority,
@@ -448,7 +460,11 @@ export default function TasksPage() {
       handleEditDialogClose();
     } catch (err: any) {
       console.warn("Failed to update task:", err);
-      toast({ title: "Error Updating Task", description: getDetailedErrorMessage(err), variant: "destructive" });
+      let detailedMessage = getDetailedErrorMessage(err);
+      if (err.data && err.data.data && err.data.data.instrument_subtype?.message) {
+        detailedMessage = `Instrument Subtype: ${err.data.data.instrument_subtype.message}`;
+      }
+      toast({ title: "Error Updating Task", description: detailedMessage, variant: "destructive" });
     } finally {
       setIsSubmittingEdit(false);
     }
@@ -521,7 +537,9 @@ export default function TasksPage() {
                   <TableRow key={task.id} className="hover:bg-muted/50 transition-colors">
                     <TableCell className="font-medium flex items-center">
                       {task.isMilestone && <Milestone className="mr-2 h-4 w-4 text-primary" title="Milestone"/>}
-                      {task.title}
+                       {task.title === "MDL" && task.instrument_subtype
+                        ? `${task.title} (${task.instrument_subtype})`
+                        : task.title}
                     </TableCell>
                     <TableCell>
                       <Badge variant={getStatusBadgeVariant(task.status)}>{task.status}</Badge>
@@ -601,6 +619,32 @@ export default function TasksPage() {
                     </FormItem>
                   )}
                 />
+
+                {watchedTitle === "MDL" && (
+                   <FormField
+                    control={form.control}
+                    name="instrument_subtype"
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel>Instrument Subtype</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || ""}>
+                            <FormControl>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select instrument for MDL" />
+                            </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                            {INSTRUMENT_SUBTYPES.map(subtype => (
+                                <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                            ))}
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                )}
+
                 <FormField
                   control={form.control}
                   name="description"
@@ -851,7 +895,9 @@ export default function TasksPage() {
                                             className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 truncate"
                                             title={task.title}
                                         >
-                                            {task.title}
+                                            {task.title === "MDL" && task.instrument_subtype
+                                              ? `${task.title} (${task.instrument_subtype})`
+                                              : task.title}
                                         </label>
                                         </div>
                                     ))}

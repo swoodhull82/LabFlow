@@ -8,3 +8,4 @@ export const TASK_RECURRENCES: TaskRecurrence[] = ["None", "Daily", "Weekly", "M
 export const APP_NAME = "LabFlow";
 
 export const PREDEFINED_TASK_TITLES: readonly string[] = ["MDL", "SOP", "IA", "iDOC", "oDOC"];
+export const INSTRUMENT_SUBTYPES: readonly string[] = ["nexiON", "agilent 7900", "DMA-80 Mercury Analyzer"];
