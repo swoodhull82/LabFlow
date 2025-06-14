@@ -202,7 +202,6 @@ export default function NewTaskPage() {
       return;
     }
 
-
     setIsSubmitting(true);
 
     const formData = new FormData();
@@ -219,10 +218,9 @@ export default function NewTaskPage() {
       } else if (dueDate) {
         formData.append("dueDate", dueDate.toISOString());
       }
-    } else if (dueDate && !isMilestone) { // Only use dueDate if not a milestone and startDate is not set
+    } else if (dueDate && !isMilestone) { 
         formData.append("dueDate", dueDate.toISOString());
     }
-
 
     formData.append("recurrence", recurrence);
     if (assignedToText) {
@@ -231,12 +229,8 @@ export default function NewTaskPage() {
     formData.append("userId", user.id); 
     
     if (selectedDependencies.length > 0) {
-      // PocketBase expects multi-relation fields to be sent as an array of IDs.
-      // If sending FormData, each ID needs to be appended separately or as a JSON string.
-      // For simplicity and compatibility if 'dependencies' is a JSON field:
       formData.append("dependencies", JSON.stringify(selectedDependencies));
     }
-
 
     if (attachments) {
       for (let i = 0; i < attachments.length; i++) {
@@ -296,7 +290,6 @@ export default function NewTaskPage() {
   };
   
   const isLoadingPrerequisites = isLoadingEmployees || isLoadingTasksForSelection;
-
 
   if (!pbClient && !isLoadingPrerequisites) {
     return (
@@ -517,7 +510,6 @@ export default function NewTaskPage() {
                 </Popover>
             </div>
 
-
             <div>
               <Label htmlFor="attachments">Attachments</Label>
               <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md">
@@ -548,4 +540,9 @@ export default function NewTaskPage() {
                 Save Task
               </Button>
             </div>
-          </form
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
