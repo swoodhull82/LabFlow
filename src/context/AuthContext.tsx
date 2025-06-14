@@ -17,6 +17,7 @@ interface AuthContextType {
   logout: () => void;
   loading: boolean;
   pbClient: PocketBase;
+  updateUserAvatar: (avatarFile: File) => Promise<void>; // Added for avatar updates
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -49,18 +50,17 @@ const createUserFromModel = (pbUserModel: any): User | null => {
     email: pbUserModel.email || "",
     name: (pbUserModel as any).name || pbUserModel.email?.split("@")[0] || "User",
     role: userRole,
-    avatarUrl: null, // Initialize to null
-    lucideIconComponent: undefined, // Initialize to undefined
+    avatarUrl: null, 
+    lucideIconComponent: undefined,
   };
 
   if ((pbUserModel as any).avatar && (pbUserModel as any).avatar !== "") {
     appUser.avatarUrl = client.files.getUrl(pbUserModel, (pbUserModel as any).avatar, { thumb: "100x100" });
-    appUser.lucideIconComponent = undefined; // Ensure no icon if avatar exists
+    appUser.lucideIconComponent = undefined; 
   } else {
-    // Select a Lucide icon deterministically based on user ID
     const iconIndex = (pbUserModel.id.charCodeAt(pbUserModel.id.length - 1) % chemistryIcons.length);
     appUser.lucideIconComponent = chemistryIcons[iconIndex];
-    appUser.avatarUrl = null; // Ensure avatarUrl is null if using Lucide icon
+    appUser.avatarUrl = null; 
   }
   
   return appUser;
@@ -76,7 +76,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const handleAuthChange = useCallback(() => {
     const model = client.authStore.model;
     const isValid = client.authStore.isValid;
-    setLoading(true); // Set loading true while processing auth change
+    setLoading(true); 
 
     if (isValid && model) {
       const appUser = createUserFromModel(model);
@@ -107,7 +107,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = client.authStore.onChange(handleAuthChange, true); // Call handleAuthChange immediately
+    const unsubscribe = client.authStore.onChange(handleAuthChange, true); 
     return () => {
       unsubscribe();
     };
@@ -118,9 +118,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setLoading(true);
     try {
       await client.collection('users').authWithPassword(email, password);
-      // Auth change will be picked up by the `onChange` listener, which calls `handleAuthChange`
-      // `handleAuthChange` will set the user and then set loading to false.
-      // It also handles routing and toasting.
     } catch (error: any) {
       console.error("Login failed (raw error object):", error);
       let errorMessage = "An unexpected error occurred during login. Please try again.";
@@ -155,25 +152,49 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       toast({ title: "Login Failed", description: errorMessage, variant: "destructive" });
       setLoading(false); 
     }
-    // No explicit setLoading(false) here if successful, as handleAuthChange covers it.
-  }, [toast]); // Removed router from dependencies as navigation is in handleAuthChange
+  }, [toast]); 
 
   const logout = useCallback(() => {
     setLoading(true);
     client.authStore.clear();
-    // Auth change will be picked up by the `onChange` listener
-    router.push("/"); // Explicitly route after clearing store
+    router.push("/"); 
     toast({ title: "Logged Out", description: "You have been successfully logged out." });
-    // setLoading(false) will be handled by authStore.onChange -> handleAuthChange
   }, [router, toast]);
+
+  const updateUserAvatar = useCallback(async (avatarFile: File) => {
+    if (!user || !client.authStore.model) {
+      toast({ title: "Error", description: "User not authenticated.", variant: "destructive" });
+      throw new Error("User not authenticated or model not available.");
+    }
+    try {
+      const formData = new FormData();
+      formData.append('avatar', avatarFile);
+      // The SDK should update client.authStore.model automatically, triggering onChange
+      await client.collection('users').update(user.id, formData);
+      toast({ title: "Avatar Updated", description: "Your profile picture has been changed." });
+    } catch (error: any) {
+      console.error("Failed to update avatar:", error);
+      let errorMessage = "Failed to update avatar. Please ensure the file is a valid image and not too large.";
+      if (error.data?.data?.avatar?.message) {
+          errorMessage = `Avatar update failed: ${error.data.data.avatar.message}`;
+      } else if (error.data?.message) {
+        errorMessage = error.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      toast({ title: "Avatar Update Failed", description: errorMessage, variant: "destructive" });
+      throw error; 
+    }
+  }, [user, toast]);
 
   const contextValue = useMemo(() => ({
     user,
     login,
     logout,
     loading,
-    pbClient: client
-  }), [user, login, logout, loading]);
+    pbClient: client,
+    updateUserAvatar, 
+  }), [user, login, logout, loading, updateUserAvatar]);
 
   return (
     <AuthContext.Provider value={contextValue}>

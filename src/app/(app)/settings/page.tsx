@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect } from "react"; // Ensured React is imported
+import React, { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { useTheme } from "next-themes";
 import { useToast } from "@/hooks/use-toast";
-import { Save } from "lucide-react";
+import { Save, Loader2 } from "lucide-react";
 
 const LOCAL_STORAGE_KEYS = {
   emailNotifications: "labflow-emailNotificationsEnabled",
@@ -27,13 +27,16 @@ const LOCAL_STORAGE_KEYS = {
 };
 
 export default function SettingsPage() {
-  const { user } = useAuth();
-  const { theme, setTheme } = useTheme(); // removed resolvedTheme as it wasn't used
+  const { user, updateUserAvatar } = useAuth();
+  const { theme, setTheme } = useTheme(); 
   const { toast } = useToast();
 
   const [mounted, setMounted] = useState(false);
   const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(true);
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -54,6 +57,29 @@ export default function SettingsPage() {
       title: "Preferences Saved",
       description: "Your notification and theme preferences have been updated.",
     });
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files[0]) {
+      const file = event.target.files[0];
+      if (!user || !updateUserAvatar) {
+        toast({ title: "Error", description: "User not available for avatar update.", variant: "destructive" });
+        return;
+      }
+      setIsUploading(true);
+      try {
+        await updateUserAvatar(file);
+        // Success toast is handled in AuthContext
+      } catch (error) {
+        // Error toast is handled in AuthContext
+        console.error("Avatar upload failed on settings page:", error);
+      } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = ""; // Reset file input
+        }
+      }
+    }
   };
   
   if (!mounted) {
@@ -85,7 +111,24 @@ export default function SettingsPage() {
                     ) : null}
                     <AvatarFallback className="text-3xl">{user.name ? user.name.split(' ').map(n=>n[0]).join('').substring(0,2) : user.email[0].toUpperCase()}</AvatarFallback>
                   </Avatar>
-                  <Button variant="outline" size="sm" disabled>Change Photo</Button>
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    onChange={handleFileChange} 
+                    style={{ display: 'none' }} 
+                    accept="image/png, image/jpeg, image/gif" 
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => !isUploading && fileInputRef.current?.click()}
+                    disabled={isUploading}
+                  >
+                    {isUploading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    {isUploading ? "Uploading..." : "Change Photo"}
+                  </Button>
                   </>
                 )}
               </div>
