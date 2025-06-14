@@ -69,16 +69,19 @@ export default function SettingsPage() {
         <div className="md:col-span-1 space-y-6">
           <Card className="shadow-md">
             <CardHeader>
-              <CardTitle className="font-headline">Profile</CardTitle>
+              <CardTitle className="text-xl md:text-2xl font-headline">Profile</CardTitle>
               <CardDescription>Update your personal information.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-col items-center space-y-2">
                 {user && (
                   <>
-                  <Avatar className="h-24 w-24">
+                  <Avatar 
+                    className="h-24 w-24"
+                    data-ai-hint={user.avatarPlaceholderKeyword && user.avatarUrl?.includes('placehold.co') ? user.avatarPlaceholderKeyword : undefined}
+                  >
                     <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
-                    <AvatarFallback className="text-3xl">{user.name ? user.name.split(' ').map(n=>n[0]).join('') : user.email[0].toUpperCase()}</AvatarFallback>
+                    <AvatarFallback className="text-3xl">{user.name ? user.name.split(' ').map(n=>n[0]).join('').substring(0,2) : user.email[0].toUpperCase()}</AvatarFallback>
                   </Avatar>
                   <Button variant="outline" size="sm" disabled>Change Photo</Button>
                   </>
@@ -100,7 +103,7 @@ export default function SettingsPage() {
         <div className="md:col-span-2 space-y-6">
           <Card className="shadow-md">
             <CardHeader>
-              <CardTitle className="font-headline">Preferences</CardTitle>
+              <CardTitle className="text-xl md:text-2xl font-headline">Preferences</CardTitle>
               <CardDescription>Customize your LabFlow experience.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -155,3 +158,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+

@@ -7,6 +7,7 @@ export interface User {
   name?: string;
   role: UserRole;
   avatarUrl?: string;
+  avatarPlaceholderKeyword?: string; // New field for AI hint
 }
 
 export type TaskStatus = "To Do" | "In Progress" | "Blocked" | "Done" | "Overdue";

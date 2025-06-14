@@ -22,14 +22,15 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const VALID_ROLES: UserRole[] = ["Supervisor", "Team Lead", "Chem I", "Chem II"];
 
+const chemistryKeywords = ["atom molecule", "chemistry flask", "lab beaker", "electron microscope", "dna helix", "science experiment", "chemistry reaction"];
+
 // Helper function to create User object from PocketBase model
 const createUserFromModel = (pbUserModel: any): User | null => {
   if (!pbUserModel) return null;
 
   let userRole: UserRole = (pbUserModel as any).role as UserRole;
 
-  // Handle legacy "Analyst" role by mapping it to "Chem I"
-  if (userRole === "Analyst" as any) { // Type assertion if "Analyst" isn't in UserRole
+  if (userRole === "Analyst" as any) {
     userRole = "Chem I";
   }
 
@@ -37,24 +38,36 @@ const createUserFromModel = (pbUserModel: any): User | null => {
     console.warn(
       `User ${pbUserModel.email || 'Unknown'} has an invalid role ('${(pbUserModel as any).role}') from PocketBase. Defaulting to 'Chem I'. Consider updating the role in PocketBase.`
     );
-    userRole = "Chem I"; // Default to a valid role
+    userRole = "Chem I";
   }
 
-  return {
+  const appUser: User = {
     id: pbUserModel.id,
     email: pbUserModel.email || "",
     name: (pbUserModel as any).name || pbUserModel.email?.split("@")[0] || "User",
     role: userRole,
-    avatarUrl: (pbUserModel as any).avatar
-      ? client.files.getUrl(pbUserModel, (pbUserModel as any).avatar, { thumb: "100x100" })
-      : `https://placehold.co/100x100.png?text=${((pbUserModel as any).name || pbUserModel.email || "U")[0].toUpperCase()}`,
+    avatarUrl: "", 
+    avatarPlaceholderKeyword: undefined,
   };
+
+  if ((pbUserModel as any).avatar && (pbUserModel as any).avatar !== "") {
+    appUser.avatarUrl = client.files.getUrl(pbUserModel, (pbUserModel as any).avatar, { thumb: "100x100" });
+    // Optionally, set a generic hint for real avatars if needed, or leave undefined
+    // appUser.avatarPlaceholderKeyword = "profile photo"; 
+  } else {
+    // Select a keyword deterministically based on user ID
+    const keywordIndex = (pbUserModel.id.charCodeAt(pbUserModel.id.length - 1) % chemistryKeywords.length);
+    appUser.avatarPlaceholderKeyword = chemistryKeywords[keywordIndex];
+    appUser.avatarUrl = `https://placehold.co/100x100.png`; // Generic placeholder URL
+  }
+  
+  return appUser;
 };
 
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true); // Start as true, initial auth check will set it
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
   const { toast } = useToast();
 
@@ -66,12 +79,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const appUser = createUserFromModel(model);
       setUser(currentUser => {
         if (!appUser) return null;
+        // Prevent unnecessary re-renders if user object is deeply equal
         if (currentUser &&
             currentUser.id === appUser.id &&
             currentUser.name === appUser.name &&
             currentUser.email === appUser.email &&
             currentUser.role === appUser.role &&
-            currentUser.avatarUrl === appUser.avatarUrl) {
+            currentUser.avatarUrl === appUser.avatarUrl &&
+            currentUser.avatarPlaceholderKeyword === appUser.avatarPlaceholderKeyword) {
           return currentUser;
         }
         return appUser;
@@ -90,7 +105,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   useEffect(() => {
-    // Initial call to set state based on current authStore, then subscribe to changes.
     const unsubscribe = client.authStore.onChange(handleAuthChange, true);
     return () => {
       unsubscribe();
@@ -102,17 +116,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setLoading(true);
     try {
       await client.collection('users').authWithPassword(email, password);
-      // authStore.onChange will handle setting the user state.
-      // We just need to get the user details for the toast and routing.
       const model = client.authStore.model;
       if (model) {
-        const appUser = createUserFromModel(model); // Use helper
+        const appUser = createUserFromModel(model);
         if (appUser) {
           toast({ title: "Login Successful", description: `Welcome back, ${appUser.name}!` });
           router.push("/dashboard");
         }
       }
-      // setLoading(false) is called by handleAuthChange
     } catch (error: any) {
       console.error("Login failed (raw error object):", error);
       let errorMessage = "An unexpected error occurred during login. Please try again.";
@@ -130,17 +141,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             errorMessage = "Invalid email or password. Please try again.";
           }
         } else if (error.data?.data && Object.keys(error.data.data).length > 0) {
-           // Catch-all for other structured errors from PocketBase
            const fieldErrors = Object.values(error.data.data).map((err: any) => err.message).join(" ");
            errorMessage = `Login error: ${fieldErrors}`;
         } else if (error.message && typeof error.message === 'string' && !error.message.startsWith("PocketBase_ClientResponseError")) {
-          // Use non-PocketBase error messages if available and more specific
           errorMessage = error.message;
         } else if (error.originalError?.message && typeof error.originalError.message === 'string') {
-          // Handle cases where the error might be wrapped
           errorMessage = error.originalError.message;
         } else if (error.message && typeof error.message === 'string') {
-             // Fallback for generic PocketBase_ClientResponseError
              errorMessage = `Login failed: ${error.message}. Please ensure the server is reachable.`;
         }
       } else if (typeof error === 'string') {
@@ -149,16 +156,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       console.error("Login failed (processed errorMessage):", errorMessage);
       toast({ title: "Login Failed", description: errorMessage, variant: "destructive" });
-      setLoading(false); // Ensure loading is false if login itself throws an error
+      setLoading(false);
     }
   }, [router, toast]);
 
   const logout = useCallback(() => {
     setLoading(true);
-    client.authStore.clear(); // This will trigger authStore.onChange
+    client.authStore.clear();
     router.push("/");
     toast({ title: "Logged Out", description: "You have been successfully logged out." });
-    // setLoading(false) is called by handleAuthChange
   }, [router, toast]);
 
   const contextValue = useMemo(() => ({
@@ -183,3 +189,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

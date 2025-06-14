@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -39,9 +40,12 @@ export function Header() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-                <Avatar className="h-9 w-9">
+                <Avatar 
+                  className="h-9 w-9"
+                  data-ai-hint={user.avatarPlaceholderKeyword && user.avatarUrl?.includes('placehold.co') ? user.avatarPlaceholderKeyword : undefined}
+                >
                   <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
-                  <AvatarFallback>{user.name ? user.name[0].toUpperCase() : user.email[0].toUpperCase()}</AvatarFallback>
+                  <AvatarFallback>{user.name ? user.name.split(' ').map(n=>n[0]).join('').substring(0,2) : user.email[0].toUpperCase()}</AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
@@ -75,3 +79,4 @@ export function Header() {
     </header>
   );
 }
+
