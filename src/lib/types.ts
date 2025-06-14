@@ -18,8 +18,8 @@ export type TaskRecurrence = "None" | "Daily" | "Weekly" | "Monthly" | "Yearly";
 
 export interface Task {
   id: string;
-  title: string; // User-defined name for the task/project
-  task_type: TaskType; // The specific type of task
+  title: string; 
+  task_type: TaskType; 
   description?: string;
   status: TaskStatus;
   priority: TaskPriority;
@@ -34,24 +34,23 @@ export interface Task {
   collectionId?: string;
   collectionName?: string;
   expand?: any;
-  progress?: number; // Percentage 0-100
-  isMilestone?: boolean; // Applicable if task_type is VALIDATION_PROJECT
-  dependencies?: string[]; // Array of task IDs, applicable if task_type is VALIDATION_PROJECT
-  instrument_subtype?: string; // Applicable if task_type is MDL or SOP
-  steps?: string[]; // Array of step descriptions, applicable if task_type is VALIDATION_PROJECT
+  progress?: number; 
+  isMilestone?: boolean; 
+  dependencies?: string[]; 
+  instrument_subtype?: string; 
 }
 
 export interface CalendarEvent {
   id: string;
   title: string;
-  eventDate: Date | string; // Date of the event
+  eventDate: Date | string; 
   description?: string;
-  status?: TaskStatus; // Added status for tasks displayed on calendar
-  userId?: string; // Optional: if events are user-specific
+  status?: TaskStatus; 
+  userId?: string; 
   created: Date | string;
   updated: Date | string;
   collectionId?: string;
-  collectionName?: string;
+  collectionName?: string; 
   expand?: any;
 }
 
@@ -59,10 +58,10 @@ export interface Employee {
   id: string;
   name: string;
   email: string;
-  role: string; // This can be general role description, not necessarily UserRole
+  role: string; 
   reportsTo_text?: string;
   department_text?: string;
-  userId?: string; // Optional: if employee is also a system user
+  userId?: string; 
   created?: Date | string;
   updated?: Date | string;
   collectionId?: string;
@@ -72,9 +71,9 @@ export interface Employee {
 
 export interface ActivityLogEntry {
   id: string;
-  user_name: string; // Name of the user who performed the action
-  action: string; // Description of the action, e.g., "Created new task"
-  details?: string; // Optional additional details about the event
-  created: Date | string; // Timestamp of the event
+  user_name: string; 
+  action: string; 
+  details?: string; 
+  created: Date | string; 
   updated: Date | string;
 }

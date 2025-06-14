@@ -42,7 +42,55 @@ Based on the application's frontend code, the 'tasks' collection in PocketBase i
 *   **`userId`**: (Relation to 'users', Required) - The ID of the user who created or is primarily associated with the task.
 *   **`progress`**: (Number, Optional) - Task completion progress (0-100).
 *   **`isMilestone`**: (Boolean, Optional, Default: false) - Indicates if the task is a milestone. Applicable if `task_type` is "VALIDATION_PROJECT". If true, `startDate` and `dueDate` should ideally be the same.
-*   **`dependencies`**: (JSON, Optional) - Stores an array of task IDs (strings) that this task depends on. Applicable if `task_type` is "VALIDATION_PROJECT".
-*   **`steps`**: (JSON, Optional) - Stores an array of strings representing steps for a "VALIDATION_PROJECT" task. E.g., `["Define protocol", "Execute tests"]`.
+*   **`dependencies`**: (JSON, Optional) - Stores an array of task IDs (strings) that this task depends on.
 *   **`created`**: (Date, System Field) - Timestamp of creation.
 *   **`updated`**: (Date, System Field) - Timestamp of last update.
+
+## PocketBase 'employees' Collection Schema (Inferred from Frontend)
+
+*   **`id`**: (Text, System Field) - Unique identifier.
+*   **`name`**: (Text, Required) - Employee's full name.
+*   **`email`**: (Email, Required, Unique) - Employee's email.
+*   **`role`**: (Text or Select, Required) - Employee's job title or role (e.g., "Supervisor", "Team Lead", "Chem I").
+*   **`department_text`**: (Text, Optional) - Department the employee belongs to.
+*   **`reportsTo_text`**: (Text, Optional) - Name of the person this employee reports to.
+*   **`userId`**: (Relation to `users`, Optional but Recommended) - Links to the system user account if the employee is also a user.
+*   **`created`**: (Date, System Field) - Timestamp of creation.
+*   **`updated`**: (Date, System Field) - Timestamp of last update.
+
+
+## Deployment Troubleshooting (GitHub Pages & PocketBase)
+
+If your application works locally but fails to fetch data (e.g., employees, tasks) when deployed to GitHub Pages, consider these common issues:
+
+### 1. CORS (Cross-Origin Resource Sharing)
+This is the most frequent cause. Your PocketBase server (e.g., `https://your-pb-instance.pockethost.io`) needs to explicitly allow requests from your GitHub Pages domain (e.g., `https://yourusername.github.io`).
+
+**Action:**
+*   In your PocketBase Admin UI, navigate to **Settings > API Rules & CORS**.
+*   In the **Allowed Origins** field, add your GitHub Pages URL (e.g., `https://yourusername.github.io`). You can also use `*` for testing, but this is not recommended for production as it allows requests from any origin.
+*   Ensure **Allowed Methods** includes at least `GET`, `POST`, `PATCH`, `DELETE` (or `*`).
+*   Ensure **Allowed Headers** includes at least `Content-Type`, `Authorization` (if you use auth tokens), and potentially `X-Requested-With` (or `*`).
+
+### 2. PocketBase Server Status
+*   **Accessibility**: Ensure your PocketBase instance is running and publicly accessible from the internet.
+*   **Hosting Tiers**: If using free or hobby tiers for PocketBase hosting (like pockethost.io), check for any "sleeping" or inactivity limits that might cause the server to be temporarily unavailable.
+
+### 3. Browser Developer Tools
+When the deployed app fails:
+*   Open your browser's **Developer Tools** (usually F12).
+*   **Console Tab**: Look for errors related to CORS, network failures (`Failed to fetch`), or content security policies.
+*   **Network Tab**:
+    *   Refresh the page or trigger the failing action.
+    *   Find the request to your PocketBase URL.
+    *   **Status Code**: 0 often indicates a CORS or network block. 403 could be a permission issue (but usually with a response body). 5xx errors are server-side issues.
+    *   **Headers**: Check for `Access-Control-Allow-Origin` in the response headers. If it's missing or doesn't match your GitHub Pages domain, CORS is likely the problem.
+    *   **Response**: See if PocketBase returned any specific error message.
+
+### 4. PocketBase Collection API Rules
+While less likely to cause "works locally, fails deployed" if the same user is testing, double-check your Collection API rules in PocketBase. Ensure that "List" and "View" permissions are correctly set for the collections (`tasks`, `employees`, `activity_log`, etc.) for authenticated users or the specific roles that need access.
+
+### 5. `POCKETBASE_URL` in Code
+Verify that `POCKETBASE_URL` in `src/context/AuthContext.tsx` (currently `https://swoodhu.pockethost.io/`) is correct and publicly accessible.
+
+By systematically checking these points, you can usually identify why data fetching fails on deployment.

@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 import type { Task, TaskStatus, TaskPriority, TaskRecurrence, Employee, TaskType } from "@/lib/types";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon, Milestone, Trash, ListPlus } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon, Milestone } from "lucide-react"; // Removed ListPlus, Trash
 import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -128,7 +128,6 @@ const taskEditFormSchema = z.object({
   assignedTo_text: z.string().optional(),
   dependencies: z.array(z.string()).optional(),
   isMilestone: z.boolean().optional(),
-  steps: z.array(z.string()).optional(),
 }).superRefine((data, ctx) => {
   if (data.task_type === "MDL" && !data.instrument_subtype) {
     ctx.addIssue({
@@ -162,18 +161,20 @@ const taskEditFormSchema = z.object({
       });
     }
     if (data.dependencies && data.dependencies.length > 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Dependencies are only applicable to 'VALIDATION_PROJECT' tasks.",
-        path: ["dependencies"],
-      });
-    }
-     if (data.steps && data.steps.length > 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Steps are only applicable to 'VALIDATION_PROJECT' tasks.",
-        path: ["steps"],
-      });
+      // This rule might need adjustment if "step tasks" (which are not VALIDATION_PROJECT type)
+      // are allowed to have dependencies on their parent project.
+      // For now, keeping it strict that non-VP tasks can't have dependencies in this form.
+      // If a step task *is* a VALIDATION_PROJECT, this rule won't trigger.
+      // If a step task is e.g. SOP and has a dependency, this rule might be too strict.
+      // Let's assume for now dependencies are mainly for VALIDATION_PROJECT task linking.
+      const isStepTask = allTasksForSelection.find(t => t.id === data.dependencies?.[0])?.task_type === "VALIDATION_PROJECT";
+      if (!isStepTask) { // Allow dependency if it's on a VALIDATION_PROJECT (i.e. it's a step task)
+         ctx.addIssue({
+           code: z.ZodIssueCode.custom,
+           message: "Dependencies are primarily managed for 'VALIDATION_PROJECT' task structures.",
+           path: ["dependencies"],
+         });
+      }
     }
     if (!data.recurrence || !TASK_RECURRENCES.includes(data.recurrence as TaskRecurrence)) {
       ctx.addIssue({
@@ -195,6 +196,8 @@ const taskEditFormSchema = z.object({
 
 type TaskEditFormData = z.infer<typeof taskEditFormSchema>;
 
+// Global reference for allTasksForSelection to be used in Zod schema
+let allTasksForSelection: Task[] = [];
 
 export default function TasksPage() {
   const { pbClient, user } = useAuth();
@@ -208,9 +211,11 @@ export default function TasksPage() {
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [fetchEmployeesError, setFetchEmployeesError] = useState<string | null>(null);
 
-  const [allTasksForSelection, setAllTasksForSelection] = useState<Task[]>([]);
-  const [isLoadingTasksForSelection, setIsLoadingTasksForSelection] = useState(true);
+  // This state will hold all tasks for the dependency dropdown in the edit form
+  const [allTasksForDependencyEdit, setAllTasksForDependencyEdit] = useState<Task[]>([]);
+  const [isLoadingTasksForDependencyEdit, setIsLoadingTasksForDependencyEdit] = useState(true);
   const [fetchTasksErrorEdit, setFetchTasksErrorEdit] = useState<string | null>(null);
+
   const [dependenciesRetryMessage, setDependenciesRetryMessage] = useState<string | null>(null);
   const [isDependenciesPopoverOpenEdit, setIsDependenciesPopoverOpenEdit] = useState(false);
   const [isDatePickerOpenEdit, setIsDatePickerOpenEdit] = useState(false);
@@ -219,7 +224,6 @@ export default function TasksPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
-  const [newStepText, setNewStepText] = useState("");
 
   const form = useForm<TaskEditFormData>({
     resolver: zodResolver(taskEditFormSchema),
@@ -230,27 +234,24 @@ export default function TasksPage() {
       dependencies: [],
       isMilestone: false,
       recurrence: "None",
-      steps: [],
     }
   });
 
   const watchedTaskType = form.watch("task_type");
   const watchedIsMilestone = form.watch("isMilestone");
-  const watchedSteps = form.watch("steps");
   const watchedFormStartDate = form.watch("startDate");
   const watchedFormDueDate = form.watch("dueDate");
 
 
   useEffect(() => {
     const subscription = form.watch((value, { name }) => {
-      if (name === "task_type") { // Should not happen as task_type is disabled, but good practice
+      if (name === "task_type") { 
         if (value.task_type !== "MDL" && value.task_type !== "SOP") {
           form.setValue("instrument_subtype", undefined, { shouldValidate: true });
         }
         if (value.task_type !== "VALIDATION_PROJECT") {
           form.setValue("isMilestone", false, { shouldValidate: true });
           form.setValue("dependencies", [], { shouldValidate: true });
-          form.setValue("steps", [], { shouldValidate: true });
            if (!form.getValues("recurrence")) { 
             form.setValue("recurrence", "None", { shouldValidate: true });
           }
@@ -356,12 +357,12 @@ export default function TasksPage() {
     }
   }, [toast]);
 
-  const fetchAllTasksForDependencySelectionEdit = useCallback(async (pb: PocketBase | null, currentTaskId: string | null, signal?: AbortSignal) => {
+  const fetchAllTasksForDepEdit = useCallback(async (pb: PocketBase | null, currentEditingTaskId: string | null, signal?: AbortSignal) => {
     if (!pb) {
-      setIsLoadingTasksForSelection(false);
+      setIsLoadingTasksForDependencyEdit(false);
       return;
     }
-    setIsLoadingTasksForSelection(true);
+    setIsLoadingTasksForDependencyEdit(true);
     setFetchTasksErrorEdit(null);
     setDependenciesRetryMessage(null); 
 
@@ -370,13 +371,16 @@ export default function TasksPage() {
     };
 
     try {
+      // Fetch all tasks, as any task could be a dependency
       const fetchedTasks = await getTasks(pb, { 
         signal, 
-        onRetry: handleDepRetry,
-        filter: 'task_type = "VALIDATION_PROJECT"' 
+        onRetry: handleDepRetry 
       });
       
-      setAllTasksForSelection(currentTaskId ? fetchedTasks.filter(t => t.id !== currentTaskId) : fetchedTasks);
+      // Exclude the task currently being edited from the list of potential dependencies
+      const filteredForEdit = currentEditingTaskId ? fetchedTasks.filter(t => t.id !== currentEditingTaskId) : fetchedTasks;
+      setAllTasksForDependencyEdit(filteredForEdit);
+      allTasksForSelection = filteredForEdit; // Update global ref for Zod
       setDependenciesRetryMessage(null); 
     } catch (err: any) {
       setDependenciesRetryMessage(null); 
@@ -397,7 +401,7 @@ export default function TasksPage() {
         console.warn("Error fetching tasks for edit dependency selection (after retries):", detailedError, err);
       }
     } finally {
-      setIsLoadingTasksForSelection(false);
+      setIsLoadingTasksForDependencyEdit(false);
     }
   }, [toast]);
 
@@ -417,15 +421,16 @@ export default function TasksPage() {
   }, [pbClient, fetchTasksCallback, fetchAndSetEmployees]);
 
   useEffect(() => {
-    if (isEditDialogOpen && editingTask && pbClient && watchedTaskType === "VALIDATION_PROJECT") {
+    if (isEditDialogOpen && editingTask && pbClient) {
       const controller = new AbortController();
-      fetchAllTasksForDependencySelectionEdit(pbClient, editingTask.id, controller.signal);
+      fetchAllTasksForDepEdit(pbClient, editingTask.id, controller.signal);
       return () => controller.abort();
-    } else if (watchedTaskType !== "VALIDATION_PROJECT") {
-        setAllTasksForSelection([]);
-        setIsLoadingTasksForSelection(false);
+    } else if (!isEditDialogOpen) {
+        setAllTasksForDependencyEdit([]); // Clear when dialog is closed
+        allTasksForSelection = []; // Clear global ref for Zod
+        setIsLoadingTasksForDependencyEdit(false);
     }
-  }, [isEditDialogOpen, editingTask, pbClient, fetchAllTasksForDependencySelectionEdit, watchedTaskType]);
+  }, [isEditDialogOpen, editingTask, pbClient, fetchAllTasksForDepEdit]);
 
 
   useEffect(() => {
@@ -443,7 +448,6 @@ export default function TasksPage() {
         assignedTo_text: editingTask.assignedTo_text || "",
         dependencies: Array.isArray(editingTask.dependencies) ? editingTask.dependencies : [],
         isMilestone: editingTask.isMilestone || false,
-        steps: Array.isArray(editingTask.steps) ? editingTask.steps : [],
       });
     }
   }, [editingTask, form]);
@@ -456,7 +460,7 @@ export default function TasksPage() {
     }
 
     const newStatus: TaskStatus = currentStatus === "Done" ? "To Do" : "Done";
-    const currentTasks = tasks; // Keep a reference to revert on error
+    const currentTasks = tasks; 
     const optimisticUpdatedTasks = currentTasks.map(task => 
       task.id === taskId ? { ...task, status: newStatus } : task
     );
@@ -501,25 +505,10 @@ export default function TasksPage() {
     setIsEditDialogOpen(false);
     setEditingTask(null);
     form.reset(); 
-    setAllTasksForSelection([]); 
+    setAllTasksForDependencyEdit([]); 
+    allTasksForSelection = [];
     setIsDependenciesPopoverOpenEdit(false); 
     setIsDatePickerOpenEdit(false);
-    setNewStepText("");
-  };
-
-  const handleAddStep = () => {
-    if (newStepText.trim() === "") {
-      toast({ title: "Cannot add empty step", variant: "destructive" });
-      return;
-    }
-    const currentSteps = form.getValues("steps") || [];
-    form.setValue("steps", [...currentSteps, newStepText.trim()], { shouldValidate: true });
-    setNewStepText("");
-  };
-
-  const handleDeleteStep = (indexToDelete: number) => {
-    const currentSteps = form.getValues("steps") || [];
-    form.setValue("steps", currentSteps.filter((_, index) => index !== indexToDelete), { shouldValidate: true });
   };
 
 
@@ -542,8 +531,7 @@ export default function TasksPage() {
       recurrence: data.task_type === "VALIDATION_PROJECT" ? "None" : data.recurrence!,
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
       isMilestone: data.task_type === "VALIDATION_PROJECT" ? data.isMilestone : false,
-      dependencies: data.task_type === "VALIDATION_PROJECT" ? (data.dependencies || []) : [],
-      steps: data.task_type === "VALIDATION_PROJECT" ? (data.steps || []) : [],
+      dependencies: data.dependencies || [],
       userId: user.id, 
     };
     
@@ -582,7 +570,6 @@ export default function TasksPage() {
 
     if (selected) {
         if (!(currentTaskType === "VALIDATION_PROJECT" && currentIsMilestone) && (selected as DateRange)?.from && !(selected as DateRange)?.to) {
-            // Range mode, only 'from' selected, keep open
         } else {
             setIsDatePickerOpenEdit(false);
         }
@@ -743,7 +730,7 @@ export default function TasksPage() {
                        <Select 
                           onValueChange={field.onChange} 
                           value={field.value}
-                          disabled 
+                          disabled // Task type should not be changed after creation
                         >
                         <FormControl>
                           <SelectTrigger>
@@ -752,7 +739,7 @@ export default function TasksPage() {
                         </FormControl>
                         <SelectContent>
                           {TASK_TYPES.map(tt => (
-                            <SelectItem key={tt} value={tt} disabled={tt === "VALIDATION_PROJECT" && editingTask.task_type !== "VALIDATION_PROJECT"}>
+                            <SelectItem key={tt} value={tt}> 
                               {tt.replace(/_/g, ' ')}
                             </SelectItem>
                           ))}
@@ -992,7 +979,7 @@ export default function TasksPage() {
                         )}
                     />
                 </div>
-                {watchedTaskType === "VALIDATION_PROJECT" && (
+                {/* Dependencies can be edited for any task type now */}
                  <FormField
                   control={form.control}
                   name="dependencies"
@@ -1004,10 +991,10 @@ export default function TasksPage() {
                           <Button
                             variant={"outline"}
                             className="w-full justify-start text-left font-normal"
-                            disabled={isLoadingTasksForSelection || !!fetchTasksErrorEdit}
+                            disabled={isLoadingTasksForDependencyEdit || !!fetchTasksErrorEdit}
                           >
                             <LinkIcon className="mr-2 h-4 w-4" />
-                            {isLoadingTasksForSelection ? "Loading tasks..." :
+                            {isLoadingTasksForDependencyEdit ? "Loading tasks..." :
                               fetchTasksErrorEdit ? "Error loading tasks" :
                               (field.value && field.value.length > 0) ? `${field.value.length} selected` : "Select dependent tasks"}
                           </Button>
@@ -1016,16 +1003,16 @@ export default function TasksPage() {
                            {dependenciesRetryMessage && (
                              <div className="p-4 text-center text-sm text-orange-600">{dependenciesRetryMessage}</div>
                            )}
-                           {isLoadingTasksForSelection && !dependenciesRetryMessage ? ( 
+                           {isLoadingTasksForDependencyEdit && !dependenciesRetryMessage ? ( 
                                 <div className="p-4 text-center text-sm">Loading tasks...</div>
                             ) : fetchTasksErrorEdit && !dependenciesRetryMessage ? ( 
                                 <div className="p-4 text-center text-sm text-destructive">{fetchTasksErrorEdit}</div>
-                            ) : !isLoadingTasksForSelection && !fetchTasksErrorEdit && allTasksForSelection.length === 0 && !dependenciesRetryMessage ? (
-                                <div className="p-4 text-center text-sm">No other 'VALIDATION_PROJECT' tasks available to select.</div>
+                            ) : !isLoadingTasksForDependencyEdit && !fetchTasksErrorEdit && allTasksForDependencyEdit.length === 0 && !dependenciesRetryMessage ? (
+                                <div className="p-4 text-center text-sm">No other tasks available to select.</div>
                             ) : !dependenciesRetryMessage && !fetchTasksErrorEdit && ( 
                                 <ScrollArea className="h-48">
                                     <div className="p-4 space-y-2">
-                                    {allTasksForSelection.map(taskItem => (
+                                    {allTasksForDependencyEdit.map(taskItem => (
                                         <div key={taskItem.id} className="flex items-center space-x-2">
                                         <Checkbox
                                             id={`edit-dep-${taskItem.id}`}
@@ -1042,14 +1029,14 @@ export default function TasksPage() {
                                             className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 truncate"
                                             title={taskItem.title}
                                         >
-                                            {taskItem.title}
+                                            {taskItem.title} ({taskItem.task_type.replace(/_/g, ' ')})
                                         </label>
                                         </div>
                                     ))}
                                     </div>
                                 </ScrollArea>
                             )}
-                            {(!dependenciesRetryMessage && !isLoadingTasksForSelection) && ( 
+                            {(!dependenciesRetryMessage && !isLoadingTasksForDependencyEdit) && ( 
                                 <div className="p-2 border-t">
                                     <Button type="button" size="sm" className="w-full" onClick={() => setIsDependenciesPopoverOpenEdit(false)}>
                                         Done
@@ -1062,39 +1049,6 @@ export default function TasksPage() {
                     </FormItem>
                   )}
                  />
-                )}
-
-                {watchedTaskType === "VALIDATION_PROJECT" && (
-                  <div className="space-y-2">
-                    <Label>Steps</Label>
-                    <div className="space-y-2">
-                      {watchedSteps && watchedSteps.map((step, index) => (
-                        <div key={index} className="flex items-center gap-2 p-2 border rounded-md bg-muted/50">
-                          <span className="flex-1 text-sm">{step}</span>
-                          <Button type="button" variant="ghost" size="icon" onClick={() => handleDeleteStep(index)} className="h-6 w-6">
-                            <Trash className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <Input 
-                        type="text" 
-                        placeholder="New step description" 
-                        value={newStepText}
-                        onChange={(e) => setNewStepText(e.target.value)}
-                        className="flex-1 h-9"
-                      />
-                      <Button type="button" onClick={handleAddStep} size="sm">
-                        <ListPlus className="mr-2 h-4 w-4" /> Add Step
-                      </Button>
-                    </div>
-                    {form.formState.errors.steps && (
-                        <p className="text-sm text-destructive mt-1">{form.formState.errors.steps.message}</p>
-                    )}
-                  </div>
-                )}
-
 
                 <DialogFooter>
                   <DialogClose asChild>
@@ -1102,7 +1056,7 @@ export default function TasksPage() {
                       Cancel
                     </Button>
                   </DialogClose>
-                  <Button type="submit" disabled={isSubmittingEdit || isLoadingEmployees || (watchedTaskType === "VALIDATION_PROJECT" && isLoadingTasksForSelection)}>
+                  <Button type="submit" disabled={isSubmittingEdit || isLoadingEmployees || isLoadingTasksForDependencyEdit}>
                     {isSubmittingEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                     Save Changes
                   </Button>
@@ -1115,4 +1069,3 @@ export default function TasksPage() {
     </div>
   );
 }
-

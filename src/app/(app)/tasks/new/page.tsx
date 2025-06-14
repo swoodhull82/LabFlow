@@ -56,9 +56,12 @@ export default function NewTaskPage() {
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const defaultTypeFromQuery = searchParams.get("defaultType") as TaskType | null;
+  const dependsOnValidationProjectQuery = searchParams.get("dependsOnValidationProject");
+  const defaultTitleFromQuery = searchParams.get("defaultTitle");
+
 
   const [taskType, setTaskType] = useState<TaskType>(defaultTypeFromQuery || TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0]);
-  const [title, setTitle] = useState<string>("");
+  const [title, setTitle] = useState<string>(defaultTitleFromQuery || "");
   const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<TaskStatus>(TASK_STATUSES[0] || "To Do");
@@ -81,17 +84,23 @@ export default function NewTaskPage() {
   const [allTasksForSelection, setAllTasksForSelection] = useState<Task[]>([]);
   const [isLoadingTasksForSelection, setIsLoadingTasksForSelection] = useState(true);
   const [fetchTasksError, setFetchTasksError] = useState<string | null>(null);
-  const [selectedDependencies, setSelectedDependencies] = useState<string[]>([]);
+  const [selectedDependencies, setSelectedDependencies] = useState<string[]>(dependsOnValidationProjectQuery ? [dependsOnValidationProjectQuery] : []);
   const [isDependenciesPopoverOpen, setIsDependenciesPopoverOpen] = useState(false);
 
   useEffect(() => {
     if (defaultTypeFromQuery) {
       setTaskType(defaultTypeFromQuery);
       if (defaultTypeFromQuery === "VALIDATION_PROJECT") {
-        setRecurrence("None"); // Validation projects always have "None" recurrence
+        setRecurrence("None"); 
       }
     }
-  }, [defaultTypeFromQuery]);
+    if (dependsOnValidationProjectQuery) {
+        setSelectedDependencies([dependsOnValidationProjectQuery]);
+    }
+    if (defaultTitleFromQuery) {
+        setTitle(defaultTitleFromQuery);
+    }
+  }, [defaultTypeFromQuery, dependsOnValidationProjectQuery, defaultTitleFromQuery]);
 
   const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -133,7 +142,8 @@ export default function NewTaskPage() {
     setIsLoadingTasksForSelection(true);
     setFetchTasksError(null);
     try {
-      const fetchedTasks = await getTasks(pb, { signal, filter: 'task_type = "VALIDATION_PROJECT"' });
+      // Fetch all tasks, not just validation projects, to allow broader dependency selection.
+      const fetchedTasks = await getTasks(pb, { signal }); 
       setAllTasksForSelection(fetchedTasks);
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
@@ -162,12 +172,8 @@ export default function NewTaskPage() {
     const controller = new AbortController();
     if (pbClient) {
       fetchAndSetEmployees(pbClient, controller.signal);
-      if (taskType === "VALIDATION_PROJECT") { 
-        fetchAllTasksForDependencySelection(pbClient, controller.signal);
-      } else {
-        setAllTasksForSelection([]);
-        setIsLoadingTasksForSelection(false);
-      }
+      // Always fetch all tasks for dependency selection, regardless of current taskType
+      fetchAllTasksForDependencySelection(pbClient, controller.signal);
     } else {
       setIsLoadingEmployees(true); 
       setIsLoadingTasksForSelection(true);
@@ -175,7 +181,7 @@ export default function NewTaskPage() {
     return () => {
       controller.abort();
     };
-  }, [pbClient, taskType, fetchAndSetEmployees, fetchAllTasksForDependencySelection]);
+  }, [pbClient, fetchAndSetEmployees, fetchAllTasksForDependencySelection]);
 
   useEffect(() => {
     if (taskType !== "MDL" && taskType !== "SOP") {
@@ -183,25 +189,20 @@ export default function NewTaskPage() {
     }
     if (taskType !== "VALIDATION_PROJECT") {
       setIsMilestone(false);
-      setSelectedDependencies([]);
-      // Only reset recurrence if it's not already set (e.g. by default query param)
-      if (recurrence === "None" && !defaultTypeFromQuery) { // ensure "None" for VALIDATION_PROJECT is not overwritten if it was set by default
-          // If not a validation project, and recurrence is 'None' (likely because it was a VP before),
-          // set it to a sensible default if it wasn't explicitly set by query.
-          // Or, simply ensure it's not "None" if that's a rule for non-VP.
-          // For now, let user select. But if changing FROM VP, clear milestone stuff.
+      // Do not clear selectedDependencies if it was pre-filled by query param
+      if (!dependsOnValidationProjectQuery) {
+        setSelectedDependencies([]);
       }
     } else {
-      setRecurrence("None"); // Validation projects always have "None" recurrence
+      setRecurrence("None"); 
     }
 
     if (taskType === "VALIDATION_PROJECT" && isMilestone && startDate) {
       setDueDate(startDate);
     } else if (taskType === "VALIDATION_PROJECT" && isMilestone && !startDate) {
-      // If it becomes a milestone and no start date, clear due date as well to enforce single date picking
       setDueDate(undefined);
     }
-  }, [taskType, isMilestone, startDate, recurrence, defaultTypeFromQuery]);
+  }, [taskType, isMilestone, startDate, recurrence, defaultTypeFromQuery, dependsOnValidationProjectQuery]);
 
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -274,19 +275,18 @@ export default function NewTaskPage() {
     
     if (taskType === "VALIDATION_PROJECT") {
         formData.append("isMilestone", isMilestone.toString());
-        if (selectedDependencies.length > 0) {
-            formData.append("dependencies", JSON.stringify(selectedDependencies));
-        }
-        formData.append("steps", JSON.stringify([]));
     } else {
         formData.append("isMilestone", "false");
     }
+    
+    if (selectedDependencies.length > 0) {
+        formData.append("dependencies", JSON.stringify(selectedDependencies));
+    }
+
 
     if (startDate) {
       formData.append("startDate", startDate.toISOString());
     }
-    // For milestones, dueDate is already set to startDate
-    // For non-milestones or non-VP, dueDate is handled by its own state
     if (dueDate) {
         formData.append("dueDate", dueDate.toISOString());
     }
@@ -309,7 +309,12 @@ export default function NewTaskPage() {
       if (taskType === "VALIDATION_PROJECT") {
         router.push("/validations");
       } else {
-        router.push("/tasks");
+        // If it was a step task for a validation project, redirect to validations page to see context
+        if (dependsOnValidationProjectQuery) {
+          router.push("/validations");
+        } else {
+          router.push("/tasks");
+        }
       }
     } catch (err: any) {
       console.error("Failed to create task (full error object):", err); 
@@ -358,10 +363,14 @@ export default function NewTaskPage() {
     }
   };
   
-  const isLoadingPrerequisites = isLoadingEmployees || (taskType === "VALIDATION_PROJECT" && isLoadingTasksForSelection);
-  const availableTaskTypes = defaultTypeFromQuery === "VALIDATION_PROJECT"
-    ? TASK_TYPES.filter(t => t === "VALIDATION_PROJECT")
-    : TASK_TYPES.filter(t => t !== "VALIDATION_PROJECT");
+  const isLoadingPrerequisites = isLoadingEmployees || isLoadingTasksForSelection;
+  
+  const availableTaskTypes = (defaultTypeFromQuery && defaultTypeFromQuery !== "VALIDATION_PROJECT" && dependsOnValidationProjectQuery) 
+    ? TASK_TYPES.filter(t => t === defaultTypeFromQuery) // If it's a step task, lock type
+    : defaultTypeFromQuery === "VALIDATION_PROJECT" 
+      ? TASK_TYPES.filter(t => t === "VALIDATION_PROJECT") 
+      : TASK_TYPES;
+
 
   const handleDateSelect = (selected: Date | DateRange | undefined) => {
     if (taskType === "VALIDATION_PROJECT" && isMilestone) {
@@ -373,9 +382,8 @@ export default function NewTaskPage() {
       setStartDate(range?.from);
       setDueDate(range?.to);
     }
-    if (selected) { // Close if a selection (single or full range) is made. Range might need two clicks.
+    if (selected) { 
         if (!(taskType === "VALIDATION_PROJECT" && isMilestone) && (selected as DateRange)?.from && !(selected as DateRange)?.to) {
-            // If range mode and only 'from' is selected, keep open
         } else {
             setIsDatePickerOpen(false);
         }
@@ -418,10 +426,10 @@ export default function NewTaskPage() {
     <div className="space-y-6 max-w-2xl mx-auto">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl md:text-3xl font-headline font-semibold">
-          {taskType === "VALIDATION_PROJECT" ? "New Validation Project" : "Add New Task"}
+          {taskType === "VALIDATION_PROJECT" ? "New Validation Project" : (dependsOnValidationProjectQuery ? `New Step for Validation` : "Add New Task")}
         </h1>
         <Button variant="outline" asChild>
-          <Link href={taskType === "VALIDATION_PROJECT" ? "/validations" : "/tasks"}>Cancel</Link>
+          <Link href={taskType === "VALIDATION_PROJECT" || dependsOnValidationProjectQuery ? "/validations" : "/tasks"}>Cancel</Link>
         </Button>
       </div>
 
@@ -440,16 +448,15 @@ export default function NewTaskPage() {
                   setTaskType(value);
                   setInstrumentSubtype(undefined); 
                   setIsMilestone(false);
-                  setSelectedDependencies([]);
+                  if (!dependsOnValidationProjectQuery) { // Only clear dependencies if not pre-filled
+                      setSelectedDependencies([]);
+                  }
                   if (value === "VALIDATION_PROJECT") {
                     setRecurrence("None");
-                  } else if (recurrence === "None" && defaultTypeFromQuery !== "VALIDATION_PROJECT") { 
-                    // If changing from VP to non-VP, and recurrence was "None", 
-                    // it might need to be set to a default non-"None" value if required.
-                    // For now, let user select, or rely on validation.
+                  } else if (recurrence === "None" && !defaultTypeFromQuery) { 
                   }
                 }}
-                disabled={defaultTypeFromQuery === "VALIDATION_PROJECT"}
+                disabled={!!(defaultTypeFromQuery && (defaultTypeFromQuery === "VALIDATION_PROJECT" || dependsOnValidationProjectQuery))}
               >
                 <SelectTrigger id="task_type">
                   <SelectValue placeholder="Select task type" />
@@ -468,7 +475,7 @@ export default function NewTaskPage() {
               </Label>
               <Input 
                 id="title" 
-                placeholder={taskType === "VALIDATION_PROJECT" ? "e.g., New HPLC Method Validation" : "e.g., Daily Balances Check"} 
+                placeholder={taskType === "VALIDATION_PROJECT" ? "e.g., New HPLC Method Validation" : (dependsOnValidationProjectQuery ? "e.g., Protocol Definition" : "e.g., Daily Balances Check")} 
                 value={title} 
                 onChange={(e) => setTitle(e.target.value)} 
               />
@@ -617,60 +624,59 @@ export default function NewTaskPage() {
               </div>
             </div>
             
-            {taskType === "VALIDATION_PROJECT" && (
-             <div>
-                <Label htmlFor="dependencies">Dependencies (Optional)</Label>
-                 <Popover open={isDependenciesPopoverOpen} onOpenChange={setIsDependenciesPopoverOpen}>
-                    <PopoverTrigger asChild>
-                        <Button
-                        variant={"outline"}
-                        className="w-full justify-start text-left font-normal"
-                        disabled={isLoadingTasksForSelection || !!fetchTasksError}
-                        >
-                        <LinkIcon className="mr-2 h-4 w-4" />
-                        {isLoadingTasksForSelection ? "Loading tasks..." : 
-                            fetchTasksError ? "Error loading tasks" :
-                            selectedDependencies.length > 0 ? `${selectedDependencies.length} selected` : "Select tasks"}
-                        </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                        {isLoadingTasksForSelection ? (
-                             <div className="p-4 text-center text-sm">Loading tasks...</div>
-                        ) : fetchTasksError ? (
-                            <div className="p-4 text-center text-sm text-destructive">{fetchTasksError}</div>
-                        ) : allTasksForSelection.length === 0 ? (
-                             <div className="p-4 text-center text-sm">No other 'VALIDATION_PROJECT' tasks available to select.</div>
-                        ) : (
-                            <ScrollArea className="h-48">
-                                <div className="p-4 space-y-2">
-                                {allTasksForSelection.map(taskItem => (
-                                    <div key={taskItem.id} className="flex items-center space-x-2">
-                                    <Checkbox
-                                        id={`dep-${taskItem.id}`}
-                                        checked={selectedDependencies.includes(taskItem.id)}
-                                        onCheckedChange={() => handleDependencyChange(taskItem.id)}
-                                    />
-                                    <label
-                                        htmlFor={`dep-${taskItem.id}`}
-                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 truncate"
-                                        title={taskItem.title}
-                                    >
-                                        {taskItem.title}
-                                    </label>
-                                    </div>
-                                ))}
-                                </div>
-                            </ScrollArea>
-                        )}
-                         <div className="p-2 border-t">
-                            <Button size="sm" className="w-full" onClick={() => setIsDependenciesPopoverOpen(false)}>
-                                Done
-                            </Button>
-                        </div>
-                    </PopoverContent>
-                </Popover>
-              </div>
-            )}
+            <div>
+              <Label htmlFor="dependencies">Dependencies (Optional)</Label>
+                <Popover open={isDependenciesPopoverOpen} onOpenChange={setIsDependenciesPopoverOpen}>
+                  <PopoverTrigger asChild>
+                      <Button
+                      variant={"outline"}
+                      className="w-full justify-start text-left font-normal"
+                      disabled={isLoadingTasksForSelection || !!fetchTasksError}
+                      >
+                      <LinkIcon className="mr-2 h-4 w-4" />
+                      {isLoadingTasksForSelection ? "Loading tasks..." : 
+                          fetchTasksError ? "Error loading tasks" :
+                          selectedDependencies.length > 0 ? `${selectedDependencies.length} selected` : "Select tasks"}
+                      </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                      {isLoadingTasksForSelection ? (
+                            <div className="p-4 text-center text-sm">Loading tasks...</div>
+                      ) : fetchTasksError ? (
+                          <div className="p-4 text-center text-sm text-destructive">{fetchTasksError}</div>
+                      ) : allTasksForSelection.length === 0 ? (
+                            <div className="p-4 text-center text-sm">No tasks available to select as dependencies.</div>
+                      ) : (
+                          <ScrollArea className="h-48">
+                              <div className="p-4 space-y-2">
+                              {allTasksForSelection.map(taskItem => (
+                                  <div key={taskItem.id} className="flex items-center space-x-2">
+                                  <Checkbox
+                                      id={`dep-${taskItem.id}`}
+                                      checked={selectedDependencies.includes(taskItem.id)}
+                                      onCheckedChange={() => handleDependencyChange(taskItem.id)}
+                                      disabled={dependsOnValidationProjectQuery === taskItem.id} // Disable unchecking pre-filled dep
+                                  />
+                                  <label
+                                      htmlFor={`dep-${taskItem.id}`}
+                                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 truncate"
+                                      title={taskItem.title}
+                                  >
+                                      {taskItem.title} ({taskItem.task_type.replace(/_/g, ' ')})
+                                  </label>
+                                  </div>
+                              ))}
+                              </div>
+                          </ScrollArea>
+                      )}
+                        <div className="p-2 border-t">
+                          <Button size="sm" className="w-full" onClick={() => setIsDependenciesPopoverOpen(false)}>
+                              Done
+                          </Button>
+                      </div>
+                  </PopoverContent>
+              </Popover>
+            </div>
 
             <div>
               <Label htmlFor="attachments">Attachments</Label>
@@ -697,7 +703,7 @@ export default function NewTaskPage() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button type="submit" disabled={isSubmitting || isLoadingPrerequisites || (taskType === "VALIDATION_PROJECT" && !!fetchTasksError) || !!fetchEmployeesError}>
+              <Button type="submit" disabled={isSubmitting || isLoadingPrerequisites || !!fetchTasksError || !!fetchEmployeesError}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Save Task
               </Button>

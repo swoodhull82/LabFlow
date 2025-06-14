@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
 import { getTasks, updateTask as updateTaskService } from "@/services/taskService"; 
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, Save, Link as LinkIcon, PlusCircle, Trash2, ListPlus } from "lucide-react";
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, Save, Link as LinkIcon, PlusCircle, Trash2 } from "lucide-react"; // Removed ListPlus
 import { Button as ShadcnButton } from "@/components/ui/button"; 
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,8 @@ import { TASK_STATUSES, TASK_TYPES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/
 import type PocketBase from "pocketbase";
 import Link from "next/link";
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useRouter } from 'next/navigation';
+
 
 const ROW_HEIGHT = 48; 
 const LEFT_PANEL_WIDTH = 450; 
@@ -113,18 +115,17 @@ interface QuickEditPopoverState {
   currentInstrumentSubtype?: string;
   currentStatus: TaskStatus;
   currentProgress: number;
-  currentSteps: string[];
-  newStepText: string;
 }
 
 interface GanttChartProps {
-  filterTaskType?: TaskType; 
+  filterTaskType?: TaskType | "ALL_EXCEPT_VALIDATION" | "VALIDATION_AND_ITS_STEPS"; 
   displayHeaderControls?: 'defaultTitle' | 'addValidationButton';
 }
 
 const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderControls = 'defaultTitle' }) => {
   const { pbClient } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
   const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -141,12 +142,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   const [quickEditPopoverState, setQuickEditPopoverState] = useState<QuickEditPopoverState>({
     taskId: null,
     currentTitle: "",
-    currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], // Default to a non-validation type initially
+    currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], 
     currentInstrumentSubtype: undefined,
     currentStatus: 'To Do',
     currentProgress: 0,
-    currentSteps: [],
-    newStepText: "",
   });
   const [isQuickEditPopoverOpen, setIsQuickEditPopoverOpen] = useState(false);
 
@@ -160,13 +159,18 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
     setError(null);
     try {
       const fetchOptions: any = { signal };
-      if (filterTaskType) {
-        fetchOptions.filter = `task_type = "${filterTaskType}"`;
-      } else {
-        
+      
+      if (filterTaskType === "VALIDATION_PROJECT") {
+        fetchOptions.filter = `task_type = "VALIDATION_PROJECT"`;
+      } else if (filterTaskType === "ALL_EXCEPT_VALIDATION") {
         fetchOptions.filter = `task_type != "VALIDATION_PROJECT"`;
       }
-
+      // If no specific filter, fetch all tasks that have dates.
+      // The "VALIDATION_AND_ITS_STEPS" filter will be more complex and might require post-processing or a more advanced query.
+      // For now, if filterTaskType is undefined or "VALIDATION_AND_ITS_STEPS", we fetch tasks with dates.
+      // A true "VALIDATION_AND_ITS_STEPS" filter would involve fetching validation projects, then fetching tasks that depend on them.
+      // This is complex for a single fetch. For now, this page might just show all tasks if that filter is used, or only validation projects.
+      // Let's assume for /validations, it's purely task_type = "VALIDATION_PROJECT" from the page, and for /tasks, it's task_type != "VALIDATION_PROJECT"
 
       const fetchedTasks = await getTasks(pb, fetchOptions);
       const validRawTasks = fetchedTasks.filter(task =>
@@ -230,7 +234,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                       isValid(taskStartDateObj) && isValid(taskDueDateObj) &&
                       isSameDay(taskStartDateObj, taskDueDateObj))),
         dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
-        steps: Array.isArray(task.steps) ? task.steps : [],
       };
     });
 
@@ -272,7 +275,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
   const taskRenderDetailsMap = useMemo(() => {
     const map = new Map<string, {
-        task: Task & { startDate: Date; dueDate: Date; isMilestone: boolean; dependencies: string[]; steps: string[] };
+        task: Task & { startDate: Date; dueDate: Date; isMilestone: boolean; dependencies: string[] };
         index: number;
         barStartX: number;
         barEndX: number; 
@@ -346,13 +349,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   const dependencyLines = useMemo(() => {
     const lines: { id: string, d: string }[] = [];
     tasksToDisplay.forEach((dependentTask) => {
-        if (dependentTask.task_type !== "VALIDATION_PROJECT" || !dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
+        if (!dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
         const dependentDetails = taskRenderDetailsMap.get(dependentTask.id);
         if (!dependentDetails) return;
 
         dependentTask.dependencies.forEach((predecessorId, depIndex) => {
             const predecessorDetails = taskRenderDetailsMap.get(predecessorId);
-            if (!predecessorDetails || predecessorDetails.task.task_type !== "VALIDATION_PROJECT") return; 
+            if (!predecessorDetails) return; 
             
             const fromX = predecessorDetails.isMilestoneRender ? predecessorDetails.barStartX + MILESTONE_SIZE / 2 : predecessorDetails.barEndX;
             const fromY = predecessorDetails.barCenterY;
@@ -371,7 +374,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
     const handleTaskUpdate = useCallback(async (
         taskId: string, 
-        updates: Partial<Pick<Task, 'startDate' | 'dueDate' | 'dependencies' | 'title' | 'status' | 'progress' | 'instrument_subtype' | 'isMilestone' | 'task_type' | 'steps'>>
+        updates: Partial<Pick<Task, 'startDate' | 'dueDate' | 'dependencies' | 'title' | 'status' | 'progress' | 'instrument_subtype' | 'isMilestone' | 'task_type'>>
     ) => {
         if (!pbClient) return;
         const taskToUpdate = allTasks.find(t => t.id === taskId);
@@ -386,13 +389,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             if (updates.hasOwnProperty('isMilestone')) {
                 payload.isMilestone = !!updates.isMilestone;
             }
-            if (updates.steps) {
-                payload.steps = Array.isArray(updates.steps) ? updates.steps : [];
-            }
         } else { 
             payload.isMilestone = false;
             payload.dependencies = [];
-            payload.steps = [];
         }
 
         try {
@@ -406,7 +405,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
     }, [pbClient, allTasks, toast, fetchTimelineTasks]);
 
 
-    const handleMouseDownOnTaskBar = (e: React.MouseEvent, task: Task) => {
+    const handleMouseDownOnTaskBar = useCallback((e: React.MouseEvent, task: Task) => {
         if (e.button !== 0) return; 
         if (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) return; 
 
@@ -425,9 +424,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         });
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'grabbing';
         document.body.style.userSelect = 'none';
-    };
+    }, [isQuickEditPopoverOpen, quickEditPopoverState.taskId, taskRenderDetailsMap]);
     
-    const handleMouseDownOnResizeHandle = (e: React.MouseEvent, task: Task, handleType: 'start' | 'end') => {
+    const handleMouseDownOnResizeHandle = useCallback((e: React.MouseEvent, task: Task, handleType: 'start' | 'end') => {
         if (e.button !== 0) return;
         const taskDetails = taskRenderDetailsMap.get(task.id);
         if (!taskDetails) return;
@@ -444,9 +443,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         });
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'ew-resize';
         document.body.style.userSelect = 'none';
-    };
+    }, [taskRenderDetailsMap]);
 
-    const handleMouseDownOnDependencyConnector = (e: React.MouseEvent, task: Task) => {
+    const handleMouseDownOnDependencyConnector = useCallback((e: React.MouseEvent, task: Task) => {
         if (e.button !== 0 || task.task_type !== "VALIDATION_PROJECT") return; 
         const taskDetails = taskRenderDetailsMap.get(task.id);
         if (!taskDetails || taskDetails.isMilestoneRender) return; 
@@ -469,7 +468,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             currentMouseY: initialMouseYInGrid,
         });
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'crosshair';
-    };
+    }, [taskRenderDetailsMap]);
 
     const openQuickEditPopover = useCallback((task: Task) => {
       setQuickEditPopoverState({
@@ -479,8 +478,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         currentInstrumentSubtype: task.instrument_subtype,
         currentStatus: task.status,
         currentProgress: task.progress || 0,
-        currentSteps: task.task_type === "VALIDATION_PROJECT" ? ((task as any).steps || []) : [],
-        newStepText: "",
       });
       setIsQuickEditPopoverOpen(true);
     }, []);
@@ -499,33 +496,29 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
       }, [openQuickEditPopover]);
     
     const handleLeftPanelItemClick = useCallback((e: React.MouseEvent, task: Task) => {
-      if (task.task_type === "VALIDATION_PROJECT") {
+        // Clicking name in left panel always opens quick edit for that task.
+        // The "Add Step Task" button is now separate.
         e.stopPropagation();
         openQuickEditPopover(task);
-      }
     }, [openQuickEditPopover]);
-    
-    const handleAddStepInQuickEdit = useCallback(() => {
-        if (quickEditPopoverState.newStepText.trim() === "") return;
-        setQuickEditPopoverState(prev => ({
-            ...prev,
-            currentSteps: [...prev.currentSteps, prev.newStepText.trim()],
-            newStepText: ""
-        }));
-    }, [quickEditPopoverState.newStepText]);
 
-    const handleDeleteStepInQuickEdit = useCallback((indexToDelete: number) => {
-        setQuickEditPopoverState(prev => ({
-            ...prev,
-            currentSteps: prev.currentSteps.filter((_, index) => index !== indexToDelete)
-        }));
-    }, []);
+    const handleAddNewStepTask = useCallback((parentValidationProject: Task) => {
+        if (parentValidationProject.task_type !== "VALIDATION_PROJECT") return;
+        
+        const queryParams = new URLSearchParams();
+        queryParams.set('defaultType', 'SOP'); // Or another chosen default type for steps
+        queryParams.set('dependsOnValidationProject', parentValidationProject.id);
+        queryParams.set('defaultTitle', `Step for: ${parentValidationProject.title}`);
+        
+        router.push(`/tasks/new?${queryParams.toString()}`);
+        setIsQuickEditPopoverOpen(false); // Close popover if open
+    }, [router]);
 
 
     const handleSaveQuickEdit = useCallback(() => {
         if (!quickEditPopoverState.taskId) return;
         
-        const updates: Partial<Pick<Task, 'title' | 'status' | 'progress' | 'instrument_subtype' | 'task_type' | 'steps'>> = {
+        const updates: Partial<Pick<Task, 'title' | 'status' | 'progress' | 'instrument_subtype' | 'task_type'>> = {
             title: quickEditPopoverState.currentTitle,
             status: quickEditPopoverState.currentStatus,
             progress: quickEditPopoverState.currentProgress,
@@ -536,16 +529,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         } else {
             updates.instrument_subtype = undefined;
         }
-
-        if (quickEditPopoverState.currentTaskType === "VALIDATION_PROJECT") {
-            updates.steps = quickEditPopoverState.currentSteps;
-        } else {
-            updates.steps = []; 
-        }
         
         handleTaskUpdate(quickEditPopoverState.taskId, updates);
         setIsQuickEditPopoverOpen(false);
-        setQuickEditPopoverState({taskId: null, currentTitle: "", currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0, currentSteps: [], newStepText: ""});
+        setQuickEditPopoverState({taskId: null, currentTitle: "", currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0});
     }, [quickEditPopoverState, handleTaskUpdate]);
 
 
@@ -707,7 +694,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   const renderNoTasksMessage = () => (
     <div className="flex flex-col items-center justify-center h-full p-4 text-center text-sm">
         <p className="text-muted-foreground">
-          {filterTaskType ? `No ${filterTaskType.replace(/_/g, ' ')} tasks found for current view.` : "No tasks found for current view."}
+          {filterTaskType === "VALIDATION_PROJECT" ? `No Validation Projects found for current view.` : 
+           filterTaskType === "ALL_EXCEPT_VALIDATION" ? `No standard tasks found for current view.` :
+           "No tasks found for current view."}
         </p>
         <p className="text-xs mt-1 text-muted-foreground">
             {allTasks.length === 0 ? "Ensure tasks have valid start/due dates." : "Try adjusting date range or zoom."}
@@ -743,12 +732,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             className="flex-shrink-0 bg-card border-r border-border flex flex-col"
         >
           <div className="h-[60px] flex items-center p-2 font-semibold text-xs border-b border-border flex-shrink-0 sticky top-0 bg-card z-20">
-            <div className="grid grid-cols-[40px_1fr_70px_70px_60px] w-full items-center gap-2">
+            <div className="grid grid-cols-[40px_1fr_70px_70px_60px_30px] w-full items-center gap-2">
                 <span className="text-center text-muted-foreground uppercase">WBS</span>
                 <span className="text-muted-foreground uppercase">Task Name</span>
                 <span className="text-center text-muted-foreground uppercase">Start</span>
                 <span className="text-center text-muted-foreground uppercase">End</span>
                 <span className="text-center text-muted-foreground uppercase">Prog.</span>
+                <span className="text-center text-muted-foreground uppercase"></span> {/* For Add Step Button */}
             </div>
           </div>
           <div ref={leftPanelScrollContainerRef} className="overflow-y-auto flex-1">
@@ -757,7 +747,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
               <div 
                 key={task.id} 
                 className={cn(
-                  "grid grid-cols-[40px_1fr_70px_70px_60px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150",
+                  "grid grid-cols-[40px_1fr_70px_70px_60px_30px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150",
                   task.id === hoveredTaskId ? 'bg-primary/10 dark:bg-primary/20' : '',
                   (dragState && dragState.taskId !== task.id && dragState.type !== 'draw-dependency') || 
                   (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) || 
@@ -770,8 +760,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
                 <span 
                   className={cn(
-                    "font-medium truncate",
-                    task.task_type === "VALIDATION_PROJECT" ? "cursor-pointer hover:text-primary" : "cursor-default"
+                    "font-medium truncate cursor-pointer hover:text-primary"
                   )}
                   title={task.title} 
                   onClick={(e) => handleLeftPanelItemClick(e, task)}
@@ -781,6 +770,22 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
                 <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
                 <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
+                <div className="flex justify-center">
+                  {task.task_type === "VALIDATION_PROJECT" && (
+                    <ShadcnButton 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-6 w-6" 
+                      title="Add New Step Task"
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent left panel item click if any
+                        handleAddNewStepTask(task);
+                      }}
+                    >
+                      <PlusCircle className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                    </ShadcnButton>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -837,7 +842,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                     <Popover key={`${task.id}-popover`} open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id} onOpenChange={(open) => {
                       if (!open) {
                         setIsQuickEditPopoverOpen(false);
-                        setQuickEditPopoverState({taskId: null, currentTitle: "", currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0, currentSteps: [], newStepText: ""});
+                        setQuickEditPopoverState({taskId: null, currentTitle: "", currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0});
                       } else if (task.id !== quickEditPopoverState.taskId) { 
                          openQuickEditPopover(task);
                       }
@@ -931,7 +936,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                           {task.assignedTo_text && (
                             <p className="text-xs text-muted-foreground">Assigned to: <span className="font-medium text-foreground">{task.assignedTo_text}</span></p>
                           )}
-                          {task.task_type === "VALIDATION_PROJECT" && task.dependencies && task.dependencies.length > 0 && (
+                          {task.dependencies && task.dependencies.length > 0 && (
                             <div>
                               <p className="text-xs text-muted-foreground mt-1">Depends on:</p>
                               <ul className="list-disc list-inside pl-2 space-y-0.5">
@@ -942,21 +947,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                               </ul>
                             </div>
                           )}
-                           {task.task_type === "VALIDATION_PROJECT" && (!task.dependencies || task.dependencies.length === 0) && (
+                           {(!task.dependencies || task.dependencies.length === 0) && (
                              <p className="text-xs text-muted-foreground">Dependencies: None</p>
                            )}
-                           {task.task_type === "VALIDATION_PROJECT" && task.steps && task.steps.length > 0 && (
-                                <div>
-                                <p className="text-xs text-muted-foreground mt-1">Steps:</p>
-                                <ScrollArea className="max-h-20">
-                                  <ul className="list-decimal list-inside pl-2 space-y-0.5">
-                                      {task.steps.map((step, idx) => (
-                                      <li key={idx} className="text-xs font-medium text-foreground truncate" title={step}>{step}</li>
-                                      ))}
-                                  </ul>
-                                </ScrollArea>
-                                </div>
-                            )}
                         </div>
                       </TooltipContent>
                     </Tooltip>
@@ -978,7 +971,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                                   className="col-span-2 h-8"
                                 />
                             </div>
-                            {quickEditPopoverState.currentTaskType !== "VALIDATION_PROJECT" && (quickEditPopoverState.currentTaskType === "MDL" || quickEditPopoverState.currentTaskType === "SOP") && (
+                            {(quickEditPopoverState.currentTaskType === "MDL" || quickEditPopoverState.currentTaskType === "SOP") && (
                                 <div className="grid grid-cols-3 items-center gap-4">
                                 <Label htmlFor={`qe-instrument-${task.id}`}>Subtype</Label>
                                 <Select
@@ -1025,38 +1018,15 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                             />
                             </div>
                             {quickEditPopoverState.currentTaskType === "VALIDATION_PROJECT" && (
-                              <div className="space-y-2">
-                                <Label>Steps</Label>
-                                {quickEditPopoverState.currentSteps.length > 0 && (
-                                  <ScrollArea className="h-24 rounded-md border p-2">
-                                    {quickEditPopoverState.currentSteps.map((step, index) => (
-                                      <div key={index} className="flex items-center justify-between gap-2 py-1">
-                                        <span className="text-sm flex-1 truncate" title={step}>{index+1}. {step}</span>
-                                        <ShadcnButton 
-                                          type="button" 
-                                          variant="ghost" 
-                                          size="icon" 
-                                          className="h-6 w-6 shrink-0"
-                                          onClick={() => handleDeleteStepInQuickEdit(index)}
-                                        >
-                                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                                        </ShadcnButton>
-                                      </div>
-                                    ))}
-                                  </ScrollArea>
-                                )}
-                                <div className="flex items-center gap-2">
-                                  <Input 
-                                    placeholder="New step description" 
-                                    value={quickEditPopoverState.newStepText}
-                                    onChange={(e) => setQuickEditPopoverState(prev => ({...prev, newStepText: e.target.value}))}
-                                    className="h-8 flex-1"
-                                  />
-                                  <ShadcnButton type="button" size="sm" onClick={handleAddStepInQuickEdit} className="h-8">
-                                    <ListPlus className="mr-1 h-4 w-4" /> Add
-                                  </ShadcnButton>
-                                </div>
-                              </div>
+                              <ShadcnButton 
+                                type="button" 
+                                variant="outline" 
+                                size="sm" 
+                                className="w-full mt-2"
+                                onClick={() => handleAddNewStepTask(task)}
+                              >
+                                <PlusCircle className="mr-2 h-4 w-4" /> Add New Step Task
+                              </ShadcnButton>
                             )}
                         </div>
                         <div className="flex justify-end gap-2 pt-2">
@@ -1118,5 +1088,3 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 };
 
 export default GanttChart;
-
-
