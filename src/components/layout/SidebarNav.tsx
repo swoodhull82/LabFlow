@@ -24,7 +24,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   History,
-  ListChecks, // Added for Timeline
+  ListChecks, 
 } from "lucide-react";
 import { useSidebar } from "@/components/ui/sidebar";
 
@@ -32,7 +32,7 @@ interface NavItem {
   href: string;
   label: string;
   icon: React.ElementType;
-  supervisorOnly?: boolean; // True if only Supervisor OR Team Lead can see
+  supervisorOnly?: boolean; 
 }
 
 const navItems: NavItem[] = [
@@ -40,8 +40,8 @@ const navItems: NavItem[] = [
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/tasks", label: "Tasks", icon: ClipboardList },
   { href: "/timeline", label: "Timeline", icon: ListChecks },
-  { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true },
-  { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true }, // Stays supervisorOnly, specific logic below
+  { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true }, // Supervisor only
+  { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true }, // Supervisor only
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -51,13 +51,14 @@ export function SidebarNav() {
   const { toggleSidebar, state } = useSidebar();
 
   const filteredNavItems = navItems.filter(item => {
-    // Specific rule for Activity Log: strictly Supervisor only
-    if (item.href === "/activity-log") {
+    if (item.href === "/activity-log" || item.href === "/employees") {
+      // Activity Log and Employees are strictly Supervisor only
       return user && user.role === "Supervisor";
     }
-    // General rule for other items marked as supervisorOnly (e.g., Employees)
-    // Allows Supervisor or Team Lead
-    if (item.supervisorOnly) {
+    // This section would handle any *other* items that might be marked supervisorOnly
+    // and are intended for both Supervisor and Team Lead.
+    // Currently, no such items exist after this change.
+    if (item.supervisorOnly) { 
       return user && (user.role === "Supervisor" || user.role === "Team Lead");
     }
     // For items not marked supervisorOnly at all

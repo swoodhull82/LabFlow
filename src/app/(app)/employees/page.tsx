@@ -77,7 +77,7 @@ export default function EmployeesPage() {
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
-  const canManageEmployees = user?.role === 'Supervisor' || user?.role === 'Team Lead';
+  const canManageEmployees = user?.role === 'Supervisor';
 
   const form = useForm<EmployeeFormData>({
     resolver: zodResolver(employeeFormSchema),
@@ -126,7 +126,7 @@ export default function EmployeesPage() {
     }
 
     if (!canManageEmployees) {
-      toast({ title: "Access Denied", description: "This page is for Supervisors and Team Leads only.", variant: "destructive" });
+      toast({ title: "Access Denied", description: "This page is for Supervisors only.", variant: "destructive" });
       router.push('/dashboard');
       return;
     }
@@ -226,7 +226,7 @@ export default function EmployeesPage() {
   
   const refetchEmployees = () => {
      if (pbClient && canManageEmployees) {
-      fetchEmployees(pbClient); // Consider AbortController if this can be rapid-clicked
+      fetchEmployees(pbClient); 
     }
   };
 
@@ -248,7 +248,7 @@ export default function EmployeesPage() {
             </CardHeader>
             <CardContent>
                 <p className="text-center text-muted-foreground">
-                    This page is for Supervisors and Team Leads only.
+                    This page is for Supervisors only.
                 </p>
                  <Button onClick={() => router.push('/dashboard')} className="w-full mt-6">
                     Go to Dashboard
