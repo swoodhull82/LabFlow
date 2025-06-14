@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react"; // Ensured React is imported
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +28,7 @@ const LOCAL_STORAGE_KEYS = {
 
 export default function SettingsPage() {
   const { user } = useAuth();
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { theme, setTheme } = useTheme(); // removed resolvedTheme as it wasn't used
   const { toast } = useToast();
 
   const [mounted, setMounted] = useState(false);
@@ -56,7 +56,6 @@ export default function SettingsPage() {
     });
   };
   
-  // Avoid rendering theme-dependent UI until mounted on client
   if (!mounted) {
     return null; 
   }
@@ -78,9 +77,12 @@ export default function SettingsPage() {
                   <>
                   <Avatar 
                     className="h-24 w-24"
-                    data-ai-hint={user.avatarPlaceholderKeyword && user.avatarUrl?.includes('placehold.co') ? user.avatarPlaceholderKeyword : undefined}
                   >
-                    <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
+                    {user.lucideIconComponent ? (
+                      React.createElement(user.lucideIconComponent, { className: "h-full w-full p-4 text-muted-foreground" }) // Adjusted padding for larger avatar
+                    ) : user.avatarUrl ? (
+                      <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
+                    ) : null}
                     <AvatarFallback className="text-3xl">{user.name ? user.name.split(' ').map(n=>n[0]).join('').substring(0,2) : user.email[0].toUpperCase()}</AvatarFallback>
                   </Avatar>
                   <Button variant="outline" size="sm" disabled>Change Photo</Button>
@@ -158,4 +160,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-

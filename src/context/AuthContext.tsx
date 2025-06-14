@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import React, { createContext, useContext, useState, useEffect, type ReactNode, useCallback, useMemo } from "react";
 import PocketBase from 'pocketbase';
 import { useToast } from "@/hooks/use-toast";
+import { FlaskConical, Beaker, Atom, TestTube, Microscope, Pipette, Biohazard, Helix } from 'lucide-react';
 
 const POCKETBASE_URL = 'https://swoodhu.pockethost.io/';
 const client = new PocketBase(POCKETBASE_URL);
@@ -22,7 +23,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const VALID_ROLES: UserRole[] = ["Supervisor", "Team Lead", "Chem I", "Chem II"];
 
-const chemistryKeywords = ["atom molecule", "chemistry flask", "lab beaker", "electron microscope", "dna helix", "science experiment", "chemistry reaction"];
+const chemistryIcons: React.ElementType[] = [
+  FlaskConical, Beaker, Atom, TestTube, Microscope, Pipette, Biohazard, Helix
+];
 
 // Helper function to create User object from PocketBase model
 const createUserFromModel = (pbUserModel: any): User | null => {
@@ -46,19 +49,17 @@ const createUserFromModel = (pbUserModel: any): User | null => {
     email: pbUserModel.email || "",
     name: (pbUserModel as any).name || pbUserModel.email?.split("@")[0] || "User",
     role: userRole,
-    avatarUrl: "", 
-    avatarPlaceholderKeyword: undefined,
+    avatarUrl: null, 
+    lucideIconComponent: undefined,
   };
 
   if ((pbUserModel as any).avatar && (pbUserModel as any).avatar !== "") {
     appUser.avatarUrl = client.files.getUrl(pbUserModel, (pbUserModel as any).avatar, { thumb: "100x100" });
-    // Optionally, set a generic hint for real avatars if needed, or leave undefined
-    // appUser.avatarPlaceholderKeyword = "profile photo"; 
   } else {
-    // Select a keyword deterministically based on user ID
-    const keywordIndex = (pbUserModel.id.charCodeAt(pbUserModel.id.length - 1) % chemistryKeywords.length);
-    appUser.avatarPlaceholderKeyword = chemistryKeywords[keywordIndex];
-    appUser.avatarUrl = `https://placehold.co/100x100.png`; // Generic placeholder URL
+    // Select a Lucide icon deterministically based on user ID
+    const iconIndex = (pbUserModel.id.charCodeAt(pbUserModel.id.length - 1) % chemistryIcons.length);
+    appUser.lucideIconComponent = chemistryIcons[iconIndex];
+    appUser.avatarUrl = null; // Ensure avatarUrl is null if using Lucide icon
   }
   
   return appUser;
@@ -86,7 +87,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             currentUser.email === appUser.email &&
             currentUser.role === appUser.role &&
             currentUser.avatarUrl === appUser.avatarUrl &&
-            currentUser.avatarPlaceholderKeyword === appUser.avatarPlaceholderKeyword) {
+            currentUser.lucideIconComponent === appUser.lucideIconComponent) { // Added lucideIconComponent check
           return currentUser;
         }
         return appUser;
@@ -156,15 +157,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       console.error("Login failed (processed errorMessage):", errorMessage);
       toast({ title: "Login Failed", description: errorMessage, variant: "destructive" });
-      setLoading(false);
+      setLoading(false); // Ensure loading is set to false on error
     }
+    // setLoading(false) is handled in handleAuthChange after successful auth, or here on error.
   }, [router, toast]);
 
   const logout = useCallback(() => {
     setLoading(true);
     client.authStore.clear();
+    // setUser(null) and localStorage clear will be handled by authStore.onChange -> handleAuthChange
     router.push("/");
     toast({ title: "Logged Out", description: "You have been successfully logged out." });
+    // setLoading(false) will be handled by authStore.onChange -> handleAuthChange
   }, [router, toast]);
 
   const contextValue = useMemo(() => ({
@@ -189,4 +193,3 @@ export const useAuth = () => {
   }
   return context;
 };
-

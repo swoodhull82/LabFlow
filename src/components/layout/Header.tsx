@@ -14,7 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Bell, LogOut, Settings, User as UserIcon, Menu } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
-import { APP_NAME } from "@/lib/constants";
+import React from "react"; // Import React for React.createElement
 
 export function Header() {
   const { user, logout } = useAuth();
@@ -42,9 +42,12 @@ export function Header() {
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                 <Avatar 
                   className="h-9 w-9"
-                  data-ai-hint={user.avatarPlaceholderKeyword && user.avatarUrl?.includes('placehold.co') ? user.avatarPlaceholderKeyword : undefined}
                 >
-                  <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
+                  {user.lucideIconComponent ? (
+                    React.createElement(user.lucideIconComponent, { className: "h-full w-full p-1.5 text-muted-foreground" })
+                  ) : user.avatarUrl ? (
+                    <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
+                  ) : null}
                   <AvatarFallback>{user.name ? user.name.split(' ').map(n=>n[0]).join('').substring(0,2) : user.email[0].toUpperCase()}</AvatarFallback>
                 </Avatar>
               </Button>
@@ -79,4 +82,3 @@ export function Header() {
     </header>
   );
 }
-

@@ -6,8 +6,8 @@ export interface User {
   email: string;
   name?: string;
   role: UserRole;
-  avatarUrl?: string;
-  avatarPlaceholderKeyword?: string; // New field for AI hint
+  avatarUrl?: string | null;
+  lucideIconComponent?: React.ElementType; // To store the Lucide icon component
 }
 
 export type TaskStatus = "To Do" | "In Progress" | "Blocked" | "Done" | "Overdue";
@@ -76,4 +76,3 @@ export interface ActivityLogEntry {
   collectionName?: string;
   expand?: any;
 }
-
