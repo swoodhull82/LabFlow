@@ -130,7 +130,7 @@ export default function ActivityLogPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-headline font-semibold">Activity Log</h1>
+      <h1 className="text-2xl md:text-3xl font-headline font-semibold">Activity Log</h1>
 
       <Card className="shadow-md">
         <CardHeader>

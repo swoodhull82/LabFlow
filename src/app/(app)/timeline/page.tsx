@@ -9,7 +9,7 @@ export default function TimelinePage() {
   // Data fetching logic is now moved to GanttChart.tsx
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-headline font-semibold">Timeline / Gantt Chart</h1>
+      <h1 className="text-2xl md:text-3xl font-headline font-semibold">Timeline / Gantt Chart</h1>
       <p className="text-muted-foreground">
         Visualize task schedules and progress. 
         <span className="text-xs block mt-1">Note: Advanced features like drag-and-drop rescheduling and dependency linking are planned for future updates.</span>

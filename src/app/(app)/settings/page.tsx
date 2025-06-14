@@ -63,7 +63,7 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-headline font-semibold">Settings</h1>
+      <h1 className="text-2xl md:text-3xl font-headline font-semibold">Settings</h1>
 
       <div className="grid gap-6 md:grid-cols-3">
         <div className="md:col-span-1 space-y-6">
