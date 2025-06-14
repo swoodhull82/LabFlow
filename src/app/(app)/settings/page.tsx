@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { useTheme } from "next-themes";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Loader2, ImageUp, Palette, Trash2 } from "lucide-react"; // Added Palette, ImageUp, Trash2
+import { Save, Loader2, ImageUp, Palette, Trash2, User } from "lucide-react"; // Added User
 
 const LOCAL_STORAGE_KEYS = {
   emailNotifications: "labflow-emailNotificationsEnabled",
@@ -136,7 +136,9 @@ export default function SettingsPage() {
                     ) : user.avatarUrl ? (
                       <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
                     ) : null}
-                    <AvatarFallback className="text-3xl">{user.name ? user.name.split(' ').map(n=>n[0]).join('').substring(0,2) : user.email[0].toUpperCase()}</AvatarFallback>
+                    <AvatarFallback>
+                      <User className="h-full w-full p-4 text-muted-foreground" />
+                    </AvatarFallback>
                   </Avatar>
                   
                   <input 

@@ -48,7 +48,9 @@ export function Header() {
                   ) : user.avatarUrl ? (
                     <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
                   ) : null}
-                  <AvatarFallback>{user.name ? user.name.split(' ').map(n=>n[0]).join('').substring(0,2) : user.email[0].toUpperCase()}</AvatarFallback>
+                  <AvatarFallback>
+                    <UserIcon className="h-full w-full p-1 text-muted-foreground" />
+                  </AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
