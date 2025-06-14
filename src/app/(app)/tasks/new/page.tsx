@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Employee, TaskStatus, TaskPriority, TaskRecurrence, Task, TaskType } from "@/lib/types";
 import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, TASK_TYPES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
+import type { DateRange } from "react-day-picker";
 
 const getDetailedEmployeeFetchErrorMessage = (error: any): string => {
   let message = "Could not load employees for assignment.";
@@ -56,14 +57,17 @@ export default function NewTaskPage() {
   const searchParams = useSearchParams();
   const defaultTypeFromQuery = searchParams.get("defaultType") as TaskType | null;
 
-  const [taskType, setTaskType] = useState<TaskType>(defaultTypeFromQuery || TASK_TYPES[0]);
-  const [title, setTitle] = useState<string>(""); // User-defined name
+  const [taskType, setTaskType] = useState<TaskType>(defaultTypeFromQuery || TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0]);
+  const [title, setTitle] = useState<string>("");
   const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<TaskStatus>(TASK_STATUSES[0] || "To Do");
   const [priority, setPriority] = useState<TaskPriority>(TASK_PRIORITIES.find(p => p.toLowerCase() === 'medium') || TASK_PRIORITIES[0] || "Medium");
+  
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [dueDate, setDueDate] = useState<Date | undefined>();
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+
   const [recurrence, setRecurrence] = useState<TaskRecurrence>(TASK_RECURRENCES.find(r => r.toLowerCase() === 'none') || TASK_RECURRENCES[0] || "None");
   const [assignedToText, setAssignedToText] = useState<string | undefined>();
   const [attachments, setAttachments] = useState<FileList | null>(null);
@@ -83,6 +87,9 @@ export default function NewTaskPage() {
   useEffect(() => {
     if (defaultTypeFromQuery) {
       setTaskType(defaultTypeFromQuery);
+      if (defaultTypeFromQuery === "VALIDATION_PROJECT") {
+        setRecurrence("None"); // Validation projects always have "None" recurrence
+      }
     }
   }, [defaultTypeFromQuery]);
 
@@ -171,20 +178,30 @@ export default function NewTaskPage() {
   }, [pbClient, taskType, fetchAndSetEmployees, fetchAllTasksForDependencySelection]);
 
   useEffect(() => {
-    // Clear subtype if taskType is not MDL or SOP
     if (taskType !== "MDL" && taskType !== "SOP") {
       setInstrumentSubtype(undefined);
     }
-    // Clear milestone and dependencies if taskType is not VALIDATION_PROJECT
     if (taskType !== "VALIDATION_PROJECT") {
       setIsMilestone(false);
       setSelectedDependencies([]);
+      // Only reset recurrence if it's not already set (e.g. by default query param)
+      if (recurrence === "None" && !defaultTypeFromQuery) { // ensure "None" for VALIDATION_PROJECT is not overwritten if it was set by default
+          // If not a validation project, and recurrence is 'None' (likely because it was a VP before),
+          // set it to a sensible default if it wasn't explicitly set by query.
+          // Or, simply ensure it's not "None" if that's a rule for non-VP.
+          // For now, let user select. But if changing FROM VP, clear milestone stuff.
+      }
+    } else {
+      setRecurrence("None"); // Validation projects always have "None" recurrence
     }
-    // Sync due date with start date if it's a milestone
+
     if (taskType === "VALIDATION_PROJECT" && isMilestone && startDate) {
       setDueDate(startDate);
+    } else if (taskType === "VALIDATION_PROJECT" && isMilestone && !startDate) {
+      // If it becomes a milestone and no start date, clear due date as well to enforce single date picking
+      setDueDate(undefined);
     }
-  }, [taskType, isMilestone, startDate]);
+  }, [taskType, isMilestone, startDate, recurrence, defaultTypeFromQuery]);
 
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -225,14 +242,21 @@ export default function NewTaskPage() {
       toast({ title: "Validation Error", description: "Task priority is required.", variant: "destructive" });
       return;
     }
-    if (taskType !== "VALIDATION_PROJECT" && (!recurrence || !TASK_RECURRENCES.includes(recurrence))) {
+    
+    const effectiveRecurrence = taskType === "VALIDATION_PROJECT" ? "None" : recurrence;
+    if (taskType !== "VALIDATION_PROJECT" && (!effectiveRecurrence || !TASK_RECURRENCES.includes(effectiveRecurrence))) {
       toast({ title: "Validation Error", description: "Task recurrence is required for non-Validation tasks.", variant: "destructive" });
       return;
     }
     if (taskType === "VALIDATION_PROJECT" && isMilestone && !startDate) {
-      toast({ title: "Validation Error", description: "Milestone date (Start Date) is required for a Validation milestone.", variant: "destructive" });
+      toast({ title: "Validation Error", description: "Milestone date is required for a Validation milestone.", variant: "destructive" });
       return;
     }
+    if (!(taskType === "VALIDATION_PROJECT" && isMilestone) && startDate && dueDate && startDate > dueDate) {
+       toast({ title: "Validation Error", description: "Start date must be before or same as due date.", variant: "destructive" });
+      return;
+    }
+
 
     setIsSubmitting(true);
 
@@ -246,30 +270,27 @@ export default function NewTaskPage() {
     formData.append("description", description);
     formData.append("status", status);
     formData.append("priority", priority);
+    formData.append("recurrence", effectiveRecurrence);
     
     if (taskType === "VALIDATION_PROJECT") {
         formData.append("isMilestone", isMilestone.toString());
         if (selectedDependencies.length > 0) {
             formData.append("dependencies", JSON.stringify(selectedDependencies));
         }
-        formData.append("recurrence", "None"); // Validation tasks always have "None" recurrence
-        formData.append("steps", JSON.stringify([])); // Initialize with empty steps array
+        formData.append("steps", JSON.stringify([]));
     } else {
         formData.append("isMilestone", "false");
-        formData.append("recurrence", recurrence);
     }
-
 
     if (startDate) {
       formData.append("startDate", startDate.toISOString());
-      if (taskType === "VALIDATION_PROJECT" && isMilestone) {
-        formData.append("dueDate", startDate.toISOString());
-      } else if (dueDate) {
-        formData.append("dueDate", dueDate.toISOString());
-      }
-    } else if (dueDate && !(taskType === "VALIDATION_PROJECT" && isMilestone)) { 
+    }
+    // For milestones, dueDate is already set to startDate
+    // For non-milestones or non-VP, dueDate is handled by its own state
+    if (dueDate) {
         formData.append("dueDate", dueDate.toISOString());
     }
+
 
     if (assignedToText) {
       formData.append("assignedTo_text", assignedToText);
@@ -284,7 +305,7 @@ export default function NewTaskPage() {
 
     try {
       await createTask(pbClient, formData);
-      toast({ title: "Success", description: `New ${taskType} task created successfully!` });
+      toast({ title: "Success", description: `New ${taskType.replace(/_/g, ' ')} task created successfully!` });
       if (taskType === "VALIDATION_PROJECT") {
         router.push("/validations");
       } else {
@@ -342,6 +363,38 @@ export default function NewTaskPage() {
     ? TASK_TYPES.filter(t => t === "VALIDATION_PROJECT")
     : TASK_TYPES.filter(t => t !== "VALIDATION_PROJECT");
 
+  const handleDateSelect = (selected: Date | DateRange | undefined) => {
+    if (taskType === "VALIDATION_PROJECT" && isMilestone) {
+      const singleDate = selected as Date | undefined;
+      setStartDate(singleDate);
+      setDueDate(singleDate);
+    } else {
+      const range = selected as DateRange | undefined;
+      setStartDate(range?.from);
+      setDueDate(range?.to);
+    }
+    if (selected) { // Close if a selection (single or full range) is made. Range might need two clicks.
+        if (!(taskType === "VALIDATION_PROJECT" && isMilestone) && (selected as DateRange)?.from && !(selected as DateRange)?.to) {
+            // If range mode and only 'from' is selected, keep open
+        } else {
+            setIsDatePickerOpen(false);
+        }
+    }
+  };
+
+  let datePickerButtonText = "Pick a date";
+  if (taskType === "VALIDATION_PROJECT" && isMilestone) {
+    datePickerButtonText = startDate ? `Milestone: ${format(startDate, "PPP")}` : "Pick Milestone Date";
+  } else {
+    if (startDate && dueDate) {
+      datePickerButtonText = `${format(startDate, "PPP")} - ${format(dueDate, "PPP")}`;
+    } else if (startDate) {
+      datePickerButtonText = `${format(startDate, "PPP")} - Select End Date`;
+    } else {
+      datePickerButtonText = "Pick Date Range";
+    }
+  }
+
 
   if (!pbClient && !isLoadingPrerequisites) {
     return (
@@ -385,10 +438,16 @@ export default function NewTaskPage() {
                 value={taskType} 
                 onValueChange={(value: TaskType) => {
                   setTaskType(value);
-                  // Reset conditional fields when type changes
                   setInstrumentSubtype(undefined); 
                   setIsMilestone(false);
                   setSelectedDependencies([]);
+                  if (value === "VALIDATION_PROJECT") {
+                    setRecurrence("None");
+                  } else if (recurrence === "None" && defaultTypeFromQuery !== "VALIDATION_PROJECT") { 
+                    // If changing from VP to non-VP, and recurrence was "None", 
+                    // it might need to be set to a default non-"None" value if required.
+                    // For now, let user select, or rely on validation.
+                  }
                 }}
                 disabled={defaultTypeFromQuery === "VALIDATION_PROJECT"}
               >
@@ -488,56 +547,35 @@ export default function NewTaskPage() {
                 </Label>
               </div>
             )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <Label htmlFor="startDate">{taskType === "VALIDATION_PROJECT" && isMilestone ? "Milestone Date" : "Start Date"}</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant={"outline"}
-                      className="w-full justify-start text-left font-normal"
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {startDate ? format(startDate, "PPP") : <span>Pick a date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={startDate}
-                      onSelect={setStartDate}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div>
-                <Label htmlFor="dueDate">Due Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant={"outline"}
-                      className="w-full justify-start text-left font-normal"
-                      disabled={taskType === "VALIDATION_PROJECT" && isMilestone}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dueDate ? format(dueDate, "PPP") : <span>Pick a date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={dueDate}
-                      onSelect={setDueDate}
-                      disabled={taskType === "VALIDATION_PROJECT" && isMilestone}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-                 {taskType === "VALIDATION_PROJECT" && isMilestone && <p className="text-xs text-muted-foreground mt-1">Due date matches milestone date.</p>}
-              </div>
+            
+            <div>
+              <Label htmlFor="dateRangePicker">
+                {taskType === "VALIDATION_PROJECT" && isMilestone ? "Milestone Date" : "Date Range (Start - Due)"}
+              </Label>
+              <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="dateRangePicker"
+                    variant={"outline"}
+                    className="w-full justify-start text-left font-normal"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {datePickerButtonText}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode={(taskType === "VALIDATION_PROJECT" && isMilestone) ? "single" : "range"}
+                    selected={(taskType === "VALIDATION_PROJECT" && isMilestone) ? startDate : { from: startDate, to: dueDate }}
+                    onSelect={handleDateSelect}
+                    numberOfMonths={(taskType === "VALIDATION_PROJECT" && isMilestone) ? 1 : 2}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
+
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
              {taskType !== "VALIDATION_PROJECT" && (
                 <div>
@@ -670,3 +708,4 @@ export default function NewTaskPage() {
     </div>
   );
 }
+

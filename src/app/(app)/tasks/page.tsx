@@ -30,6 +30,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, TASK_TYPES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
+import type { DateRange } from "react-day-picker";
 
 const getPriorityBadgeVariant = (priority?: string) => {
   if (!priority) return "default";
@@ -116,7 +117,7 @@ const getDetailedErrorMessage = (error: any, context: string = "tasks"): string 
 
 const taskEditFormSchema = z.object({
   title: z.string().min(1, { message: "Task Name is required."}),
-  task_type: z.enum(TASK_TYPES as [string, ...string[]], { errorMap: () => ({ message: "Please select a valid task type."}) }) as z.ZodType<TaskType>,
+  task_type: z.enum(TASK_TYPES as [TaskType, ...TaskType[]], { errorMap: () => ({ message: "Please select a valid task type."}) }),
   instrument_subtype: z.string().optional(),
   description: z.string().optional(),
   status: z.string().min(1, "Status is required.") as z.ZodType<TaskStatus>,
@@ -167,14 +168,14 @@ const taskEditFormSchema = z.object({
         path: ["dependencies"],
       });
     }
-    if (data.steps && data.steps.length > 0) {
+     if (data.steps && data.steps.length > 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Steps are only applicable to 'VALIDATION_PROJECT' tasks.",
         path: ["steps"],
       });
     }
-    if (!data.recurrence || !TASK_RECURRENCES.includes(data.recurrence)) {
+    if (!data.recurrence || !TASK_RECURRENCES.includes(data.recurrence as TaskRecurrence)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Recurrence is required and must be a valid option for non-VALIDATION_PROJECT tasks.",
@@ -212,6 +213,8 @@ export default function TasksPage() {
   const [fetchTasksErrorEdit, setFetchTasksErrorEdit] = useState<string | null>(null);
   const [dependenciesRetryMessage, setDependenciesRetryMessage] = useState<string | null>(null);
   const [isDependenciesPopoverOpenEdit, setIsDependenciesPopoverOpenEdit] = useState(false);
+  const [isDatePickerOpenEdit, setIsDatePickerOpenEdit] = useState(false);
+
 
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -235,10 +238,13 @@ export default function TasksPage() {
   const watchedIsMilestone = form.watch("isMilestone");
   const watchedStartDate = form.watch("startDate"); 
   const watchedSteps = form.watch("steps");
+  const watchedFormStartDate = form.watch("startDate");
+  const watchedFormDueDate = form.watch("dueDate");
+
 
   useEffect(() => {
     const subscription = form.watch((value, { name }) => {
-      if (name === "task_type") {
+      if (name === "task_type") { // Should not happen as task_type is disabled, but good practice
         if (value.task_type !== "MDL" && value.task_type !== "SOP") {
           form.setValue("instrument_subtype", undefined, { shouldValidate: true });
         }
@@ -250,13 +256,14 @@ export default function TasksPage() {
             form.setValue("recurrence", "None", { shouldValidate: true });
           }
         } else {
-          // Recurrence is not directly set by user for VALIDATION_PROJECT
+           form.setValue("recurrence", "None", { shouldValidate: true });
         }
       }
       if (name === "isMilestone" || name === "startDate") {
-        if (value.task_type === "VALIDATION_PROJECT" && value.isMilestone && value.startDate) {
-          if (!form.getValues("dueDate") || form.getValues("dueDate")?.getTime() !== value.startDate.getTime()) {
-            form.setValue("dueDate", value.startDate, { shouldValidate: true });
+        if (form.getValues("task_type") === "VALIDATION_PROJECT" && form.getValues("isMilestone") && form.getValues("startDate")) {
+          const currentStartDate = form.getValues("startDate");
+          if (!form.getValues("dueDate") || form.getValues("dueDate")?.getTime() !== currentStartDate!.getTime()) {
+            form.setValue("dueDate", currentStartDate, { shouldValidate: true });
           }
         }
       }
@@ -496,6 +503,7 @@ export default function TasksPage() {
     form.reset(); 
     setAllTasksForSelection([]); 
     setIsDependenciesPopoverOpenEdit(false); 
+    setIsDatePickerOpenEdit(false);
     setNewStepText("");
   };
 
@@ -524,7 +532,7 @@ export default function TasksPage() {
 
     const payload: Partial<Task> & { userId: string } = {
       title: data.title,
-      task_type: data.task_type, // Should not change, but included for completeness
+      task_type: data.task_type,
       instrument_subtype: (data.task_type === "MDL" || data.task_type === "SOP") ? data.instrument_subtype : undefined,
       description: data.description,
       status: data.status,
@@ -549,12 +557,51 @@ export default function TasksPage() {
       let detailedMessage = getDetailedErrorMessage(err);
       if (err.data && err.data.data && err.data.data.instrument_subtype?.message) {
         detailedMessage = `Instrument Subtype: ${err.data.data.instrument_subtype.message}`;
+      } else if (err.data && err.data.data && err.data.data.title?.message) {
+         detailedMessage = `Title: ${err.data.data.title.message}`;
       }
       toast({ title: "Error Updating Task", description: detailedMessage, variant: "destructive" });
     } finally {
       setIsSubmittingEdit(false);
     }
   };
+
+  const handleDateSelectEdit = (selected: Date | DateRange | undefined) => {
+    const currentTaskType = form.getValues("task_type");
+    const currentIsMilestone = form.getValues("isMilestone");
+
+    if (currentTaskType === "VALIDATION_PROJECT" && currentIsMilestone) {
+      const singleDate = selected as Date | undefined;
+      form.setValue("startDate", singleDate, { shouldValidate: true });
+      form.setValue("dueDate", singleDate, { shouldValidate: true });
+    } else {
+      const range = selected as DateRange | undefined;
+      form.setValue("startDate", range?.from, { shouldValidate: true });
+      form.setValue("dueDate", range?.to, { shouldValidate: true });
+    }
+
+    if (selected) {
+        if (!(currentTaskType === "VALIDATION_PROJECT" && currentIsMilestone) && (selected as DateRange)?.from && !(selected as DateRange)?.to) {
+            // Range mode, only 'from' selected, keep open
+        } else {
+            setIsDatePickerOpenEdit(false);
+        }
+    }
+  };
+
+  let datePickerButtonTextEdit = "Pick a date";
+  if (watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone) {
+    datePickerButtonTextEdit = watchedFormStartDate ? `Milestone: ${format(watchedFormStartDate, "PPP")}` : "Pick Milestone Date";
+  } else {
+    if (watchedFormStartDate && watchedFormDueDate) {
+      datePickerButtonTextEdit = `${format(watchedFormStartDate, "PPP")} - ${format(watchedFormDueDate, "PPP")}`;
+    } else if (watchedFormStartDate) {
+      datePickerButtonTextEdit = `${format(watchedFormStartDate, "PPP")} - Select End Date`;
+    } else {
+      datePickerButtonTextEdit = "Pick Date Range";
+    }
+  }
+
 
   const refetchTasks = () => {
     if (pbClient) {
@@ -696,7 +743,7 @@ export default function TasksPage() {
                        <Select 
                           onValueChange={field.onChange} 
                           value={field.value}
-                          disabled // Task type generally shouldn't be changed after creation
+                          disabled 
                         >
                         <FormControl>
                           <SelectTrigger>
@@ -853,78 +900,40 @@ export default function TasksPage() {
                         <FormLabel className="font-normal flex items-center cursor-pointer mb-0!"> 
                           <Milestone className="mr-2 h-4 w-4 text-muted-foreground" /> Mark as Milestone
                         </FormLabel>
+                         <FormMessage />
                       </FormItem>
                     )}
                   />
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                        control={form.control}
-                        name="startDate"
-                        render={({ field }) => (
-                        <FormItem className="flex flex-col">
-                            <FormLabel>{watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone ? "Milestone Date" : "Start Date"} (Optional)</FormLabel>
-                            <Popover>
-                            <PopoverTrigger asChild>
-                                <FormControl>
-                                <Button
-                                    variant={"outline"}
-                                    className="w-full justify-start text-left font-normal"
-                                >
-                                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                    {field.value ? format(new Date(field.value), "PPP") : <span>Pick a date</span>}
-                                </Button>
-                                </FormControl>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                                <Calendar
-                                mode="single"
-                                selected={field.value ? new Date(field.value) : undefined}
-                                onSelect={field.onChange}
-                                initialFocus
-                                />
-                            </PopoverContent>
-                            </Popover>
-                            <FormMessage />
-                        </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="dueDate"
-                        render={({ field }) => (
-                        <FormItem className="flex flex-col">
-                            <FormLabel>Due Date (Optional)</FormLabel>
-                            <Popover>
-                            <PopoverTrigger asChild>
-                                <FormControl>
-                                <Button
-                                    variant={"outline"}
-                                    className="w-full justify-start text-left font-normal"
-                                    disabled={watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone}
-                                >
-                                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                    {field.value ? format(new Date(field.value), "PPP") : <span>Pick a date</span>}
-                                </Button>
-                                </FormControl>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                                <Calendar
-                                mode="single"
-                                selected={field.value ? new Date(field.value) : undefined}
-                                onSelect={field.onChange}
-                                disabled={watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone}
-                                initialFocus
-                                />
-                            </PopoverContent>
-                            </Popover>
-                            {watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone && <p className="text-xs text-muted-foreground mt-1">Due date matches milestone date.</p>}
-                            <FormMessage />
-                        </FormItem>
-                        )}
-                    />
+                <div>
+                    <FormLabel>
+                        {watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone ? "Milestone Date" : "Date Range (Start - Due)"}
+                    </FormLabel>
+                    <Popover open={isDatePickerOpenEdit} onOpenChange={setIsDatePickerOpenEdit}>
+                        <PopoverTrigger asChild>
+                        <Button
+                            variant={"outline"}
+                            className="w-full justify-start text-left font-normal mt-2" 
+                        >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {datePickerButtonTextEdit}
+                        </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0">
+                        <Calendar
+                            mode={(watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone) ? "single" : "range"}
+                            selected={(watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone) ? watchedFormStartDate : { from: watchedFormStartDate, to: watchedFormDueDate }}
+                            onSelect={handleDateSelectEdit}
+                            numberOfMonths={(watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone) ? 1 : 2}
+                            initialFocus
+                        />
+                        </PopoverContent>
+                    </Popover>
+                    <FormField control={form.control} name="startDate" render={() => <FormMessage />} />
+                    <FormField control={form.control} name="dueDate" render={() => <FormMessage />} />
                 </div>
+
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {watchedTaskType !== "VALIDATION_PROJECT" && (
                       <FormField
@@ -1042,7 +1051,7 @@ export default function TasksPage() {
                             )}
                             {(!dependenciesRetryMessage && !isLoadingTasksForSelection) && ( 
                                 <div className="p-2 border-t">
-                                    <Button size="sm" className="w-full" onClick={() => setIsDependenciesPopoverOpenEdit(false)}>
+                                    <Button type="button" size="sm" className="w-full" onClick={() => setIsDependenciesPopoverOpenEdit(false)}>
                                         Done
                                     </Button>
                                 </div>
