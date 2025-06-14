@@ -64,6 +64,14 @@ const monthlyCompletionChartConfig = {
   total: { label: "Total Due" },
 } satisfies ChartConfig;
 
+const chartFills: Record<TaskStatus | string, string> = {
+  'To Do': "hsl(var(--chart-1))",
+  'In Progress': "hsl(var(--chart-2))",
+  'Blocked': "hsl(var(--chart-3))",
+  'Done': "hsl(var(--chart-4))",
+  'Overdue': "hsl(var(--chart-5))",
+};
+
 const getDetailedErrorMessage = (error: any, context: string = "dashboard data"): string => {
   let message = `An unexpected error occurred while fetching ${context}.`;
   if (error && typeof error === 'object') {
@@ -127,14 +135,6 @@ export default function DashboardPage() {
   
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const chartFills: Record<TaskStatus | string, string> = {
-    'To Do': "hsl(var(--chart-1))",
-    'In Progress': "hsl(var(--chart-2))",
-    'Blocked': "hsl(var(--chart-3))",
-    'Done': "hsl(var(--chart-4))",
-    'Overdue': "hsl(var(--chart-5))", 
-  };
   
   const processData = useCallback((allTasks: Task[], allEmployees: Employee[]) => {
     const today = startOfDay(new Date());
@@ -254,7 +254,7 @@ export default function DashboardPage() {
     }
     setLiveMonthlyTaskCompletionData(monthlyChartDataPoints);
 
-  }, [chartFills]);
+  }, [chartFills]); // chartFills is now stable
 
 
   const fetchDashboardData = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
@@ -307,8 +307,6 @@ export default function DashboardPage() {
 
   const refetchData = () => {
     if (pbClient) {
-      // Note: refetchData might need its own AbortController if called rapidly
-      // For a simple button click, it's usually fine without one here.
       fetchDashboardData(pbClient);
     }
   };
@@ -476,5 +474,7 @@ export default function DashboardPage() {
     
 
     
+
+
 
 
