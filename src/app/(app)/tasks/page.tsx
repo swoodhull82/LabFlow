@@ -148,18 +148,37 @@ const taskEditFormSchema = z.object({
       path: ["instrument_subtype"],
     });
   }
-  if (data.isMilestone && !data.startDate) {
+
+  if (data.title === "Validation") {
+    if (data.isMilestone && !data.startDate) {
      ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Milestone date (Start Date) is required for a milestone.",
-      path: ["startDate"],
-    });
+        code: z.ZodIssueCode.custom,
+        message: "Milestone date (Start Date) is required for a Validation milestone.",
+        path: ["startDate"],
+      });
+    }
+  } else { // If not "Validation"
+    if (data.isMilestone) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Milestones are only applicable to 'Validation' tasks.",
+        path: ["isMilestone"],
+      });
+    }
+    if (data.dependencies && data.dependencies.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Dependencies are only applicable to 'Validation' tasks.",
+        path: ["dependencies"],
+      });
+    }
   }
+
   if (!data.isMilestone && data.startDate && data.dueDate && data.startDate > data.dueDate) {
      ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Start date must be before or same as due date.",
-      path: ["startDate"], // Or "dueDate"
+      path: ["startDate"], 
     });
   }
 });
@@ -201,22 +220,21 @@ export default function TasksPage() {
 
   const watchedTitle = form.watch("title");
   const watchedIsMilestone = form.watch("isMilestone");
-  const watchedStartDate = form.watch("startDate");
+  const watchedStartDate = form.watch("startDate"); // Watch start date for milestone logic
 
   useEffect(() => {
     const subscription = form.watch((value, { name }) => {
       if (name === "title") {
         if (value.title !== "MDL" && value.title !== "SOP") {
           form.setValue("instrument_subtype", undefined, { shouldValidate: true });
-        } else {
-           // If title changes to MDL/SOP and subtype was for the *other* type, clear it
-           // This simple clear might need refinement if you want to preserve subtypes across MDL/SOP toggles
-           // and they somehow become valid for each other (which they are not currently).
-           form.setValue("instrument_subtype", undefined, { shouldValidate: true });
+        }
+        if (value.title !== "Validation") {
+          form.setValue("isMilestone", false, { shouldValidate: true });
+          form.setValue("dependencies", [], { shouldValidate: true });
         }
       }
       if (name === "isMilestone" || name === "startDate") {
-        if (value.isMilestone && value.startDate) {
+        if (value.title === "Validation" && value.isMilestone && value.startDate) {
           if (!form.getValues("dueDate") || form.getValues("dueDate")?.getTime() !== value.startDate.getTime()) {
             form.setValue("dueDate", value.startDate, { shouldValidate: true });
           }
@@ -235,7 +253,7 @@ export default function TasksPage() {
     
     setIsLoading(true);
     setError(null);
-    setRetryStatusMessage(null); // Clear previous retry message
+    setRetryStatusMessage(null); 
 
     const handleRetryAttempt = (attempt: number, maxAttempts: number, err: any) => {
       const isNetworkError = err && err.status === 0;
@@ -250,11 +268,11 @@ export default function TasksPage() {
     try {
       const fetchedTasks = await getTasks(pb, { signal, onRetry: handleRetryAttempt });
       setTasks(fetchedTasks);
-      setRetryStatusMessage(null); // Clear on success
+      setRetryStatusMessage(null); 
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
-      setRetryStatusMessage(null); // Clear on final failure
+      setRetryStatusMessage(null); 
 
       if (isAutocancel) {
         console.warn(`Tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
@@ -315,7 +333,7 @@ export default function TasksPage() {
     }
     setIsLoadingTasksForSelection(true);
     setFetchTasksErrorEdit(null);
-    setDependenciesRetryMessage(null); // Clear previous message
+    setDependenciesRetryMessage(null); 
 
     const handleDepRetry = (attempt: number, maxAttempts: number, error: any) => {
       setDependenciesRetryMessage(`Retrying tasks for selection... Attempt ${attempt} of ${maxAttempts}`);
@@ -323,10 +341,11 @@ export default function TasksPage() {
 
     try {
       const fetchedTasks = await getTasks(pb, { signal, onRetry: handleDepRetry });
-      setAllTasksForSelection(currentTaskId ? fetchedTasks.filter(t => t.id !== currentTaskId) : fetchedTasks);
-      setDependenciesRetryMessage(null); // Clear on success
+      const validationTasks = fetchedTasks.filter(t => t.title === "Validation");
+      setAllTasksForSelection(currentTaskId ? validationTasks.filter(t => t.id !== currentTaskId) : validationTasks);
+      setDependenciesRetryMessage(null); 
     } catch (err: any) {
-      setDependenciesRetryMessage(null); // Clear on final failure
+      setDependenciesRetryMessage(null); 
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
 
@@ -364,12 +383,15 @@ export default function TasksPage() {
   }, [pbClient, fetchTasksCallback, fetchAndSetEmployees]);
 
   useEffect(() => {
-    if (isEditDialogOpen && editingTask && pbClient) {
+    if (isEditDialogOpen && editingTask && pbClient && watchedTitle === "Validation") {
       const controller = new AbortController();
       fetchAllTasksForDependencySelectionEdit(pbClient, editingTask.id, controller.signal);
       return () => controller.abort();
+    } else if (watchedTitle !== "Validation") {
+        setAllTasksForSelection([]);
+        setIsLoadingTasksForSelection(false);
     }
-  }, [isEditDialogOpen, editingTask, pbClient, fetchAllTasksForDependencySelectionEdit]);
+  }, [isEditDialogOpen, editingTask, pbClient, fetchAllTasksForDependencySelectionEdit, watchedTitle]);
 
 
   useEffect(() => {
@@ -442,8 +464,8 @@ export default function TasksPage() {
     setIsEditDialogOpen(false);
     setEditingTask(null);
     form.reset(); 
-    setAllTasksForSelection([]); // Clear task selection list for edit
-    setIsDependenciesPopoverOpenEdit(false); // Close popover
+    setAllTasksForSelection([]); 
+    setIsDependenciesPopoverOpenEdit(false); 
   };
 
   const onEditSubmit = async (data: TaskEditFormData) => {
@@ -460,11 +482,11 @@ export default function TasksPage() {
       status: data.status,
       priority: data.priority,
       startDate: data.startDate,
-      dueDate: data.isMilestone && data.startDate ? data.startDate : data.dueDate,
+      dueDate: (data.title === "Validation" && data.isMilestone && data.startDate) ? data.startDate : data.dueDate,
       recurrence: data.recurrence,
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
-      dependencies: data.dependencies || [],
-      isMilestone: data.isMilestone,
+      isMilestone: data.title === "Validation" ? data.isMilestone : false,
+      dependencies: data.title === "Validation" ? (data.dependencies || []) : [],
       userId: user.id, 
     };
     
@@ -522,7 +544,7 @@ export default function TasksPage() {
               <p className="ml-2">{retryStatusMessage || 'Loading tasks and employee data...'}</p>
             </div>
           )}
-          {error && !isLoadingInitialData && !retryStatusMessage && ( // Ensure retry message isn't active when showing final error
+          {error && !isLoadingInitialData && !retryStatusMessage && ( 
             <div className="text-center py-10 text-destructive">
               <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
               <p className="mt-4 text-lg font-semibold">Failed to Load Tasks</p>
@@ -551,7 +573,7 @@ export default function TasksPage() {
                 {tasks.map((task) => (
                   <TableRow key={task.id} className="hover:bg-muted/50 transition-colors">
                     <TableCell className="font-medium flex items-center">
-                      {task.isMilestone && <Milestone className="mr-2 h-4 w-4 text-primary" title="Milestone"/>}
+                      {task.title === "Validation" && task.isMilestone && <Milestone className="mr-2 h-4 w-4 text-primary" title="Milestone"/>}
                        {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype
                         ? `${task.title} (${task.instrument_subtype})`
                         : task.title}
@@ -622,6 +644,10 @@ export default function TasksPage() {
                           onValueChange={(value) => {
                             field.onChange(value);
                             form.setValue("instrument_subtype", undefined, { shouldValidate: true });
+                            if (value !== "Validation") {
+                              form.setValue("isMilestone", false, { shouldValidate: true });
+                              form.setValue("dependencies", [], { shouldValidate: true });
+                            }
                           }} 
                           value={field.value}
                         >
@@ -750,23 +776,25 @@ export default function TasksPage() {
                   />
                 </div>
                 
-                <FormField
-                  control={form.control}
-                  name="isMilestone"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center space-x-2 space-y-0 py-2">
-                      <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                      <FormLabel className="font-normal flex items-center cursor-pointer mb-0!"> {/* Added mb-0! to override potential FormLabel styles */}
-                         <Milestone className="mr-2 h-4 w-4 text-muted-foreground" /> Mark as Milestone
-                      </FormLabel>
-                    </FormItem>
-                  )}
-                />
+                {watchedTitle === "Validation" && (
+                  <FormField
+                    control={form.control}
+                    name="isMilestone"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center space-x-2 space-y-0 py-2">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                        <FormLabel className="font-normal flex items-center cursor-pointer mb-0!"> 
+                          <Milestone className="mr-2 h-4 w-4 text-muted-foreground" /> Mark as Milestone
+                        </FormLabel>
+                      </FormItem>
+                    )}
+                  />
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField
@@ -774,7 +802,7 @@ export default function TasksPage() {
                         name="startDate"
                         render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>{watchedIsMilestone ? "Milestone Date" : "Start Date"} (Optional)</FormLabel>
+                            <FormLabel>{watchedTitle === "Validation" && watchedIsMilestone ? "Milestone Date" : "Start Date"} (Optional)</FormLabel>
                             <Popover>
                             <PopoverTrigger asChild>
                                 <FormControl>
@@ -812,7 +840,7 @@ export default function TasksPage() {
                                 <Button
                                     variant={"outline"}
                                     className="w-full justify-start text-left font-normal"
-                                    disabled={watchedIsMilestone}
+                                    disabled={watchedTitle === "Validation" && watchedIsMilestone}
                                 >
                                     <CalendarIcon className="mr-2 h-4 w-4" />
                                     {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
@@ -824,12 +852,12 @@ export default function TasksPage() {
                                 mode="single"
                                 selected={field.value}
                                 onSelect={field.onChange}
-                                disabled={watchedIsMilestone}
+                                disabled={watchedTitle === "Validation" && watchedIsMilestone}
                                 initialFocus
                                 />
                             </PopoverContent>
                             </Popover>
-                            {watchedIsMilestone && <p className="text-xs text-muted-foreground mt-1">Due date matches milestone date.</p>}
+                            {watchedTitle === "Validation" && watchedIsMilestone && <p className="text-xs text-muted-foreground mt-1">Due date matches milestone date.</p>}
                             <FormMessage />
                         </FormItem>
                         )}
@@ -891,12 +919,13 @@ export default function TasksPage() {
                         )}
                     />
                 </div>
+                {watchedTitle === "Validation" && (
                  <FormField
                   control={form.control}
                   name="dependencies"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Dependencies (Optional)</FormLabel>
+                      <FormLabel>Dependencies (Optional - for Validation tasks only)</FormLabel>
                       <Popover open={isDependenciesPopoverOpenEdit} onOpenChange={setIsDependenciesPopoverOpenEdit}>
                         <PopoverTrigger asChild>
                           <Button
@@ -914,13 +943,13 @@ export default function TasksPage() {
                            {dependenciesRetryMessage && (
                              <div className="p-4 text-center text-sm text-orange-600">{dependenciesRetryMessage}</div>
                            )}
-                           {isLoadingTasksForSelection && !dependenciesRetryMessage ? ( // Hide default loading if retry message is shown
+                           {isLoadingTasksForSelection && !dependenciesRetryMessage ? ( 
                                 <div className="p-4 text-center text-sm">Loading tasks...</div>
-                            ) : fetchTasksErrorEdit && !dependenciesRetryMessage ? ( // Hide error if retry message is shown (though retry should stop on error)
+                            ) : fetchTasksErrorEdit && !dependenciesRetryMessage ? ( 
                                 <div className="p-4 text-center text-sm text-destructive">{fetchTasksErrorEdit}</div>
                             ) : !isLoadingTasksForSelection && !fetchTasksErrorEdit && allTasksForSelection.length === 0 && !dependenciesRetryMessage ? (
-                                <div className="p-4 text-center text-sm">No other tasks available to select.</div>
-                            ) : !dependenciesRetryMessage && !fetchTasksErrorEdit && ( // Only show scroll area if not showing retry message or error
+                                <div className="p-4 text-center text-sm">No other 'Validation' tasks available to select.</div>
+                            ) : !dependenciesRetryMessage && !fetchTasksErrorEdit && ( 
                                 <ScrollArea className="h-48">
                                     <div className="p-4 space-y-2">
                                     {allTasksForSelection.map(task => (
@@ -949,7 +978,7 @@ export default function TasksPage() {
                                     </div>
                                 </ScrollArea>
                             )}
-                            {(!dependenciesRetryMessage && !isLoadingTasksForSelection) && ( // Show "Done" button only if not loading/retrying
+                            {(!dependenciesRetryMessage && !isLoadingTasksForSelection) && ( 
                                 <div className="p-2 border-t">
                                     <Button size="sm" className="w-full" onClick={() => setIsDependenciesPopoverOpenEdit(false)}>
                                         Done
@@ -961,7 +990,8 @@ export default function TasksPage() {
                       <FormMessage />
                     </FormItem>
                   )}
-                />
+                 />
+                )}
 
                 <DialogFooter>
                   <DialogClose asChild>
@@ -969,7 +999,7 @@ export default function TasksPage() {
                       Cancel
                     </Button>
                   </DialogClose>
-                  <Button type="submit" disabled={isSubmittingEdit || isLoadingEmployees || isLoadingTasksForSelection}>
+                  <Button type="submit" disabled={isSubmittingEdit || isLoadingEmployees || (watchedTitle === "Validation" && isLoadingTasksForSelection)}>
                     {isSubmittingEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                     Save Changes
                   </Button>

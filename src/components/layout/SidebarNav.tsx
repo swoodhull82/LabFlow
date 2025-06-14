@@ -39,9 +39,9 @@ const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/tasks", label: "Tasks", icon: ClipboardList },
-  { href: "/timeline", label: "Timeline", icon: ListChecks },
-  { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true }, // Supervisor only
-  { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true }, // Supervisor only
+  { href: "/validations", label: "Validations", icon: ListChecks },
+  { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true }, 
+  { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true }, 
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -52,16 +52,11 @@ export function SidebarNav() {
 
   const filteredNavItems = navItems.filter(item => {
     if (item.href === "/activity-log" || item.href === "/employees") {
-      // Activity Log and Employees are strictly Supervisor only
       return user && user.role === "Supervisor";
     }
-    // This section would handle any *other* items that might be marked supervisorOnly
-    // and are intended for both Supervisor and Team Lead.
-    // Currently, no such items exist after this change.
     if (item.supervisorOnly) { 
       return user && (user.role === "Supervisor" || user.role === "Team Lead");
     }
-    // For items not marked supervisorOnly at all
     return true;
   }).sort((a, b) => { 
     if (a.label === "Settings") return 1;

@@ -119,7 +119,7 @@ export default function NewTaskPage() {
     setFetchTasksError(null);
     try {
       const fetchedTasks = await getTasks(pb, { signal });
-      setAllTasksForSelection(fetchedTasks);
+      setAllTasksForSelection(fetchedTasks.filter(task => task.title === "Validation")); // Only allow Validation tasks as dependencies
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
        const isNetworkErrorNotAutocancel = err?.status === 0 && !isAutocancel;
@@ -147,7 +147,12 @@ export default function NewTaskPage() {
     const controller = new AbortController();
     if (pbClient) {
       fetchAndSetEmployees(pbClient, controller.signal);
-      fetchAllTasksForDependencySelection(pbClient, controller.signal);
+      if (title === "Validation") { // Only fetch tasks for dependencies if type is Validation
+        fetchAllTasksForDependencySelection(pbClient, controller.signal);
+      } else {
+        setAllTasksForSelection([]);
+        setIsLoadingTasksForSelection(false);
+      }
     } else {
       setIsLoadingEmployees(true); 
       setIsLoadingTasksForSelection(true);
@@ -155,13 +160,16 @@ export default function NewTaskPage() {
     return () => {
       controller.abort();
     };
-  }, [pbClient, fetchAndSetEmployees, fetchAllTasksForDependencySelection]);
+  }, [pbClient, title, fetchAndSetEmployees, fetchAllTasksForDependencySelection]);
 
   useEffect(() => {
+    if (title !== "Validation") {
+      setIsMilestone(false);
+      setSelectedDependencies([]);
+    }
     if (isMilestone && startDate) {
       setDueDate(startDate);
     }
-    // Clear subtype if title changes to one that doesn't use it
     if (title !== "MDL" && title !== "SOP") {
       setInstrumentSubtype(undefined);
     }
@@ -206,8 +214,8 @@ export default function NewTaskPage() {
       toast({ title: "Validation Error", description: "Task recurrence is required.", variant: "destructive" });
       return;
     }
-    if (isMilestone && !startDate) {
-      toast({ title: "Validation Error", description: "Milestone date (Start Date) is required for a milestone.", variant: "destructive" });
+    if (title === "Validation" && isMilestone && !startDate) {
+      toast({ title: "Validation Error", description: "Milestone date (Start Date) is required for a Validation milestone.", variant: "destructive" });
       return;
     }
 
@@ -221,16 +229,26 @@ export default function NewTaskPage() {
     formData.append("description", description);
     formData.append("status", status);
     formData.append("priority", priority);
-    formData.append("isMilestone", isMilestone.toString());
+    
+    if (title === "Validation") {
+        formData.append("isMilestone", isMilestone.toString());
+        if (selectedDependencies.length > 0) {
+            formData.append("dependencies", JSON.stringify(selectedDependencies));
+        }
+    } else {
+        formData.append("isMilestone", "false");
+        // Do not append dependencies if not a Validation task
+    }
+
 
     if (startDate) {
       formData.append("startDate", startDate.toISOString());
-      if (isMilestone) {
+      if (title === "Validation" && isMilestone) {
         formData.append("dueDate", startDate.toISOString());
       } else if (dueDate) {
         formData.append("dueDate", dueDate.toISOString());
       }
-    } else if (dueDate && !isMilestone) { 
+    } else if (dueDate && !(title === "Validation" && isMilestone)) { 
         formData.append("dueDate", dueDate.toISOString());
     }
 
@@ -240,10 +258,6 @@ export default function NewTaskPage() {
     }
     formData.append("userId", user.id); 
     
-    if (selectedDependencies.length > 0) {
-      formData.append("dependencies", JSON.stringify(selectedDependencies));
-    }
-
     if (attachments) {
       for (let i = 0; i < attachments.length; i++) {
         formData.append("attachments", attachments[i]);
@@ -299,9 +313,9 @@ export default function NewTaskPage() {
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }
   
-  const isLoadingPrerequisites = isLoadingEmployees || isLoadingTasksForSelection;
+  const isLoadingPrerequisites = isLoadingEmployees || (title === "Validation" && isLoadingTasksForSelection);
 
   if (!pbClient && !isLoadingPrerequisites) {
     return (
@@ -341,7 +355,11 @@ export default function NewTaskPage() {
               <Label htmlFor="title">Task Type</Label>
               <Select value={title} onValueChange={(value: string) => {
                 setTitle(value);
-                setInstrumentSubtype(undefined); // Clear subtype when main type changes
+                setInstrumentSubtype(undefined); 
+                if (value !== "Validation") {
+                  setIsMilestone(false);
+                  setSelectedDependencies([]);
+                }
               }}>
                 <SelectTrigger id="title">
                   <SelectValue placeholder="Select task type" />
@@ -419,16 +437,18 @@ export default function NewTaskPage() {
               </div>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <Checkbox id="isMilestone" checked={isMilestone} onCheckedChange={(checked) => setIsMilestone(Boolean(checked))} />
-              <Label htmlFor="isMilestone" className="flex items-center cursor-pointer">
-                <Milestone className="mr-2 h-4 w-4 text-muted-foreground" /> Mark as Milestone
-              </Label>
-            </div>
+            {title === "Validation" && (
+              <div className="flex items-center space-x-2">
+                <Checkbox id="isMilestone" checked={isMilestone} onCheckedChange={(checked) => setIsMilestone(Boolean(checked))} />
+                <Label htmlFor="isMilestone" className="flex items-center cursor-pointer">
+                  <Milestone className="mr-2 h-4 w-4 text-muted-foreground" /> Mark as Milestone
+                </Label>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <Label htmlFor="startDate">{isMilestone ? "Milestone Date" : "Start Date"}</Label>
+                <Label htmlFor="startDate">{title === "Validation" && isMilestone ? "Milestone Date" : "Start Date"}</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -456,7 +476,7 @@ export default function NewTaskPage() {
                     <Button
                       variant={"outline"}
                       className="w-full justify-start text-left font-normal"
-                      disabled={isMilestone}
+                      disabled={title === "Validation" && isMilestone}
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
                       {dueDate ? format(dueDate, "PPP") : <span>Pick a date</span>}
@@ -467,12 +487,12 @@ export default function NewTaskPage() {
                       mode="single"
                       selected={dueDate}
                       onSelect={setDueDate}
-                      disabled={isMilestone}
+                      disabled={title === "Validation" && isMilestone}
                       initialFocus
                     />
                   </PopoverContent>
                 </Popover>
-                 {isMilestone && <p className="text-xs text-muted-foreground mt-1">Due date matches milestone date.</p>}
+                 {title === "Validation" && isMilestone && <p className="text-xs text-muted-foreground mt-1">Due date matches milestone date.</p>}
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -513,9 +533,10 @@ export default function NewTaskPage() {
                 )}
               </div>
             </div>
-
+            
+            {title === "Validation" && (
              <div>
-                <Label htmlFor="dependencies">Dependencies (Optional)</Label>
+                <Label htmlFor="dependencies">Dependencies (Optional - for Validation tasks only)</Label>
                  <Popover open={isDependenciesPopoverOpen} onOpenChange={setIsDependenciesPopoverOpen}>
                     <PopoverTrigger asChild>
                         <Button
@@ -535,7 +556,7 @@ export default function NewTaskPage() {
                         ) : fetchTasksError ? (
                             <div className="p-4 text-center text-sm text-destructive">{fetchTasksError}</div>
                         ) : allTasksForSelection.length === 0 ? (
-                             <div className="p-4 text-center text-sm">No other tasks available.</div>
+                             <div className="p-4 text-center text-sm">No other 'Validation' tasks available to select.</div>
                         ) : (
                             <ScrollArea className="h-48">
                                 <div className="p-4 space-y-2">
@@ -565,7 +586,8 @@ export default function NewTaskPage() {
                         </div>
                     </PopoverContent>
                 </Popover>
-            </div>
+              </div>
+            )}
 
             <div>
               <Label htmlFor="attachments">Attachments</Label>
@@ -592,7 +614,7 @@ export default function NewTaskPage() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button type="submit" disabled={isSubmitting || isLoadingPrerequisites || !!fetchTasksError || !!fetchEmployeesError}>
+              <Button type="submit" disabled={isSubmitting || isLoadingPrerequisites || (title === "Validation" && !!fetchTasksError) || !!fetchEmployeesError}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Save Task
               </Button>

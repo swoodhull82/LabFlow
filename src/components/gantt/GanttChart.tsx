@@ -20,10 +20,10 @@ import {
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
-import { getTasks, updateTask as updateTaskService } from "@/services/taskService"; // Renamed import
+import { getTasks, updateTask as updateTaskService } from "@/services/taskService"; 
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, Edit2, Save, X, Link as LinkIcon } from "lucide-react";
-import { Button as ShadcnButton } from "@/components/ui/button"; // Aliased to avoid conflict
+import { Button as ShadcnButton } from "@/components/ui/button"; 
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -32,23 +32,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TASK_STATUSES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
 
-const ROW_HEIGHT = 48; // px, height of each task row
-const LEFT_PANEL_WIDTH = 450; // px, width of the fixed task list panel
-const TASK_BAR_VERTICAL_PADDING = 8; // px, vertical padding around the task bar within its row height
-const GANTT_VIEW_MONTHS = 3; // Number of months visible in the timeline view by default
-const MILESTONE_SIZE = 16; // px, size of the milestone diamond
+const ROW_HEIGHT = 48; 
+const LEFT_PANEL_WIDTH = 450; 
+const TASK_BAR_VERTICAL_PADDING = 8; 
+const GANTT_VIEW_MONTHS = 3; 
+const MILESTONE_SIZE = 16; 
 
-const MIN_DAY_CELL_WIDTH = 15; // px
-const MAX_DAY_CELL_WIDTH = 60; // px
-const DEFAULT_DAY_CELL_WIDTH = 30; // px
+const MIN_DAY_CELL_WIDTH = 15; 
+const MAX_DAY_CELL_WIDTH = 60; 
+const DEFAULT_DAY_CELL_WIDTH = 30; 
 
-const DEPENDENCY_LINE_OFFSET = 15; // px, for the horizontal part of the elbow connector
-const ARROW_SIZE = 5; // px, for arrowhead marker
-const RESIZE_HANDLE_WIDTH = 8; // px
+const DEPENDENCY_LINE_OFFSET = 15; 
+const ARROW_SIZE = 5; 
+const RESIZE_HANDLE_WIDTH = 8; 
 const MIN_TASK_DURATION_DAYS = 1;
 
-const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => {
-  if (isMilestone) return 'bg-purple-500 hover:bg-purple-600';
+const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean, taskTitle?: string): string => {
+  if (taskTitle === "Validation" && isMilestone) return 'bg-purple-500 hover:bg-purple-600';
   if (!status) return 'bg-primary hover:bg-primary/90';
   switch (status.toLowerCase()) {
     case 'done':
@@ -203,10 +203,10 @@ const GanttChart: React.FC = () => {
         startDate: taskStartDateObj,
         dueDate: taskDueDateObj,
         progress: typeof task.progress === 'number' && task.progress >= 0 && task.progress <= 100 ? task.progress : 0,
-        isMilestone: task.isMilestone === true ||
+        isMilestone: task.title === "Validation" && (task.isMilestone === true ||
                      (task.isMilestone !== false &&
                       isValid(taskStartDateObj) && isValid(taskDueDateObj) &&
-                      isSameDay(taskStartDateObj, taskDueDateObj)),
+                      isSameDay(taskStartDateObj, taskDueDateObj))),
         dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
       };
     });
@@ -255,7 +255,7 @@ const GanttChart: React.FC = () => {
         barEndX: number; 
         barWidth: number;
         barCenterY: number;
-        isMilestone: boolean;
+        isMilestoneRender: boolean; // Renamed to avoid conflict with task.isMilestone
         effectiveStartDate: Date;
         effectiveDueDate: Date;
     }>();
@@ -284,17 +284,19 @@ const GanttChart: React.FC = () => {
         const taskStartInView = max([taskStartActual, chartStartDate]);
         const taskEndInView = min([taskEndActual, chartEndDate]);
         
-        if (taskStartInView > taskEndInView && !task.isMilestone) return;
+        const isRenderMilestone = task.title === "Validation" && task.isMilestone;
+
+        if (taskStartInView > taskEndInView && !isRenderMilestone) return;
 
         const taskStartDayOffset = differenceInDays(taskStartInView, chartStartDate);
-        const taskDurationInViewDays = task.isMilestone ? 1 : differenceInDays(taskEndInView, taskStartInView) + 1;
+        const taskDurationInViewDays = isRenderMilestone ? 1 : differenceInDays(taskEndInView, taskStartInView) + 1;
 
-        if (taskDurationInViewDays <= 0 && !task.isMilestone) return;
+        if (taskDurationInViewDays <= 0 && !isRenderMilestone) return;
 
         let barLeftPosition = taskStartDayOffset * dayCellWidth;
-        const barW = task.isMilestone ? MILESTONE_SIZE : taskDurationInViewDays * dayCellWidth;
+        const barW = isRenderMilestone ? MILESTONE_SIZE : taskDurationInViewDays * dayCellWidth;
 
-        if (task.isMilestone) {
+        if (isRenderMilestone) {
             barLeftPosition += (dayCellWidth / 2) - (MILESTONE_SIZE / 2);
         }
         
@@ -309,8 +311,8 @@ const GanttChart: React.FC = () => {
             barEndX: barLeftPosition + barW,
             barWidth: barW,
             barCenterY: (index * ROW_HEIGHT) + 
-                        (task.isMilestone ? milestoneTop + MILESTONE_SIZE / 2 : taskBarTop + taskBarHeight / 2),
-            isMilestone: !!task.isMilestone,
+                        (isRenderMilestone ? milestoneTop + MILESTONE_SIZE / 2 : taskBarTop + taskBarHeight / 2),
+            isMilestoneRender: isRenderMilestone,
             effectiveStartDate: taskStartActual,
             effectiveDueDate: taskEndActual,
         });
@@ -321,17 +323,17 @@ const GanttChart: React.FC = () => {
   const dependencyLines = useMemo(() => {
     const lines: { id: string, d: string }[] = [];
     tasksToDisplay.forEach((dependentTask) => {
-        if (!dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
+        if (dependentTask.title !== "Validation" || !dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
         const dependentDetails = taskRenderDetailsMap.get(dependentTask.id);
         if (!dependentDetails) return;
 
         dependentTask.dependencies.forEach((predecessorId, depIndex) => {
             const predecessorDetails = taskRenderDetailsMap.get(predecessorId);
-            if (!predecessorDetails) return;
+            if (!predecessorDetails || predecessorDetails.task.title !== "Validation") return; // Ensure predecessor is also Validation
             
-            const fromX = predecessorDetails.isMilestone ? predecessorDetails.barStartX + MILESTONE_SIZE / 2 : predecessorDetails.barEndX;
+            const fromX = predecessorDetails.isMilestoneRender ? predecessorDetails.barStartX + MILESTONE_SIZE / 2 : predecessorDetails.barEndX;
             const fromY = predecessorDetails.barCenterY;
-            const toX = dependentDetails.isMilestone ? dependentDetails.barStartX + MILESTONE_SIZE / 2 : dependentDetails.barStartX;
+            const toX = dependentDetails.isMilestoneRender ? dependentDetails.barStartX + MILESTONE_SIZE / 2 : dependentDetails.barStartX;
             const toY = dependentDetails.barCenterY;
 
             if (fromX >= toX && fromY === toY) return;
@@ -346,7 +348,7 @@ const GanttChart: React.FC = () => {
 
     const handleTaskUpdate = useCallback(async (
         taskId: string, 
-        updates: Partial<Pick<Task, 'startDate' | 'dueDate' | 'dependencies' | 'title' | 'status' | 'progress' | 'instrument_subtype'>>
+        updates: Partial<Pick<Task, 'startDate' | 'dueDate' | 'dependencies' | 'title' | 'status' | 'progress' | 'instrument_subtype' | 'isMilestone'>>
     ) => {
         if (!pbClient) return;
         const taskToUpdate = allTasks.find(t => t.id === taskId);
@@ -356,6 +358,18 @@ const GanttChart: React.FC = () => {
         if (updates.startDate) payload.startDate = new Date(updates.startDate).toISOString();
         if (updates.dueDate) payload.dueDate = new Date(updates.dueDate).toISOString();
         
+        // If title is not Validation, ensure isMilestone and dependencies are cleared
+        if (payload.title && payload.title !== "Validation") {
+            payload.isMilestone = false;
+            payload.dependencies = [];
+        } else if (payload.title === "Validation") {
+            // If it IS a validation task, ensure isMilestone is boolean
+            if (updates.hasOwnProperty('isMilestone')) {
+                payload.isMilestone = !!updates.isMilestone;
+            }
+        }
+
+
         try {
             await updateTaskService(pbClient, taskId, payload);
             toast({ title: "Task Updated", description: `Task "${taskToUpdate.title}" was successfully updated.` });
@@ -408,9 +422,9 @@ const GanttChart: React.FC = () => {
     };
 
     const handleMouseDownOnDependencyConnector = (e: React.MouseEvent, task: Task) => {
-        if (e.button !== 0) return;
+        if (e.button !== 0 || task.title !== "Validation") return; // Only allow drawing from Validation tasks
         const taskDetails = taskRenderDetailsMap.get(task.id);
-        if (!taskDetails || taskDetails.isMilestone) return; 
+        if (!taskDetails || taskDetails.isMilestoneRender) return; 
         
         e.preventDefault();
         e.stopPropagation();
@@ -456,12 +470,20 @@ const GanttChart: React.FC = () => {
     const handleSaveQuickEdit = () => {
         if (!quickEditPopoverState.taskId) return;
         
-        const updates: Partial<Pick<Task, 'title' | 'status' | 'progress' | 'instrument_subtype'>> = {
+        const updates: Partial<Pick<Task, 'title' | 'status' | 'progress' | 'instrument_subtype' | 'isMilestone' | 'dependencies'>> = {
             title: quickEditPopoverState.currentTitle,
             instrument_subtype: (quickEditPopoverState.currentTitle === "MDL" || quickEditPopoverState.currentTitle === "SOP") ? quickEditPopoverState.currentInstrumentSubtype : undefined,
             status: quickEditPopoverState.currentStatus,
             progress: quickEditPopoverState.currentProgress,
         };
+
+        if (quickEditPopoverState.currentTitle !== "Validation") {
+            updates.isMilestone = false;
+            updates.dependencies = [];
+        }
+        // Note: Milestone and dependencies cannot be set directly from this quick edit popover for Validation tasks.
+        // They are managed via the main edit form.
+
         handleTaskUpdate(quickEditPopoverState.taskId, updates);
         setIsQuickEditPopoverOpen(false);
         setQuickEditPopoverState({taskId: null, currentTitle: PREDEFINED_TASK_TITLES[0] || "", currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0});
@@ -478,7 +500,7 @@ const GanttChart: React.FC = () => {
                  if (!timelineScroll) return;
                 
                  const currentXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
-                 const currentYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Adjust for headers
+                 const currentYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; 
                  setDependencyDrawState(prev => prev ? { ...prev, currentMouseX: currentXInGrid, currentMouseY: currentYInGrid } : null);
             }
         };
@@ -505,7 +527,7 @@ const GanttChart: React.FC = () => {
                     
                     let targetDropTaskId: string | null = null;
                     for (const [taskId, details] of taskRenderDetailsMap.entries()) {
-                        if (taskId === dependencyDrawState.sourceTaskId) continue; 
+                        if (taskId === dependencyDrawState.sourceTaskId || details.task.title !== "Validation") continue; // Can only depend on Validation tasks
 
                         const taskRowTop = details.index * ROW_HEIGHT;
                         const taskRowBottom = taskRowTop + ROW_HEIGHT;
@@ -520,7 +542,7 @@ const GanttChart: React.FC = () => {
                     if (targetDropTaskId) {
                         const sourceTask = allTasks.find(t => t.id === dependencyDrawState.sourceTaskId);
                         const targetTask = allTasks.find(t => t.id === targetDropTaskId);
-                        if (sourceTask && targetTask) {
+                        if (sourceTask && targetTask && sourceTask.title === "Validation" && targetTask.title === "Validation") {
                             const currentTargetDeps = targetTask.dependencies || [];
                             const currentSourceDeps = sourceTask.dependencies || [];
 
@@ -728,7 +750,7 @@ const GanttChart: React.FC = () => {
                 {tasksToDisplay.map((task, taskIndex) => {
                   const taskDetails = taskRenderDetailsMap.get(task.id);
                   if (!taskDetails) return null;
-                  const { barStartX, barWidth, isMilestone } = taskDetails;
+                  const { barStartX, barWidth, isMilestoneRender } = taskDetails;
                   
                   const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2;
                   const taskBarTopOffset = TASK_BAR_VERTICAL_PADDING;
@@ -762,9 +784,9 @@ const GanttChart: React.FC = () => {
                           onMouseEnter={() => setHoveredTaskId(task.id)}
                           onMouseLeave={() => setHoveredTaskId(null)}
                           className={cn(
-                            "absolute transition-opacity duration-150 ease-in-out group cursor-grab z-10",
-                            getTaskBarColor(task.status, isMilestone),
-                            !isMilestone && "rounded-sm",
+                            "absolute transition-opacity duration-150 ease-in-out group cursor-grab z-10 flex items-center justify-center", // Added flex for centering
+                            getTaskBarColor(task.status, isMilestoneRender, task.title),
+                            !isMilestoneRender && "rounded-sm",
                             (isBeingDragged || isBeingDepDrawnFrom) ? 'ring-2 ring-ring ring-offset-background ring-offset-1 shadow-lg' : 
                             (task.id === hoveredTaskId ? 'ring-1 ring-primary/70' : ''),
                             ( (dragState && dragState.taskId !== task.id) || 
@@ -774,11 +796,11 @@ const GanttChart: React.FC = () => {
                           style={{
                             left: `${barStartX}px`,
                             width: `${barWidth < 0 ? 0 : barWidth}px`,
-                            top: `${(taskIndex * ROW_HEIGHT) + (isMilestone ? milestoneTopOffset : taskBarTopOffset)}px`,
-                            height: isMilestone ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
+                            top: `${(taskIndex * ROW_HEIGHT) + (isMilestoneRender ? milestoneTopOffset : taskBarTopOffset)}px`,
+                            height: isMilestoneRender ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
                           }}
                         >
-                          {!isMilestone && (
+                          {!isMilestoneRender && (
                             <>
                             <div 
                                 className="resize-handle absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
@@ -794,24 +816,26 @@ const GanttChart: React.FC = () => {
                             >
                                 <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
                             </div>
-                            <div
-                              className="dependency-connector absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity"
-                              onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)}
-                              title="Draw dependency"
-                            />
+                            {task.title === "Validation" && (
+                              <div
+                                className="dependency-connector absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)}
+                                title="Draw dependency"
+                              />
+                            )}
                             </>
                           )}
-                          {!isMilestone && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && barWidth > 0 && (
+                          {!isMilestoneRender && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && barWidth > 0 && (
                             <div className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" style={{ width: `${task.progress}%`}} />
                           )}
-                          {isMilestone && (
+                          {isMilestoneRender && (
                             <div className="absolute inset-0 flex items-center justify-center">
                               <svg viewBox="0 0 100 100" className="w-full h-full fill-current text-white/80" preserveAspectRatio="none">
                                 <polygon points="50,0 100,50 50,100 0,50" />
                               </svg>
                             </div>
                           )}
-                          {!isMilestone && barWidth > (dayCellWidth * 0.75) && (
+                          {!isMilestoneRender && barWidth > (dayCellWidth * 0.75) && (
                              <div className="absolute inset-0 flex items-center px-1.5 overflow-hidden">
                                 <span className="text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden text-ellipsis">
                                   {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype ? `${task.title} (${task.instrument_subtype})` : task.title}
@@ -825,6 +849,7 @@ const GanttChart: React.FC = () => {
                         <div className="space-y-1">
                           <p className="font-semibold text-sm">
                              {(task.title === "MDL" || task.title === "SOP") && task.instrument_subtype ? `${task.title} (${task.instrument_subtype})` : task.title}
+                             {task.title === "Validation" && task.isMilestone ? " (Milestone)" : ""}
                           </p>
                           <p className="text-xs text-muted-foreground">Status: <span className="font-medium text-foreground">{task.status}</span></p>
                           <p className="text-xs text-muted-foreground">Priority: <span className="font-medium text-foreground">{task.priority}</span></p>
@@ -835,7 +860,7 @@ const GanttChart: React.FC = () => {
                           {task.assignedTo_text && (
                             <p className="text-xs text-muted-foreground">Assigned to: <span className="font-medium text-foreground">{task.assignedTo_text}</span></p>
                           )}
-                          {task.dependencies && task.dependencies.length > 0 && (
+                          {task.title === "Validation" && task.dependencies && task.dependencies.length > 0 && (
                             <div>
                               <p className="text-xs text-muted-foreground mt-1">Depends on:</p>
                               <ul className="list-disc list-inside pl-2 space-y-0.5">
@@ -846,7 +871,7 @@ const GanttChart: React.FC = () => {
                               </ul>
                             </div>
                           )}
-                           {!task.dependencies || task.dependencies.length === 0 && (
+                           {task.title === "Validation" && (!task.dependencies || task.dependencies.length === 0) && (
                              <p className="text-xs text-muted-foreground">Dependencies: None</p>
                            )}
                         </div>
