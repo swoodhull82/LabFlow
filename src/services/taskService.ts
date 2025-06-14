@@ -1,6 +1,6 @@
 
 'use client';
-import type { Task } from "@/lib/types";
+import type { Task, TaskType } from "@/lib/types";
 import type PocketBase from 'pocketbase';
 import { withRetry } from '@/lib/retry';
 
@@ -16,6 +16,8 @@ interface PocketBaseRequestOptions {
 const pbRecordToTask = (record: any): Task => {
   return {
     ...record,
+    task_type: record.task_type as TaskType,
+    title: record.title || "", // Ensure title is always a string
     startDate: record.startDate ? new Date(record.startDate) : undefined,
     dueDate: record.dueDate ? new Date(record.dueDate) : undefined,
     created: new Date(record.created), 
@@ -23,11 +25,12 @@ const pbRecordToTask = (record: any): Task => {
     dependencies: Array.isArray(record.dependencies) ? record.dependencies : (typeof record.dependencies === 'string' && record.dependencies.startsWith('[') ? JSON.parse(record.dependencies) : []), 
     isMilestone: typeof record.isMilestone === 'boolean' ? record.isMilestone : false,
     instrument_subtype: record.instrument_subtype || undefined,
+    steps: Array.isArray(record.steps) ? record.steps : (typeof record.steps === 'string' && record.steps.startsWith('[') ? JSON.parse(record.steps) : []),
   } as Task;
 };
 
-const DEFAULT_TASK_LIST_FIELDS = 'id,title,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies,instrument_subtype';
-const DEFAULT_TASK_DETAIL_FIELDS = 'id,title,description,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies,attachments,instrument_subtype';
+const DEFAULT_TASK_LIST_FIELDS = 'id,title,task_type,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies,instrument_subtype,steps';
+const DEFAULT_TASK_DETAIL_FIELDS = 'id,title,task_type,description,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies,attachments,instrument_subtype,steps';
 
 
 export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<Task[]> => {
@@ -80,6 +83,11 @@ export const createTask = async (pb: PocketBase, taskData: FormData, options?: P
     if (taskData.has('isMilestone')) {
       taskData.set('isMilestone', taskData.get('isMilestone') === 'true' ? 'true' : 'false');
     }
+    // Steps will be sent as JSON string if using FormData directly
+    if (taskData.has('steps') && typeof taskData.get('steps') === 'string') {
+        // PocketBase expects JSON string for JSON fields when using FormData
+    }
+
     const record = await pb.collection(COLLECTION_NAME).create(taskData, { signal: options?.signal });
     return pbRecordToTask(record);
   } catch (error) {
@@ -97,6 +105,25 @@ export const updateTask = async (pb: PocketBase, id: string, taskData: FormData 
     } else if (!(taskData instanceof FormData) && taskData.hasOwnProperty('isMilestone')) {
       taskData.isMilestone = !!taskData.isMilestone;
     }
+    
+    // Ensure steps is an array for Partial<Task> or JSON string for FormData
+    if (!(taskData instanceof FormData) && taskData.steps) {
+        taskData.steps = Array.isArray(taskData.steps) ? taskData.steps : [];
+    } else if (taskData instanceof FormData && taskData.has('steps')) {
+        const stepsValue = taskData.get('steps');
+        if (typeof stepsValue === 'string') {
+            try {
+                JSON.parse(stepsValue); // Validate JSON string
+            } catch (e) {
+                console.warn("Invalid JSON string for steps, sending as is or consider removing/fixing.");
+            }
+        } else if (Array.isArray(stepsValue)) { // Should not happen with FormData direct get, but for safety
+             taskData.set('steps', JSON.stringify(stepsValue));
+        } else {
+            taskData.set('steps', JSON.stringify([]));
+        }
+    }
+
 
     const record = await withRetry(() =>
       pb.collection(COLLECTION_NAME).update(id, taskData, { signal }),

@@ -14,15 +14,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle, Link as LinkIcon, Milestone } from "lucide-react";
 import { format } from "date-fns";
 import React, { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { createTask, getTasks } from "@/services/taskService";
 import { getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
-import type { Employee, TaskStatus, TaskPriority, TaskRecurrence, Task } from "@/lib/types";
-import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
+import type { Employee, TaskStatus, TaskPriority, TaskRecurrence, Task, TaskType } from "@/lib/types";
+import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, TASK_TYPES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
+import type { DateRange } from "react-day-picker";
 
 const getDetailedEmployeeFetchErrorMessage = (error: any): string => {
   let message = "Could not load employees for assignment.";
@@ -53,14 +54,20 @@ export default function NewTaskPage() {
   const { pbClient, user } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const defaultTypeFromQuery = searchParams.get("defaultType") as TaskType | null;
 
-  const [title, setTitle] = useState<string>(PREDEFINED_TASK_TITLES[0] || "");
+  const [taskType, setTaskType] = useState<TaskType>(defaultTypeFromQuery || TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0]);
+  const [title, setTitle] = useState<string>("");
   const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<TaskStatus>(TASK_STATUSES[0] || "To Do");
   const [priority, setPriority] = useState<TaskPriority>(TASK_PRIORITIES.find(p => p.toLowerCase() === 'medium') || TASK_PRIORITIES[0] || "Medium");
+  
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [dueDate, setDueDate] = useState<Date | undefined>();
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+
   const [recurrence, setRecurrence] = useState<TaskRecurrence>(TASK_RECURRENCES.find(r => r.toLowerCase() === 'none') || TASK_RECURRENCES[0] || "None");
   const [assignedToText, setAssignedToText] = useState<string | undefined>();
   const [attachments, setAttachments] = useState<FileList | null>(null);
@@ -77,6 +84,14 @@ export default function NewTaskPage() {
   const [selectedDependencies, setSelectedDependencies] = useState<string[]>([]);
   const [isDependenciesPopoverOpen, setIsDependenciesPopoverOpen] = useState(false);
 
+  useEffect(() => {
+    if (defaultTypeFromQuery) {
+      setTaskType(defaultTypeFromQuery);
+      if (defaultTypeFromQuery === "VALIDATION_PROJECT") {
+        setRecurrence("None"); // Validation projects always have "None" recurrence
+      }
+    }
+  }, [defaultTypeFromQuery]);
 
   const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -118,7 +133,7 @@ export default function NewTaskPage() {
     setIsLoadingTasksForSelection(true);
     setFetchTasksError(null);
     try {
-      const fetchedTasks = await getTasks(pb, { signal });
+      const fetchedTasks = await getTasks(pb, { signal, filter: 'task_type = "VALIDATION_PROJECT"' });
       setAllTasksForSelection(fetchedTasks);
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
@@ -147,7 +162,12 @@ export default function NewTaskPage() {
     const controller = new AbortController();
     if (pbClient) {
       fetchAndSetEmployees(pbClient, controller.signal);
-      fetchAllTasksForDependencySelection(pbClient, controller.signal);
+      if (taskType === "VALIDATION_PROJECT") { 
+        fetchAllTasksForDependencySelection(pbClient, controller.signal);
+      } else {
+        setAllTasksForSelection([]);
+        setIsLoadingTasksForSelection(false);
+      }
     } else {
       setIsLoadingEmployees(true); 
       setIsLoadingTasksForSelection(true);
@@ -155,17 +175,33 @@ export default function NewTaskPage() {
     return () => {
       controller.abort();
     };
-  }, [pbClient, fetchAndSetEmployees, fetchAllTasksForDependencySelection]);
+  }, [pbClient, taskType, fetchAndSetEmployees, fetchAllTasksForDependencySelection]);
 
   useEffect(() => {
-    if (isMilestone && startDate) {
-      setDueDate(startDate);
-    }
-    // Clear subtype if title changes to one that doesn't use it
-    if (title !== "MDL" && title !== "SOP") {
+    if (taskType !== "MDL" && taskType !== "SOP") {
       setInstrumentSubtype(undefined);
     }
-  }, [isMilestone, startDate, title]);
+    if (taskType !== "VALIDATION_PROJECT") {
+      setIsMilestone(false);
+      setSelectedDependencies([]);
+      // Only reset recurrence if it's not already set (e.g. by default query param)
+      if (recurrence === "None" && !defaultTypeFromQuery) { // ensure "None" for VALIDATION_PROJECT is not overwritten if it was set by default
+          // If not a validation project, and recurrence is 'None' (likely because it was a VP before),
+          // set it to a sensible default if it wasn't explicitly set by query.
+          // Or, simply ensure it's not "None" if that's a rule for non-VP.
+          // For now, let user select. But if changing FROM VP, clear milestone stuff.
+      }
+    } else {
+      setRecurrence("None"); // Validation projects always have "None" recurrence
+    }
+
+    if (taskType === "VALIDATION_PROJECT" && isMilestone && startDate) {
+      setDueDate(startDate);
+    } else if (taskType === "VALIDATION_PROJECT" && isMilestone && !startDate) {
+      // If it becomes a milestone and no start date, clear due date as well to enforce single date picking
+      setDueDate(undefined);
+    }
+  }, [taskType, isMilestone, startDate, recurrence, defaultTypeFromQuery]);
 
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -186,12 +222,16 @@ export default function NewTaskPage() {
       toast({ title: "Error", description: "You must be logged in to create a task.", variant: "destructive" });
       return;
     }
-    if (!title.trim()) {
-      toast({ title: "Validation Error", description: "Task title is required.", variant: "destructive" });
+    if (!taskType) {
+      toast({ title: "Validation Error", description: "Task Type is required.", variant: "destructive" });
       return;
     }
-    if ((title === "MDL" || title === "SOP") && !instrumentSubtype) {
-      toast({ title: "Validation Error", description: `Subtype is required for ${title} tasks.`, variant: "destructive" });
+    if (!title.trim()) {
+      toast({ title: "Validation Error", description: "Task Name is required.", variant: "destructive" });
+      return;
+    }
+    if ((taskType === "MDL" || taskType === "SOP") && !instrumentSubtype) {
+      toast({ title: "Validation Error", description: `Subtype is required for ${taskType} tasks.`, variant: "destructive" });
       return;
     }
     if (!status) {
@@ -202,48 +242,61 @@ export default function NewTaskPage() {
       toast({ title: "Validation Error", description: "Task priority is required.", variant: "destructive" });
       return;
     }
-     if (!recurrence) {
-      toast({ title: "Validation Error", description: "Task recurrence is required.", variant: "destructive" });
+    
+    const effectiveRecurrence = taskType === "VALIDATION_PROJECT" ? "None" : recurrence;
+    if (taskType !== "VALIDATION_PROJECT" && (!effectiveRecurrence || !TASK_RECURRENCES.includes(effectiveRecurrence))) {
+      toast({ title: "Validation Error", description: "Task recurrence is required for non-Validation tasks.", variant: "destructive" });
       return;
     }
-    if (isMilestone && !startDate) {
-      toast({ title: "Validation Error", description: "Milestone date (Start Date) is required for a milestone.", variant: "destructive" });
+    if (taskType === "VALIDATION_PROJECT" && isMilestone && !startDate) {
+      toast({ title: "Validation Error", description: "Milestone date is required for a Validation milestone.", variant: "destructive" });
       return;
     }
+    if (!(taskType === "VALIDATION_PROJECT" && isMilestone) && startDate && dueDate && startDate > dueDate) {
+       toast({ title: "Validation Error", description: "Start date must be before or same as due date.", variant: "destructive" });
+      return;
+    }
+
 
     setIsSubmitting(true);
 
     const formData = new FormData();
+    formData.append("task_type", taskType);
     formData.append("title", title);
-    if ((title === "MDL" || title === "SOP") && instrumentSubtype) {
+
+    if ((taskType === "MDL" || taskType === "SOP") && instrumentSubtype) {
       formData.append("instrument_subtype", instrumentSubtype);
     }
     formData.append("description", description);
     formData.append("status", status);
     formData.append("priority", priority);
-    formData.append("isMilestone", isMilestone.toString());
+    formData.append("recurrence", effectiveRecurrence);
+    
+    if (taskType === "VALIDATION_PROJECT") {
+        formData.append("isMilestone", isMilestone.toString());
+        if (selectedDependencies.length > 0) {
+            formData.append("dependencies", JSON.stringify(selectedDependencies));
+        }
+        formData.append("steps", JSON.stringify([]));
+    } else {
+        formData.append("isMilestone", "false");
+    }
 
     if (startDate) {
       formData.append("startDate", startDate.toISOString());
-      if (isMilestone) {
-        formData.append("dueDate", startDate.toISOString());
-      } else if (dueDate) {
-        formData.append("dueDate", dueDate.toISOString());
-      }
-    } else if (dueDate && !isMilestone) { 
+    }
+    // For milestones, dueDate is already set to startDate
+    // For non-milestones or non-VP, dueDate is handled by its own state
+    if (dueDate) {
         formData.append("dueDate", dueDate.toISOString());
     }
 
-    formData.append("recurrence", recurrence);
+
     if (assignedToText) {
       formData.append("assignedTo_text", assignedToText);
     }
     formData.append("userId", user.id); 
     
-    if (selectedDependencies.length > 0) {
-      formData.append("dependencies", JSON.stringify(selectedDependencies));
-    }
-
     if (attachments) {
       for (let i = 0; i < attachments.length; i++) {
         formData.append("attachments", attachments[i]);
@@ -252,8 +305,12 @@ export default function NewTaskPage() {
 
     try {
       await createTask(pbClient, formData);
-      toast({ title: "Success", description: "New task created successfully!" });
-      router.push("/tasks");
+      toast({ title: "Success", description: `New ${taskType.replace(/_/g, ' ')} task created successfully!` });
+      if (taskType === "VALIDATION_PROJECT") {
+        router.push("/validations");
+      } else {
+        router.push("/tasks");
+      }
     } catch (err: any) {
       console.error("Failed to create task (full error object):", err); 
       let detailedMessage = "Failed to create task. Please try again.";
@@ -301,7 +358,43 @@ export default function NewTaskPage() {
     }
   };
   
-  const isLoadingPrerequisites = isLoadingEmployees || isLoadingTasksForSelection;
+  const isLoadingPrerequisites = isLoadingEmployees || (taskType === "VALIDATION_PROJECT" && isLoadingTasksForSelection);
+  const availableTaskTypes = defaultTypeFromQuery === "VALIDATION_PROJECT"
+    ? TASK_TYPES.filter(t => t === "VALIDATION_PROJECT")
+    : TASK_TYPES.filter(t => t !== "VALIDATION_PROJECT");
+
+  const handleDateSelect = (selected: Date | DateRange | undefined) => {
+    if (taskType === "VALIDATION_PROJECT" && isMilestone) {
+      const singleDate = selected as Date | undefined;
+      setStartDate(singleDate);
+      setDueDate(singleDate);
+    } else {
+      const range = selected as DateRange | undefined;
+      setStartDate(range?.from);
+      setDueDate(range?.to);
+    }
+    if (selected) { // Close if a selection (single or full range) is made. Range might need two clicks.
+        if (!(taskType === "VALIDATION_PROJECT" && isMilestone) && (selected as DateRange)?.from && !(selected as DateRange)?.to) {
+            // If range mode and only 'from' is selected, keep open
+        } else {
+            setIsDatePickerOpen(false);
+        }
+    }
+  };
+
+  let datePickerButtonText = "Pick a date";
+  if (taskType === "VALIDATION_PROJECT" && isMilestone) {
+    datePickerButtonText = startDate ? `Milestone: ${format(startDate, "PPP")}` : "Pick Milestone Date";
+  } else {
+    if (startDate && dueDate) {
+      datePickerButtonText = `${format(startDate, "PPP")} - ${format(dueDate, "PPP")}`;
+    } else if (startDate) {
+      datePickerButtonText = `${format(startDate, "PPP")} - Select End Date`;
+    } else {
+      datePickerButtonText = "Pick Date Range";
+    }
+  }
+
 
   if (!pbClient && !isLoadingPrerequisites) {
     return (
@@ -324,9 +417,11 @@ export default function NewTaskPage() {
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl md:text-3xl font-headline font-semibold">Add New Task</h1>
+        <h1 className="text-2xl md:text-3xl font-headline font-semibold">
+          {taskType === "VALIDATION_PROJECT" ? "New Validation Project" : "Add New Task"}
+        </h1>
         <Button variant="outline" asChild>
-          <Link href="/tasks">Cancel</Link>
+          <Link href={taskType === "VALIDATION_PROJECT" ? "/validations" : "/tasks"}>Cancel</Link>
         </Button>
       </div>
 
@@ -338,27 +433,52 @@ export default function NewTaskPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <Label htmlFor="title">Task Type</Label>
-              <Select value={title} onValueChange={(value: string) => {
-                setTitle(value);
-                setInstrumentSubtype(undefined); // Clear subtype when main type changes
-              }}>
-                <SelectTrigger id="title">
+              <Label htmlFor="task_type">Task Type</Label>
+              <Select 
+                value={taskType} 
+                onValueChange={(value: TaskType) => {
+                  setTaskType(value);
+                  setInstrumentSubtype(undefined); 
+                  setIsMilestone(false);
+                  setSelectedDependencies([]);
+                  if (value === "VALIDATION_PROJECT") {
+                    setRecurrence("None");
+                  } else if (recurrence === "None" && defaultTypeFromQuery !== "VALIDATION_PROJECT") { 
+                    // If changing from VP to non-VP, and recurrence was "None", 
+                    // it might need to be set to a default non-"None" value if required.
+                    // For now, let user select, or rely on validation.
+                  }
+                }}
+                disabled={defaultTypeFromQuery === "VALIDATION_PROJECT"}
+              >
+                <SelectTrigger id="task_type">
                   <SelectValue placeholder="Select task type" />
                 </SelectTrigger>
                 <SelectContent>
-                  {PREDEFINED_TASK_TITLES.map(taskTitle => (
-                    <SelectItem key={taskTitle} value={taskTitle}>{taskTitle}</SelectItem>
+                  {availableTaskTypes.map(tt => (
+                    <SelectItem key={tt} value={tt}>{tt.replace(/_/g, ' ')}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {title === "MDL" && (
+            <div>
+              <Label htmlFor="title">
+                {taskType === "VALIDATION_PROJECT" ? "Validation Project Name" : "Task Name"}
+              </Label>
+              <Input 
+                id="title" 
+                placeholder={taskType === "VALIDATION_PROJECT" ? "e.g., New HPLC Method Validation" : "e.g., Daily Balances Check"} 
+                value={title} 
+                onChange={(e) => setTitle(e.target.value)} 
+              />
+            </div>
+
+            {(taskType === "MDL") && (
               <div>
-                <Label htmlFor="instrumentSubtype">Instrument Subtype</Label>
+                <Label htmlFor="instrumentSubtypeMDL">Instrument Subtype</Label>
                 <Select value={instrumentSubtype} onValueChange={(value: string) => setInstrumentSubtype(value)}>
-                  <SelectTrigger id="instrumentSubtype">
+                  <SelectTrigger id="instrumentSubtypeMDL">
                     <SelectValue placeholder="Select instrument for MDL" />
                   </SelectTrigger>
                   <SelectContent>
@@ -370,11 +490,11 @@ export default function NewTaskPage() {
               </div>
             )}
 
-            {title === "SOP" && (
+            {(taskType === "SOP") && (
               <div>
-                <Label htmlFor="sopSubtype">SOP Subtype</Label>
+                <Label htmlFor="instrumentSubtypeSOP">SOP Subtype</Label>
                 <Select value={instrumentSubtype} onValueChange={(value: string) => setInstrumentSubtype(value)}>
-                  <SelectTrigger id="sopSubtype">
+                  <SelectTrigger id="instrumentSubtypeSOP">
                     <SelectValue placeholder="Select SOP subtype" />
                   </SelectTrigger>
                   <SelectContent>
@@ -419,77 +539,60 @@ export default function NewTaskPage() {
               </div>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <Checkbox id="isMilestone" checked={isMilestone} onCheckedChange={(checked) => setIsMilestone(Boolean(checked))} />
-              <Label htmlFor="isMilestone" className="flex items-center cursor-pointer">
-                <Milestone className="mr-2 h-4 w-4 text-muted-foreground" /> Mark as Milestone
+            {taskType === "VALIDATION_PROJECT" && (
+              <div className="flex items-center space-x-2">
+                <Checkbox id="isMilestone" checked={isMilestone} onCheckedChange={(checked) => setIsMilestone(Boolean(checked))} />
+                <Label htmlFor="isMilestone" className="flex items-center cursor-pointer">
+                  <Milestone className="mr-2 h-4 w-4 text-muted-foreground" /> Mark as Milestone
+                </Label>
+              </div>
+            )}
+            
+            <div>
+              <Label htmlFor="dateRangePicker">
+                {taskType === "VALIDATION_PROJECT" && isMilestone ? "Milestone Date" : "Date Range (Start - Due)"}
               </Label>
+              <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="dateRangePicker"
+                    variant={"outline"}
+                    className="w-full justify-start text-left font-normal"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {datePickerButtonText}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode={(taskType === "VALIDATION_PROJECT" && isMilestone) ? "single" : "range"}
+                    selected={(taskType === "VALIDATION_PROJECT" && isMilestone) ? startDate : { from: startDate, to: dueDate }}
+                    onSelect={handleDateSelect}
+                    numberOfMonths={(taskType === "VALIDATION_PROJECT" && isMilestone) ? 1 : 2}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
 
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <Label htmlFor="startDate">{isMilestone ? "Milestone Date" : "Start Date"}</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant={"outline"}
-                      className="w-full justify-start text-left font-normal"
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {startDate ? format(startDate, "PPP") : <span>Pick a date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={startDate}
-                      onSelect={setStartDate}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div>
-                <Label htmlFor="dueDate">Due Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant={"outline"}
-                      className="w-full justify-start text-left font-normal"
-                      disabled={isMilestone}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dueDate ? format(dueDate, "PPP") : <span>Pick a date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={dueDate}
-                      onSelect={setDueDate}
-                      disabled={isMilestone}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-                 {isMilestone && <p className="text-xs text-muted-foreground mt-1">Due date matches milestone date.</p>}
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <Label htmlFor="recurrence">Recurrence</Label>
-                <Select value={recurrence} onValueChange={(value: TaskRecurrence) => setRecurrence(value)} >
-                  <SelectTrigger id="recurrence">
-                    <SelectValue placeholder="Select recurrence" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TASK_RECURRENCES.map(r => (
-                      <SelectItem key={r} value={r}>{r}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
+             {taskType !== "VALIDATION_PROJECT" && (
+                <div>
+                  <Label htmlFor="recurrence">Recurrence</Label>
+                  <Select value={recurrence} onValueChange={(value: TaskRecurrence) => setRecurrence(value)} >
+                    <SelectTrigger id="recurrence">
+                      <SelectValue placeholder="Select recurrence" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TASK_RECURRENCES.map(r => (
+                        <SelectItem key={r} value={r}>{r}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className={taskType === "VALIDATION_PROJECT" ? "md:col-span-2" : ""}>
                 <Label htmlFor="assignedTo">Assigned To</Label>
                 <Select 
                   onValueChange={(value: string) => setAssignedToText(value === "__NONE__" ? undefined : value)} 
@@ -513,7 +616,8 @@ export default function NewTaskPage() {
                 )}
               </div>
             </div>
-
+            
+            {taskType === "VALIDATION_PROJECT" && (
              <div>
                 <Label htmlFor="dependencies">Dependencies (Optional)</Label>
                  <Popover open={isDependenciesPopoverOpen} onOpenChange={setIsDependenciesPopoverOpen}>
@@ -535,23 +639,23 @@ export default function NewTaskPage() {
                         ) : fetchTasksError ? (
                             <div className="p-4 text-center text-sm text-destructive">{fetchTasksError}</div>
                         ) : allTasksForSelection.length === 0 ? (
-                             <div className="p-4 text-center text-sm">No other tasks available.</div>
+                             <div className="p-4 text-center text-sm">No other 'VALIDATION_PROJECT' tasks available to select.</div>
                         ) : (
                             <ScrollArea className="h-48">
                                 <div className="p-4 space-y-2">
-                                {allTasksForSelection.map(task => (
-                                    <div key={task.id} className="flex items-center space-x-2">
+                                {allTasksForSelection.map(taskItem => (
+                                    <div key={taskItem.id} className="flex items-center space-x-2">
                                     <Checkbox
-                                        id={`dep-${task.id}`}
-                                        checked={selectedDependencies.includes(task.id)}
-                                        onCheckedChange={() => handleDependencyChange(task.id)}
+                                        id={`dep-${taskItem.id}`}
+                                        checked={selectedDependencies.includes(taskItem.id)}
+                                        onCheckedChange={() => handleDependencyChange(taskItem.id)}
                                     />
                                     <label
-                                        htmlFor={`dep-${task.id}`}
+                                        htmlFor={`dep-${taskItem.id}`}
                                         className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 truncate"
-                                        title={task.title}
+                                        title={taskItem.title}
                                     >
-                                        {task.title}
+                                        {taskItem.title}
                                     </label>
                                     </div>
                                 ))}
@@ -565,7 +669,8 @@ export default function NewTaskPage() {
                         </div>
                     </PopoverContent>
                 </Popover>
-            </div>
+              </div>
+            )}
 
             <div>
               <Label htmlFor="attachments">Attachments</Label>
@@ -592,7 +697,7 @@ export default function NewTaskPage() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button type="submit" disabled={isSubmitting || isLoadingPrerequisites || !!fetchTasksError || !!fetchEmployeesError}>
+              <Button type="submit" disabled={isSubmitting || isLoadingPrerequisites || (taskType === "VALIDATION_PROJECT" && !!fetchTasksError) || !!fetchEmployeesError}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Save Task
               </Button>
@@ -603,3 +708,4 @@ export default function NewTaskPage() {
     </div>
   );
 }
+
