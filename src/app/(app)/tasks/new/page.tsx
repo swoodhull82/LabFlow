@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle, Link as LinkIcon, CheckSquare, Square } from "lucide-react";
+import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle, Link as LinkIcon, Milestone } from "lucide-react";
 import { format } from "date-fns";
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -64,6 +64,7 @@ export default function NewTaskPage() {
   const [assignedToText, setAssignedToText] = useState<string | undefined>();
   const [attachments, setAttachments] = useState<FileList | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isMilestone, setIsMilestone] = useState(false);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
@@ -155,6 +156,12 @@ export default function NewTaskPage() {
     };
   }, [pbClient, fetchAndSetEmployees, fetchAllTasksForDependencySelection]);
 
+  useEffect(() => {
+    if (isMilestone && startDate) {
+      setDueDate(startDate);
+    }
+  }, [isMilestone, startDate]);
+
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
@@ -190,6 +197,11 @@ export default function NewTaskPage() {
       toast({ title: "Validation Error", description: "Task recurrence is required.", variant: "destructive" });
       return;
     }
+    if (isMilestone && !startDate) {
+      toast({ title: "Validation Error", description: "Milestone date (Start Date) is required for a milestone.", variant: "destructive" });
+      return;
+    }
+
 
     setIsSubmitting(true);
 
@@ -198,12 +210,20 @@ export default function NewTaskPage() {
     formData.append("description", description);
     formData.append("status", status);
     formData.append("priority", priority);
+    formData.append("isMilestone", isMilestone.toString());
+
     if (startDate) {
       formData.append("startDate", startDate.toISOString());
+      if (isMilestone) {
+        formData.append("dueDate", startDate.toISOString());
+      } else if (dueDate) {
+        formData.append("dueDate", dueDate.toISOString());
+      }
+    } else if (dueDate && !isMilestone) { // Only use dueDate if not a milestone and startDate is not set
+        formData.append("dueDate", dueDate.toISOString());
     }
-    if (dueDate) {
-      formData.append("dueDate", dueDate.toISOString());
-    }
+
+
     formData.append("recurrence", recurrence);
     if (assignedToText) {
       formData.append("assignedTo_text", assignedToText);
@@ -211,6 +231,9 @@ export default function NewTaskPage() {
     formData.append("userId", user.id); 
     
     if (selectedDependencies.length > 0) {
+      // PocketBase expects multi-relation fields to be sent as an array of IDs.
+      // If sending FormData, each ID needs to be appended separately or as a JSON string.
+      // For simplicity and compatibility if 'dependencies' is a JSON field:
       formData.append("dependencies", JSON.stringify(selectedDependencies));
     }
 
@@ -345,9 +368,17 @@ export default function NewTaskPage() {
                 </Select>
               </div>
             </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox id="isMilestone" checked={isMilestone} onCheckedChange={(checked) => setIsMilestone(Boolean(checked))} />
+              <Label htmlFor="isMilestone" className="flex items-center cursor-pointer">
+                <Milestone className="mr-2 h-4 w-4 text-muted-foreground" /> Mark as Milestone
+              </Label>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <Label htmlFor="startDate">Start Date</Label>
+                <Label htmlFor="startDate">{isMilestone ? "Milestone Date" : "Start Date"}</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -375,6 +406,7 @@ export default function NewTaskPage() {
                     <Button
                       variant={"outline"}
                       className="w-full justify-start text-left font-normal"
+                      disabled={isMilestone}
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
                       {dueDate ? format(dueDate, "PPP") : <span>Pick a date</span>}
@@ -385,10 +417,12 @@ export default function NewTaskPage() {
                       mode="single"
                       selected={dueDate}
                       onSelect={setDueDate}
+                      disabled={isMilestone}
                       initialFocus
                     />
                   </PopoverContent>
                 </Popover>
+                 {isMilestone && <p className="text-xs text-muted-foreground mt-1">Due date matches milestone date.</p>}
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -514,10 +548,4 @@ export default function NewTaskPage() {
                 Save Task
               </Button>
             </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
+          </form

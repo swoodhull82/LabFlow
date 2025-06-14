@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 import type { Task, TaskStatus, TaskPriority, TaskRecurrence, Employee } from "@/lib/types";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon, Milestone } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -131,7 +131,20 @@ const taskEditFormSchema = z.object({
   recurrence: z.string().min(1, "Recurrence is required.") as z.ZodType<TaskRecurrence>,
   assignedTo_text: z.string().optional(),
   dependencies: z.array(z.string()).optional(),
+  isMilestone: z.boolean().optional(),
+}).refine(data => {
+  if (data.isMilestone && !data.startDate) {
+    return false; // Start date is required for milestones
+  }
+  if (!data.isMilestone && data.startDate && data.dueDate && data.startDate > data.dueDate) {
+    return false; // Start date cannot be after due date for non-milestones
+  }
+  return true;
+}, {
+  message: "Start date must be before or same as due date. For milestones, a date (Start Date) is required.",
+  path: ["startDate"], // You can also use "dueDate" or a general path
 });
+
 type TaskEditFormData = z.infer<typeof taskEditFormSchema>;
 
 
@@ -161,8 +174,21 @@ export default function TasksPage() {
     resolver: zodResolver(taskEditFormSchema),
     defaultValues: {
       dependencies: [],
+      isMilestone: false,
     }
   });
+
+  const watchedIsMilestone = form.watch("isMilestone");
+  const watchedStartDate = form.watch("startDate");
+
+  useEffect(() => {
+    if (watchedIsMilestone && watchedStartDate) {
+      if (!form.getValues("dueDate") || form.getValues("dueDate")?.getTime() !== watchedStartDate.getTime()) {
+        form.setValue("dueDate", watchedStartDate, { shouldValidate: true });
+      }
+    }
+  }, [watchedIsMilestone, watchedStartDate, form]);
+
 
   const fetchTasksCallback = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -332,6 +358,7 @@ export default function TasksPage() {
         recurrence: editingTask.recurrence,
         assignedTo_text: editingTask.assignedTo_text || "",
         dependencies: Array.isArray(editingTask.dependencies) ? editingTask.dependencies : [],
+        isMilestone: editingTask.isMilestone || false,
       });
     }
   }, [editingTask, form]);
@@ -399,16 +426,17 @@ export default function TasksPage() {
     }
     setIsSubmittingEdit(true);
 
-    const payload: Partial<Task> = {
+    const payload: Partial<Task> & { userId: string } = {
       title: data.title,
       description: data.description,
       status: data.status,
       priority: data.priority,
       startDate: data.startDate,
-      dueDate: data.dueDate,
+      dueDate: data.isMilestone && data.startDate ? data.startDate : data.dueDate,
       recurrence: data.recurrence,
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
       dependencies: data.dependencies || [],
+      isMilestone: data.isMilestone,
       userId: user.id, 
     };
     
@@ -490,7 +518,10 @@ export default function TasksPage() {
               <TableBody>
                 {tasks.map((task) => (
                   <TableRow key={task.id} className="hover:bg-muted/50 transition-colors">
-                    <TableCell className="font-medium">{task.title}</TableCell>
+                    <TableCell className="font-medium flex items-center">
+                      {task.isMilestone && <Milestone className="mr-2 h-4 w-4 text-primary" title="Milestone"/>}
+                      {task.title}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={getStatusBadgeVariant(task.status)}>{task.status}</Badge>
                     </TableCell>
@@ -619,13 +650,32 @@ export default function TasksPage() {
                     )}
                   />
                 </div>
+                
+                <FormField
+                  control={form.control}
+                  name="isMilestone"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center space-x-2 space-y-0 py-2">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormLabel className="font-normal flex items-center cursor-pointer mb-0!"> {/* Added mb-0! to override potential FormLabel styles */}
+                         <Milestone className="mr-2 h-4 w-4 text-muted-foreground" /> Mark as Milestone
+                      </FormLabel>
+                    </FormItem>
+                  )}
+                />
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField
                         control={form.control}
                         name="startDate"
                         render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Start Date (Optional)</FormLabel>
+                            <FormLabel>{watchedIsMilestone ? "Milestone Date" : "Start Date"} (Optional)</FormLabel>
                             <Popover>
                             <PopoverTrigger asChild>
                                 <FormControl>
@@ -663,6 +713,7 @@ export default function TasksPage() {
                                 <Button
                                     variant={"outline"}
                                     className="w-full justify-start text-left font-normal"
+                                    disabled={watchedIsMilestone}
                                 >
                                     <CalendarIcon className="mr-2 h-4 w-4" />
                                     {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
@@ -674,10 +725,12 @@ export default function TasksPage() {
                                 mode="single"
                                 selected={field.value}
                                 onSelect={field.onChange}
+                                disabled={watchedIsMilestone}
                                 initialFocus
                                 />
                             </PopoverContent>
                             </Popover>
+                            {watchedIsMilestone && <p className="text-xs text-muted-foreground mt-1">Due date matches milestone date.</p>}
                             <FormMessage />
                         </FormItem>
                         )}
@@ -827,8 +880,3 @@ export default function TasksPage() {
       )}
     </div>
   );
-}
-
-
-    
-

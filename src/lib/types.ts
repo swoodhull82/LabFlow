@@ -72,8 +72,4 @@ export interface ActivityLogEntry {
   action: string; // Description of the action, e.g., "Created new task"
   details?: string; // Optional additional details about the event
   created: Date | string; // Timestamp of the event
-  updated: Date | string;
-  collectionId?: string;
-  collectionName?: string;
-  expand?: any;
-}
+  updated: Date |

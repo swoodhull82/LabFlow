@@ -20,7 +20,8 @@ const pbRecordToTask = (record: any): Task => {
     dueDate: record.dueDate ? new Date(record.dueDate) : undefined,
     created: new Date(record.created), 
     updated: new Date(record.updated),
-    dependencies: Array.isArray(record.dependencies) ? record.dependencies : [], 
+    dependencies: Array.isArray(record.dependencies) ? record.dependencies : (typeof record.dependencies === 'string' && record.dependencies.startsWith('[') ? JSON.parse(record.dependencies) : []), 
+    isMilestone: typeof record.isMilestone === 'boolean' ? record.isMilestone : false,
   } as Task;
 };
 
@@ -74,6 +75,10 @@ export const getTaskById = async (pb: PocketBase, id: string, options?: PocketBa
 
 export const createTask = async (pb: PocketBase, taskData: FormData, options?: PocketBaseRequestOptions): Promise<Task> => {
   try {
+    // Ensure boolean is sent correctly for FormData
+    if (taskData.has('isMilestone')) {
+      taskData.set('isMilestone', taskData.get('isMilestone') === 'true' ? 'true' : 'false');
+    }
     const record = await pb.collection(COLLECTION_NAME).create(taskData, { signal: options?.signal });
     return pbRecordToTask(record);
   } catch (error) {
@@ -85,6 +90,13 @@ export const createTask = async (pb: PocketBase, taskData: FormData, options?: P
 export const updateTask = async (pb: PocketBase, id: string, taskData: FormData | Partial<Task>, options?: PocketBaseRequestOptions): Promise<Task> => {
   try {
     const { signal } = options || {};
+    // Ensure boolean is sent correctly for FormData
+    if (taskData instanceof FormData && taskData.has('isMilestone')) {
+      taskData.set('isMilestone', taskData.get('isMilestone') === 'true' || taskData.get('isMilestone') === true ? 'true' : 'false');
+    } else if (!(taskData instanceof FormData) && taskData.hasOwnProperty('isMilestone')) {
+      taskData.isMilestone = !!taskData.isMilestone;
+    }
+
     const record = await withRetry(() =>
       pb.collection(COLLECTION_NAME).update(id, taskData, { signal }),
       { context: `updating task ${id}`, signal }
@@ -107,5 +119,3 @@ export const deleteTask = async (pb: PocketBase, id: string, options?: PocketBas
     console.error(`Failed to delete task ${id}:`, error);
     throw error;
   }
-};
-
