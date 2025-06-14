@@ -10,15 +10,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarImage } from "@/components/ui/avatar"; // Removed AvatarFallback
-import { Bell, LogOut, Settings, User as UserIcon, Menu } from "lucide-react";
+import { Avatar, AvatarImage } from "@/components/ui/avatar";
+import { Bell, LogOut, Settings, Menu } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
-import React from "react"; // Import React for React.createElement
+import React from "react"; 
+import { useRouter } from 'next/navigation';
 
 export function Header() {
   const { user, logout } = useAuth();
   const { toggleSidebar, isMobile } = useSidebar();
+  const router = useRouter();
 
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6 shadow-sm">
@@ -44,11 +46,10 @@ export function Header() {
                   className="h-9 w-9"
                 >
                   {user.lucideIconComponent ? (
-                    React.createElement(user.lucideIconComponent, { className: "h-full w-full p-1 text-muted-foreground" })
+                    React.createElement(user.lucideIconComponent, { className: "h-full w-full text-muted-foreground" })
                   ) : user.avatarUrl ? (
                     <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
                   ) : null}
-                  {/* AvatarFallback removed */}
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
@@ -62,13 +63,10 @@ export function Header() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => router.push('/settings')}>
-                <UserIcon className="mr-2 h-4 w-4" />
-                <span>Profile</span>
-              </DropdownMenuItem>
+              {/* Removed duplicate Profile menu item, Settings is generally preferred for profile and settings */}
               <DropdownMenuItem onClick={() => router.push('/settings')}>
                 <Settings className="mr-2 h-4 w-4" />
-                <span>Settings</span>
+                <span>Settings & Profile</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={logout}>
@@ -83,5 +81,3 @@ export function Header() {
   );
 }
 
-// Added import for router if it was missing for navigation
-import { useRouter } from 'next/navigation';
