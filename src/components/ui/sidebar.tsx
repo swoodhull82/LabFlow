@@ -108,37 +108,7 @@ const SidebarProvider = React.forwardRef<
       return () => window.removeEventListener("keydown", handleKeyDown)
     }, [toggleSidebar])
 
-    React.useEffect(() => {
-      const handleOutsideClick = (event: MouseEvent) => {
-        if (isMobile || !open || !desktopSidebarRef.current) {
-          return;
-        }
-
-        const target = event.target as Node;
-
-        // Don't close if the click is on the sidebar itself or the trigger button
-        if (desktopSidebarRef.current.contains(target) || (target as HTMLElement).closest('[data-sidebar="trigger"]')) {
-          return;
-        }
-
-        // Don't close if the click is inside any Radix UI portaled content
-        // (Dialogs, Popovers, DropdownMenus, Tooltips, Selects etc.)
-        // These often render outside the main DOM hierarchy but are interactive elements.
-        if ((target as HTMLElement).closest(
-          '[data-radix-popper-content-wrapper], [role="dialog"], [data-radix-dialog-content], [role="alertdialog"], [data-radix-dropdown-menu-content], [data-radix-select-content], [data-radix-tooltip-content]'
-        )) {
-          return;
-        }
-        
-        setOpen(false);
-      };
-
-      document.addEventListener("mousedown", handleOutsideClick);
-      return () => {
-        document.removeEventListener("mousedown", handleOutsideClick);
-      };
-    }, [isMobile, open, setOpen, desktopSidebarRef]);
-
+    // Removed the useEffect for handleOutsideClick
 
     const state = open ? "expanded" : "collapsed"
 
@@ -784,4 +754,3 @@ export {
   SidebarTrigger,
   useSidebar,
 }
-
