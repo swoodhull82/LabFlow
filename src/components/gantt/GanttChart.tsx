@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
 import { getTasks, updateTask as updateTaskService } from "@/services/taskService"; 
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, Edit2, Save, X, Link as LinkIcon } from "lucide-react";
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, Edit2, Save, X, Link as LinkIcon, PlusCircle } from "lucide-react";
 import { Button as ShadcnButton } from "@/components/ui/button"; 
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TASK_STATUSES, PREDEFINED_TASK_TITLES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
+import Link from "next/link";
 
 const ROW_HEIGHT = 48; 
 const LEFT_PANEL_WIDTH = 450; 
@@ -113,10 +114,11 @@ interface QuickEditPopoverState {
 }
 
 interface GanttChartProps {
-  filterTaskType?: string; // e.g., "Validation"
+  filterTaskType?: string;
+  displayHeaderControls?: 'defaultTitle' | 'addValidationButton';
 }
 
-const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType }) => {
+const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderControls = 'defaultTitle' }) => {
   const { pbClient } = useAuth();
   const { toast } = useToast();
   const [allTasks, setAllTasks] = useState<Task[]>([]);
@@ -367,12 +369,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType }) => {
         if (updates.startDate) payload.startDate = new Date(updates.startDate).toISOString();
         if (updates.dueDate) payload.dueDate = new Date(updates.dueDate).toISOString();
         
-        // If title is not Validation, ensure isMilestone and dependencies are cleared
         if (payload.title && payload.title !== "Validation") {
             payload.isMilestone = false;
             payload.dependencies = [];
         } else if (payload.title === "Validation") {
-            // If it IS a validation task, ensure isMilestone is boolean
             if (updates.hasOwnProperty('isMilestone')) {
                 payload.isMilestone = !!updates.isMilestone;
             }
@@ -431,7 +431,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType }) => {
     };
 
     const handleMouseDownOnDependencyConnector = (e: React.MouseEvent, task: Task) => {
-        if (e.button !== 0 || task.title !== "Validation") return; // Only allow drawing from Validation tasks
+        if (e.button !== 0 || task.title !== "Validation") return; 
         const taskDetails = taskRenderDetailsMap.get(task.id);
         if (!taskDetails || taskDetails.isMilestoneRender) return; 
         
@@ -490,9 +490,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType }) => {
             updates.isMilestone = false;
             updates.dependencies = [];
         }
-        // Note: Milestone and dependencies cannot be set directly from this quick edit popover for Validation tasks.
-        // They are managed via the main edit form.
-
+        
         handleTaskUpdate(quickEditPopoverState.taskId, updates);
         setIsQuickEditPopoverOpen(false);
         setQuickEditPopoverState({taskId: null, currentTitle: PREDEFINED_TASK_TITLES[0] || "", currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0});
@@ -536,7 +534,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType }) => {
                     
                     let targetDropTaskId: string | null = null;
                     for (const [taskId, details] of taskRenderDetailsMap.entries()) {
-                        if (taskId === dependencyDrawState.sourceTaskId || details.task.title !== "Validation") continue; // Can only depend on Validation tasks
+                        if (taskId === dependencyDrawState.sourceTaskId || details.task.title !== "Validation") continue; 
 
                         const taskRowTop = details.index * ROW_HEIGHT;
                         const taskRowBottom = taskRowTop + ROW_HEIGHT;
@@ -673,7 +671,15 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType }) => {
     <TooltipProvider>
     <div ref={ganttBodyRef} className="gantt-chart-root flex flex-col h-[calc(100vh-200px)] overflow-hidden">
       <div className="flex justify-between items-center p-2 border-b border-border bg-card flex-shrink-0">
-         <h2 className="text-lg font-semibold text-card-foreground">Project Timeline</h2>
+        {displayHeaderControls === 'addValidationButton' ? (
+            <Link href="/tasks/new?defaultType=Validation" passHref>
+              <ShadcnButton variant="outline" size="sm">
+                <PlusCircle className="mr-2 h-4 w-4" /> Add Validation Task
+              </ShadcnButton>
+            </Link>
+          ) : (
+            <h2 className="text-lg font-semibold text-card-foreground">Project Timeline</h2>
+          )}
          <div className="flex items-center gap-2">
             <ShadcnButton variant="outline" size="icon" onClick={handleZoomOut} disabled={dayCellWidth <= MIN_DAY_CELL_WIDTH} title="Zoom Out"><ZoomOut className="h-4 w-4" /></ShadcnButton>
             <ShadcnButton variant="outline" size="icon" onClick={handleZoomIn} disabled={dayCellWidth >= MAX_DAY_CELL_WIDTH} title="Zoom In"><ZoomIn className="h-4 w-4" /></ShadcnButton>
@@ -799,7 +805,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType }) => {
                           onMouseEnter={() => setHoveredTaskId(task.id)}
                           onMouseLeave={() => setHoveredTaskId(null)}
                           className={cn(
-                            "absolute transition-opacity duration-150 ease-in-out group cursor-grab z-10 flex items-center justify-center", // Added flex for centering
+                            "absolute transition-opacity duration-150 ease-in-out group cursor-grab z-10 flex items-center justify-center", 
                             getTaskBarColor(task.status, isMilestoneRender, task.title),
                             !isMilestoneRender && "rounded-sm",
                             (isBeingDragged || isBeingDepDrawnFrom) ? 'ring-2 ring-ring ring-offset-background ring-offset-1 shadow-lg' : 
