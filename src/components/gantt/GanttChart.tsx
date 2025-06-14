@@ -141,7 +141,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   const [quickEditPopoverState, setQuickEditPopoverState] = useState<QuickEditPopoverState>({
     taskId: null,
     currentTitle: "",
-    currentTaskType: TASK_TYPES[0], 
+    currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], // Default to a non-validation type initially
     currentInstrumentSubtype: undefined,
     currentStatus: 'To Do',
     currentProgress: 0,
@@ -471,6 +471,20 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'crosshair';
     };
 
+    const openQuickEditPopover = (task: Task) => {
+      setQuickEditPopoverState({
+        taskId: task.id,
+        currentTitle: task.title,
+        currentTaskType: task.task_type,
+        currentInstrumentSubtype: task.instrument_subtype,
+        currentStatus: task.status,
+        currentProgress: task.progress || 0,
+        currentSteps: task.task_type === "VALIDATION_PROJECT" ? (task.steps || []) : [],
+        newStepText: "",
+      });
+      setIsQuickEditPopoverOpen(true);
+    };
+    
     const handleTaskBarClick = (e: React.MouseEvent, task: Task) => {
         if (e.detail !== 1 || Math.abs(e.movementX) > 2 || Math.abs(e.movementY) > 2) { 
           return;
@@ -481,19 +495,16 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             targetElement.closest('.dependency-connector')) {
           return;
         }
-        
-        setQuickEditPopoverState({
-          taskId: task.id,
-          currentTitle: task.title,
-          currentTaskType: task.task_type,
-          currentInstrumentSubtype: task.instrument_subtype,
-          currentStatus: task.status,
-          currentProgress: task.progress || 0,
-          currentSteps: task.task_type === "VALIDATION_PROJECT" ? (task.steps || []) : [],
-          newStepText: "",
-        });
-        setIsQuickEditPopoverOpen(true);
+        openQuickEditPopover(task);
       };
+    
+    const handleLeftPanelItemClick = (e: React.MouseEvent, task: Task) => {
+      if (task.task_type === "VALIDATION_PROJECT") {
+        e.stopPropagation();
+        openQuickEditPopover(task);
+      }
+      // For other task types, clicking the name in the left panel does nothing currently.
+    };
     
     const handleAddStepInQuickEdit = () => {
         if (quickEditPopoverState.newStepText.trim() === "") return;
@@ -535,7 +546,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         
         handleTaskUpdate(quickEditPopoverState.taskId, updates);
         setIsQuickEditPopoverOpen(false);
-        setQuickEditPopoverState({taskId: null, currentTitle: "", currentTaskType: TASK_TYPES[0], currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0, currentSteps: [], newStepText: ""});
+        setQuickEditPopoverState({taskId: null, currentTitle: "", currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0, currentSteps: [], newStepText: ""});
     };
 
 
@@ -758,7 +769,14 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 onMouseLeave={() => setHoveredTaskId(null)}
               >
                 <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
-                <span className="font-medium truncate cursor-default" title={task.title} >
+                <span 
+                  className={cn(
+                    "font-medium truncate",
+                    task.task_type === "VALIDATION_PROJECT" ? "cursor-pointer hover:text-primary" : "cursor-default"
+                  )}
+                  title={task.title} 
+                  onClick={(e) => handleLeftPanelItemClick(e, task)}
+                >
                    {task.title}
                 </span>
                 <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
@@ -820,19 +838,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                     <Popover key={`${task.id}-popover`} open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id} onOpenChange={(open) => {
                       if (!open) {
                         setIsQuickEditPopoverOpen(false);
-                        setQuickEditPopoverState({taskId: null, currentTitle: "", currentTaskType: TASK_TYPES[0], currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0, currentSteps: [], newStepText: ""});
-                      } else if (task.id !== quickEditPopoverState.taskId) {
-                         setQuickEditPopoverState({
-                           taskId: task.id,
-                           currentTitle: task.title,
-                           currentTaskType: task.task_type,
-                           currentInstrumentSubtype: task.instrument_subtype,
-                           currentStatus: task.status,
-                           currentProgress: task.progress || 0,
-                           currentSteps: task.task_type === "VALIDATION_PROJECT" ? (task.steps || []) : [],
-                           newStepText: "",
-                         });
-                         setIsQuickEditPopoverOpen(true);
+                        setQuickEditPopoverState({taskId: null, currentTitle: "", currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0, currentSteps: [], newStepText: ""});
+                      } else if (task.id !== quickEditPopoverState.taskId) { // Should not happen if open is managed correctly
+                         openQuickEditPopover(task);
                       }
                     }}>
                     <Tooltip delayDuration={isBeingDragged || isBeingDepDrawnFrom || (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) ? 999999 : 100}>
@@ -941,11 +949,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                            {task.task_type === "VALIDATION_PROJECT" && task.steps && task.steps.length > 0 && (
                                 <div>
                                 <p className="text-xs text-muted-foreground mt-1">Steps:</p>
-                                <ul className="list-decimal list-inside pl-2 space-y-0.5 max-h-20 overflow-y-auto">
-                                    {task.steps.map((step, idx) => (
-                                    <li key={idx} className="text-xs font-medium text-foreground truncate" title={step}>{step}</li>
-                                    ))}
-                                </ul>
+                                <ScrollArea className="max-h-20">
+                                  <ul className="list-decimal list-inside pl-2 space-y-0.5">
+                                      {task.steps.map((step, idx) => (
+                                      <li key={idx} className="text-xs font-medium text-foreground truncate" title={step}>{step}</li>
+                                      ))}
+                                  </ul>
+                                </ScrollArea>
                                 </div>
                             )}
                         </div>
