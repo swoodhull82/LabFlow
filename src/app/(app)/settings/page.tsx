@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, chemistryIconData } from "@/context/AuthContext";
-import { Avatar, AvatarImage } from "@/components/ui/avatar"; // Removed AvatarFallback
+import { Avatar, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import {
   Select,
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { useTheme } from "next-themes";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Loader2, ImageUp, Palette, Trash2 } from "lucide-react"; // Removed User
+import { Save, Loader2, ImageUp, Trash2 } from "lucide-react";
 
 const LOCAL_STORAGE_KEYS = {
   emailNotifications: "labflow-emailNotificationsEnabled",
@@ -130,13 +130,12 @@ export default function SettingsPage() {
               <div className="flex flex-col items-center space-y-2">
                 {user && (
                   <>
-                  <Avatar className="h-24 w-24">
+                  <Avatar className="h-24 w-24 flex items-center justify-center">
                     {user.lucideIconComponent ? (
-                      React.createElement(user.lucideIconComponent, { className: "h-full w-full p-2 text-muted-foreground" }) 
+                      React.createElement(user.lucideIconComponent, { className: "h-full w-full text-muted-foreground" }) 
                     ) : user.avatarUrl ? (
                       <AvatarImage src={user.avatarUrl} alt={user.name || user.email} />
                     ) : null}
-                    {/* AvatarFallback removed */}
                   </Avatar>
                   
                   <input 

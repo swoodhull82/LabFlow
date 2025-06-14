@@ -43,7 +43,7 @@ export function Header() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                 <Avatar 
-                  className="h-9 w-9"
+                  className="h-9 w-9 flex items-center justify-center"
                 >
                   {user.lucideIconComponent ? (
                     React.createElement(user.lucideIconComponent, { className: "h-full w-full text-muted-foreground" })
@@ -63,7 +63,6 @@ export function Header() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {/* Removed duplicate Profile menu item, Settings is generally preferred for profile and settings */}
               <DropdownMenuItem onClick={() => router.push('/settings')}>
                 <Settings className="mr-2 h-4 w-4" />
                 <span>Settings & Profile</span>
