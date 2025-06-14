@@ -24,6 +24,7 @@ import { getTasks } from "@/services/taskService";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import { Button as ShadcnButton } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type PocketBase from "pocketbase";
 
 const ROW_HEIGHT = 48; // px, height of each task row
@@ -93,6 +94,7 @@ const GanttChart: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [viewStartDate, setViewStartDate] = useState<Date>(startOfMonth(new Date()));
   const [dayCellWidth, setDayCellWidth] = useState<number>(DEFAULT_DAY_CELL_WIDTH);
+  const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   
   const timelineScrollContainerRef = useRef<HTMLDivElement>(null);
   const leftPanelScrollContainerRef = useRef<HTMLDivElement>(null);
@@ -290,17 +292,12 @@ const GanttChart: React.FC = () => {
   const refetchTasks = () => pbClient && fetchTimelineTasks(pbClient);
 
   useEffect(() => {
-    // Basic vertical scroll synchronization
-    // More advanced sync (e.g., accounting for different scroll speeds or momentum) is complex.
     let primaryScroller: 'left' | 'right' | null = null;
 
     const handleLeftScroll = () => {
       if (primaryScroller === 'right') return;
       primaryScroller = 'left';
       if (leftPanelScrollContainerRef.current && timelineScrollContainerRef.current) {
-        // Sync vertical scroll of timeline grid to left panel's task list
-        // This assumes the timelineScrollContainerRef's direct child (timeline-inner-content)
-        // is the one that should have its scrollTop set.
         const rightInnerScroll = timelineScrollContainerRef.current.querySelector('.timeline-inner-content');
         if (rightInnerScroll) {
           rightInnerScroll.scrollTop = leftPanelScrollContainerRef.current.scrollTop;
@@ -313,7 +310,6 @@ const GanttChart: React.FC = () => {
       if (primaryScroller === 'left') return;
       primaryScroller = 'right';
       if (leftPanelScrollContainerRef.current && timelineScrollContainerRef.current) {
-        // Sync vertical scroll of left panel to timeline grid
         const rightInnerScroll = timelineScrollContainerRef.current.querySelector('.timeline-inner-content');
         if (rightInnerScroll) {
           leftPanelScrollContainerRef.current.scrollTop = rightInnerScroll.scrollTop;
@@ -332,7 +328,7 @@ const GanttChart: React.FC = () => {
       leftEl?.removeEventListener('scroll', handleLeftScroll);
       rightInnerEl?.removeEventListener('scroll', handleRightScroll);
     };
-  }, [tasksToDisplay]); // Rerun if tasks change, as scroll heights might change
+  }, [tasksToDisplay]); 
 
 
   if (isLoading) {
@@ -407,8 +403,14 @@ const GanttChart: React.FC = () => {
             {tasksToDisplay.map((task, taskIndex) => (
               <div 
                 key={task.id} 
-                className="grid grid-cols-[40px_1fr_70px_70px_60px] items-center gap-2 p-2 border-b border-border text-xs hover:bg-muted/50"
+                className={cn(
+                  "grid grid-cols-[40px_1fr_70px_70px_60px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150",
+                  task.id === hoveredTaskId ? 'bg-primary/10 dark:bg-primary/20' : '',
+                  hoveredTaskId && task.id !== hoveredTaskId ? 'opacity-60' : 'opacity-100'
+                )}
                 style={{ height: `${ROW_HEIGHT}px` }}
+                onMouseEnter={() => setHoveredTaskId(task.id)}
+                onMouseLeave={() => setHoveredTaskId(null)}
               >
                 <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
                 <span className="font-medium truncate" title={task.title}>{task.title}</span>
@@ -464,47 +466,72 @@ const GanttChart: React.FC = () => {
                   const taskBarTopOffset = TASK_BAR_VERTICAL_PADDING;
                   const milestoneTopOffset = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
 
-                  const tooltipLines = [
-                    `Task: ${task.title}`, `Status: ${task.status}`, `Priority: ${task.priority}`,
-                    `Progress: ${task.progress}%`,
-                    `Dates: ${format(task.startDate, 'MMM d, yyyy')} - ${format(task.dueDate, 'MMM d, yyyy')}`,
-                    `Assigned to: ${task.assignedTo_text || "Unassigned"}`,
-                    `Depends on: ${task.dependencies && task.dependencies.length > 0 ? task.dependencies.map(depId => allTasks.find(t=>t.id===depId)?.title || depId).join(', ') : "None"}`
-                  ];
-                  const tooltipText = tooltipLines.join('\n');
-
                   return (
-                    <div
-                      key={task.id}
-                      title={tooltipText}
-                      className={cn(
-                        "absolute transition-all duration-150 ease-in-out group cursor-pointer z-10",
-                        getTaskBarColor(task.status, isMilestone),
-                        !isMilestone && "rounded-sm"
-                      )}
-                      style={{
-                        left: `${barStartX}px`,
-                        width: `${barWidth < 0 ? 0 : barWidth}px`, // Ensure width is not negative
-                        top: `${(taskIndex * ROW_HEIGHT) + (isMilestone ? milestoneTopOffset : taskBarTopOffset)}px`,
-                        height: isMilestone ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
-                      }}
-                    >
-                      {!isMilestone && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && barWidth > 0 && (
-                        <div className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" style={{ width: `${task.progress}%`}} />
-                      )}
-                      {isMilestone && (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <svg viewBox="0 0 100 100" className="w-full h-full fill-current text-white/80" preserveAspectRatio="none">
-                            <polygon points="50,0 100,50 50,100 0,50" />
-                          </svg>
+                    <Tooltip key={task.id} delayDuration={100}>
+                      <TooltipTrigger asChild>
+                        <div
+                          onMouseEnter={() => setHoveredTaskId(task.id)}
+                          onMouseLeave={() => setHoveredTaskId(null)}
+                          className={cn(
+                            "absolute transition-all duration-150 ease-in-out group cursor-pointer z-10",
+                            getTaskBarColor(task.status, isMilestone),
+                            !isMilestone && "rounded-sm",
+                            task.id === hoveredTaskId ? 'ring-2 ring-ring ring-offset-background ring-offset-1' : '',
+                            hoveredTaskId && task.id !== hoveredTaskId ? 'opacity-50' : 'opacity-100'
+                          )}
+                          style={{
+                            left: `${barStartX}px`,
+                            width: `${barWidth < 0 ? 0 : barWidth}px`,
+                            top: `${(taskIndex * ROW_HEIGHT) + (isMilestone ? milestoneTopOffset : taskBarTopOffset)}px`,
+                            height: isMilestone ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
+                          }}
+                        >
+                          {!isMilestone && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && barWidth > 0 && (
+                            <div className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" style={{ width: `${task.progress}%`}} />
+                          )}
+                          {isMilestone && (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <svg viewBox="0 0 100 100" className="w-full h-full fill-current text-white/80" preserveAspectRatio="none">
+                                <polygon points="50,0 100,50 50,100 0,50" />
+                              </svg>
+                            </div>
+                          )}
+                          {!isMilestone && barWidth > (dayCellWidth * 0.75) && (
+                            <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden pr-1">
+                              {task.title}
+                            </span>
+                          )}
                         </div>
-                      )}
-                      {!isMilestone && barWidth > (dayCellWidth * 0.75) && (
-                        <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden pr-1">
-                          {task.title}
-                        </span>
-                      )}
-                    </div>
+                      </TooltipTrigger>
+                      <TooltipContent className="p-2 shadow-lg bg-popover text-popover-foreground rounded-md border max-w-xs w-auto z-50">
+                        <div className="space-y-1">
+                          <p className="font-semibold text-sm">{task.title}</p>
+                          <p className="text-xs text-muted-foreground">Status: <span className="font-medium text-foreground">{task.status}</span></p>
+                          <p className="text-xs text-muted-foreground">Priority: <span className="font-medium text-foreground">{task.priority}</span></p>
+                          <p className="text-xs text-muted-foreground">Progress: <span className="font-medium text-foreground">{task.progress || 0}%</span></p>
+                          <p className="text-xs text-muted-foreground">
+                            Dates: {format(task.startDate, 'MMM d, yy')} - {format(task.dueDate, 'MMM d, yy')}
+                          </p>
+                          {task.assignedTo_text && (
+                            <p className="text-xs text-muted-foreground">Assigned to: <span className="font-medium text-foreground">{task.assignedTo_text}</span></p>
+                          )}
+                          {task.dependencies && task.dependencies.length > 0 && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mt-1">Depends on:</p>
+                              <ul className="list-disc list-inside pl-2 space-y-0.5">
+                                {task.dependencies.map(depId => {
+                                  const depTaskDetails = allTasks.find(t => t.id === depId);
+                                  return <li key={depId} className="text-xs font-medium text-foreground truncate" title={depTaskDetails?.title}>{depTaskDetails?.title || 'Unknown Task'}</li>;
+                                })}
+                              </ul>
+                            </div>
+                          )}
+                           {!task.dependencies || task.dependencies.length === 0 && (
+                             <p className="text-xs text-muted-foreground">Dependencies: None</p>
+                           )}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
                   );
                 })}
 
@@ -541,5 +568,3 @@ const GanttChart: React.FC = () => {
 };
 
 export default GanttChart;
-
-    
