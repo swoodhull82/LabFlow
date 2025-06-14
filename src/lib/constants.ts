@@ -6,3 +6,5 @@ export const TASK_PRIORITIES: TaskPriority[] = ["Low", "Medium", "High", "Urgent
 export const TASK_RECURRENCES: TaskRecurrence[] = ["None", "Daily", "Weekly", "Monthly", "Yearly"];
 
 export const APP_NAME = "LabFlow";
+
+export const PREDEFINED_TASK_TITLES: readonly string[] = ["MDL", "SOP", "IA", "iDOC", "oDOC"];

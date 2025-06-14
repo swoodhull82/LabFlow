@@ -20,11 +20,16 @@ import {
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
-import { getTasks } from "@/services/taskService";
+import { getTasks, updateTask as updateTaskService } from "@/services/taskService"; // Renamed import
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
-import { Button as ShadcnButton } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, Edit2, Save, X } from "lucide-react";
+import { Button as ShadcnButton } from "@/components/ui/button"; // Aliased to avoid conflict
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TASK_STATUSES, PREDEFINED_TASK_TITLES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
 
 const ROW_HEIGHT = 48; // px, height of each task row
@@ -39,6 +44,8 @@ const DEFAULT_DAY_CELL_WIDTH = 30; // px
 
 const DEPENDENCY_LINE_OFFSET = 15; // px, for the horizontal part of the elbow connector
 const ARROW_SIZE = 5; // px, for arrowhead marker
+const RESIZE_HANDLE_WIDTH = 8; // px
+const MIN_TASK_DURATION_DAYS = 1;
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => {
   if (isMilestone) return 'bg-purple-500 hover:bg-purple-600';
@@ -59,25 +66,20 @@ const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean): string => 
   }
 };
 
-const getDetailedErrorMessage = (error: any): string => {
-  let message = "An unexpected error occurred while fetching tasks for the timeline.";
+const getDetailedErrorMessage = (error: any, context?: string): string => {
+  let message = `An unexpected error occurred while ${context || 'processing your request'}.`;
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      message = "Failed to load timeline data: Could not connect to the server. Please check your internet connection and try again.";
-    } else if (error.data && typeof error.data === 'object' && error.data.message && typeof error.data.message === 'string') {
+      message = `Failed to connect to the server while ${context || 'processing'}. Please check your internet connection.`;
+    } else if (error.data?.message) {
       message = error.data.message;
-    } else if (error.message && typeof error.message === 'string' && !(error.message.startsWith("PocketBase_ClientResponseError"))) {
+    } else if (error.message && !error.message.startsWith("PocketBase_ClientResponseError")) {
       message = error.message;
-    } else if (error.originalError && typeof error.originalError.message === 'string') {
-        message = error.originalError.message;
-    } else if (error.message && typeof error.message === 'string') {
-      message = error.message;
+    } else if (error.originalError?.message) {
+      message = error.originalError.message;
     }
-
-    if ('status' in error && error.status !== 0) {
-      const status = error.status;
-      if (status === 404) message = `The 'tasks' collection was not found (404). ${message}`;
-      else if (status === 403) message = `You do not have permission to view tasks (403). ${message}`;
+     if ('status' in error && error.status && error.status !==0) {
+      message = `${message} (Status: ${error.status})`;
     }
   } else if (typeof error === 'string') {
     message = error;
@@ -85,6 +87,24 @@ const getDetailedErrorMessage = (error: any): string => {
   return message;
 };
 
+interface DragState {
+  type: 'drag' | 'resize-start' | 'resize-end' | 'draw-dependency';
+  taskId: string;
+  initialMouseX: number;
+  originalStartDate: Date;
+  originalDueDate: Date;
+  currentMouseX?: number; // For dependency drawing, relative to timeline grid
+  currentMouseY?: number; // For dependency drawing, relative to timeline grid
+  sourceTaskBarEndX?: number; // For dependency drawing
+  sourceTaskBarCenterY?: number; // For dependency drawing
+}
+
+interface QuickEditPopoverState {
+  taskId: string | null;
+  currentTitle: string;
+  currentStatus: TaskStatus;
+  currentProgress: number;
+}
 
 const GanttChart: React.FC = () => {
   const { pbClient } = useAuth();
@@ -95,9 +115,20 @@ const GanttChart: React.FC = () => {
   const [viewStartDate, setViewStartDate] = useState<Date>(startOfMonth(new Date()));
   const [dayCellWidth, setDayCellWidth] = useState<number>(DEFAULT_DAY_CELL_WIDTH);
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
+  const [dragState, setDragState] = useState<DragState | null>(null);
   
   const timelineScrollContainerRef = useRef<HTMLDivElement>(null);
   const leftPanelScrollContainerRef = useRef<HTMLDivElement>(null);
+  const ganttBodyRef = useRef<HTMLDivElement>(null); // For cursor styling and relative mouse coords
+
+  const [quickEditPopoverState, setQuickEditPopoverState] = useState<QuickEditPopoverState>({
+    taskId: null,
+    currentTitle: PREDEFINED_TASK_TITLES[0] || "",
+    currentStatus: 'To Do',
+    currentProgress: 0,
+  });
+  const [isQuickEditPopoverOpen, setIsQuickEditPopoverOpen] = useState(false);
+
 
   const fetchTimelineTasks = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -128,12 +159,12 @@ const GanttChart: React.FC = () => {
       if (isAutocancel) {
         console.warn(`GanttChart: Timeline tasks fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
       } else if (isNetworkErrorNotAutocancel) {
-        const detailedError = getDetailedErrorMessage(err);
+        const detailedError = getDetailedErrorMessage(err, "fetching timeline data");
         setError(detailedError);
         toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
         console.warn("GanttChart: Timeline tasks fetch (network error):", detailedError, err);
       } else {
-        const detailedError = getDetailedErrorMessage(err);
+        const detailedError = getDetailedErrorMessage(err, "fetching timeline data");
         setError(detailedError);
         toast({ title: "Error Loading Timeline Data", description: detailedError, variant: "destructive" });
         console.warn("GanttChart: Error fetching tasks for timeline (after retries):", detailedError, err);
@@ -213,15 +244,34 @@ const GanttChart: React.FC = () => {
         task: Task & { startDate: Date; dueDate: Date; isMilestone: boolean; dependencies: string[] };
         index: number;
         barStartX: number;
-        barEndX: number; // For non-milestones, this is barStartX + width
+        barEndX: number; 
         barWidth: number;
         barCenterY: number;
         isMilestone: boolean;
+        effectiveStartDate: Date;
+        effectiveDueDate: Date;
     }>();
 
     tasksToDisplay.forEach((task, index) => {
-        const taskStartActual = task.startDate;
-        const taskEndActual = task.dueDate;
+        let taskStartActual = task.startDate;
+        let taskEndActual = task.dueDate;
+
+        if (dragState && dragState.taskId === task.id && (dragState.type === 'drag' || dragState.type === 'resize-start' || dragState.type === 'resize-end')) {
+            const dragOffsetDays = Math.round(( (dragState.currentMouseX ?? dragState.initialMouseX) - dragState.initialMouseX) / dayCellWidth);
+            
+            if (dragState.type === 'drag') {
+                taskStartActual = addDays(dragState.originalStartDate, dragOffsetDays);
+                taskEndActual = addDays(dragState.originalDueDate, dragOffsetDays);
+            } else if (dragState.type === 'resize-start') {
+                taskStartActual = addDays(dragState.originalStartDate, dragOffsetDays);
+                taskStartActual = min([taskStartActual, addDays(dragState.originalDueDate, - (MIN_TASK_DURATION_DAYS-1) )]); // Prevent crossing due date
+                taskEndActual = dragState.originalDueDate;
+            } else if (dragState.type === 'resize-end') {
+                taskStartActual = dragState.originalStartDate;
+                taskEndActual = addDays(dragState.originalDueDate, dragOffsetDays);
+                taskEndActual = max([taskEndActual, addDays(dragState.originalStartDate, (MIN_TASK_DURATION_DAYS-1) )]); // Prevent crossing start date
+            }
+        }
         
         const taskStartInView = max([taskStartActual, chartStartDate]);
         const taskEndInView = min([taskEndActual, chartEndDate]);
@@ -240,9 +290,9 @@ const GanttChart: React.FC = () => {
             barLeftPosition += (dayCellWidth / 2) - (MILESTONE_SIZE / 2);
         }
         
-        const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2; // Adjusted for padding on both sides
-        const taskBarTop = TASK_BAR_VERTICAL_PADDING; // Relative to the row
-        const milestoneTop = (ROW_HEIGHT - MILESTONE_SIZE) / 2; // Relative to the row
+        const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2;
+        const taskBarTop = TASK_BAR_VERTICAL_PADDING;
+        const milestoneTop = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
 
         map.set(task.id, {
             task,
@@ -253,11 +303,12 @@ const GanttChart: React.FC = () => {
             barCenterY: (index * ROW_HEIGHT) + 
                         (task.isMilestone ? milestoneTop + MILESTONE_SIZE / 2 : taskBarTop + taskBarHeight / 2),
             isMilestone: !!task.isMilestone,
+            effectiveStartDate: taskStartActual,
+            effectiveDueDate: taskEndActual,
         });
     });
     return map;
-  }, [tasksToDisplay, chartStartDate, chartEndDate, dayCellWidth]);
-
+  }, [tasksToDisplay, chartStartDate, chartEndDate, dayCellWidth, dragState]);
 
   const dependencyLines = useMemo(() => {
     const lines: { id: string, d: string }[] = [];
@@ -284,6 +335,224 @@ const GanttChart: React.FC = () => {
     });
     return lines;
   }, [tasksToDisplay, taskRenderDetailsMap]);
+
+    const handleTaskUpdate = useCallback(async (
+        taskId: string, 
+        updates: Partial<Pick<Task, 'startDate' | 'dueDate' | 'dependencies' | 'title' | 'status' | 'progress'>>
+    ) => {
+        if (!pbClient) return;
+        const taskToUpdate = allTasks.find(t => t.id === taskId);
+        if (!taskToUpdate) return;
+
+        // Ensure dates are in ISO format if present
+        const payload: Partial<Task> = { ...updates };
+        if (updates.startDate) payload.startDate = new Date(updates.startDate).toISOString();
+        if (updates.dueDate) payload.dueDate = new Date(updates.dueDate).toISOString();
+        if (updates.dependencies) payload.dependencies = updates.dependencies;
+        if (updates.title) payload.title = updates.title;
+        if (updates.status) payload.status = updates.status;
+        if (updates.progress !== undefined) payload.progress = updates.progress;
+
+
+        try {
+            await updateTaskService(pbClient, taskId, payload);
+            toast({ title: "Task Updated", description: `Task "${taskToUpdate.title}" was successfully updated.` });
+            fetchTimelineTasks(pbClient); 
+        } catch (err) {
+            toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${taskToUpdate.title}"`), variant: "destructive" });
+            // Optionally revert optimistic updates if any were made, or simply refetch to get true state
+            fetchTimelineTasks(pbClient);
+        }
+    }, [pbClient, allTasks, toast, fetchTimelineTasks]);
+
+
+    const handleMouseDownOnTaskBar = (e: React.MouseEvent, task: Task) => {
+        if (e.button !== 0) return; // Only left click
+        if (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) return; // Prevent drag if popover is open for this task
+
+        const taskDetails = taskRenderDetailsMap.get(task.id);
+        if (!taskDetails) return;
+        
+        e.preventDefault();
+        e.stopPropagation();
+
+        setDragState({
+            type: 'drag',
+            taskId: task.id,
+            initialMouseX: e.clientX,
+            originalStartDate: taskDetails.effectiveStartDate,
+            originalDueDate: taskDetails.effectiveDueDate,
+        });
+        if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'grabbing';
+        document.body.style.userSelect = 'none';
+    };
+    
+    const handleMouseDownOnResizeHandle = (e: React.MouseEvent, task: Task, handleType: 'start' | 'end') => {
+        if (e.button !== 0) return; // Only left click
+        const taskDetails = taskRenderDetailsMap.get(task.id);
+        if (!taskDetails) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        
+        setDragState({
+            type: handleType === 'start' ? 'resize-start' : 'resize-end',
+            taskId: task.id,
+            initialMouseX: e.clientX,
+            originalStartDate: taskDetails.effectiveStartDate,
+            originalDueDate: taskDetails.effectiveDueDate,
+        });
+        if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'ew-resize';
+        document.body.style.userSelect = 'none';
+    };
+
+    const handleMouseDownOnDependencyConnector = (e: React.MouseEvent, task: Task) => {
+        if (e.button !== 0) return; // Only left click
+        const taskDetails = taskRenderDetailsMap.get(task.id);
+        if (!taskDetails || taskDetails.isMilestone) return; // Cannot draw from milestones
+        
+        e.preventDefault();
+        e.stopPropagation();
+
+        const ganttRect = ganttBodyRef.current?.getBoundingClientRect();
+        if (!ganttRect || !timelineScrollContainerRef.current) return;
+
+        const initialMouseXInGrid = e.clientX - ganttRect.left + timelineScrollContainerRef.current.scrollLeft;
+        const initialMouseYInGrid = e.clientY - ganttRect.top + timelineScrollContainerRef.current.scrollTop - 60; // 60 for header height
+
+        setDragState({
+            type: 'draw-dependency',
+            taskId: task.id,
+            initialMouseX: e.clientX, // Store viewport-relative for delta calculation
+            originalStartDate: taskDetails.effectiveStartDate, // Not strictly needed but fits DragState
+            originalDueDate: taskDetails.effectiveDueDate,   // Not strictly needed
+            sourceTaskBarEndX: taskDetails.barEndX,
+            sourceTaskBarCenterY: taskDetails.barCenterY,
+            currentMouseX: initialMouseXInGrid,
+            currentMouseY: initialMouseYInGrid,
+        });
+        if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'crosshair';
+    };
+
+    const handleTaskBarClick = (e: React.MouseEvent, task: Task) => {
+        // This check ensures that click doesn't fire after a drag/resize operation
+        if (e.detail !== 1 || Math.abs(e.movementX) > 2 || Math.abs(e.movementY) > 2) { 
+          return;
+        }
+        // Ensure not clicking on a handle or connector by checking classlist of target
+        const targetElement = e.target as HTMLElement;
+        if (targetElement.classList.contains('resize-handle') || targetElement.classList.contains('dependency-connector')) {
+          return;
+        }
+        
+        setQuickEditPopoverState({
+          taskId: task.id,
+          currentTitle: task.title,
+          currentStatus: task.status,
+          currentProgress: task.progress || 0,
+        });
+        setIsQuickEditPopoverOpen(true);
+      };
+
+    const handleSaveQuickEdit = () => {
+        if (!quickEditPopoverState.taskId) return;
+        
+        const updates: Partial<Pick<Task, 'title' | 'status' | 'progress'>> = {
+            title: quickEditPopoverState.currentTitle,
+            status: quickEditPopoverState.currentStatus,
+            progress: quickEditPopoverState.currentProgress,
+        };
+        handleTaskUpdate(quickEditPopoverState.taskId, updates);
+        setIsQuickEditPopoverOpen(false);
+        setQuickEditPopoverState({taskId: null, currentTitle: PREDEFINED_TASK_TITLES[0] || "", currentStatus: 'To Do', currentProgress: 0});
+    };
+
+
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!dragState || !ganttBodyRef.current) return;
+
+            if (dragState.type === 'draw-dependency') {
+                const ganttRect = ganttBodyRef.current.getBoundingClientRect();
+                const timelineScroll = timelineScrollContainerRef.current;
+                if (!timelineScroll) return;
+                
+                const currentXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
+                const currentYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Adjust for headers
+
+                setDragState(prev => prev ? { ...prev, currentMouseX: currentXInGrid, currentMouseY: currentYInGrid } : null);
+            } else {
+                 setDragState(prev => prev ? { ...prev, currentMouseX: e.clientX } : null);
+            }
+        };
+
+        const handleMouseUp = (e: MouseEvent) => {
+            if (!dragState) return;
+
+            if (dragState.type === 'draw-dependency') {
+                const ganttRect = ganttBodyRef.current?.getBoundingClientRect();
+                const timelineScroll = timelineScrollContainerRef.current;
+
+                if (ganttRect && timelineScroll) {
+                    const releaseXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
+                    const releaseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60;
+                    
+                    let targetDropTaskId: string | null = null;
+                    for (const [taskId, details] of taskRenderDetailsMap.entries()) {
+                        if (taskId === dragState.taskId) continue; // Cannot depend on itself
+
+                        const taskRowTop = details.index * ROW_HEIGHT;
+                        const taskRowBottom = taskRowTop + ROW_HEIGHT;
+                        // Check if Y is within task row and X is near the start of the bar
+                        if (releaseYInGrid >= taskRowTop && releaseYInGrid <= taskRowBottom &&
+                            releaseXInGrid >= details.barStartX - dayCellWidth / 2 && releaseXInGrid <= details.barStartX + dayCellWidth / 2) {
+                             targetDropTaskId = taskId;
+                             break;
+                        }
+                    }
+
+                    if (targetDropTaskId) {
+                        const sourceTask = allTasks.find(t => t.id === dragState.taskId);
+                        const targetTask = allTasks.find(t => t.id === targetDropTaskId);
+                        if (sourceTask && targetTask) {
+                            const currentTargetDeps = targetTask.dependencies || [];
+                            const currentSourceDeps = sourceTask.dependencies || [];
+
+                            if (!currentTargetDeps.includes(sourceTask.id) && !currentSourceDeps.includes(targetTask.id)) { // Prevent duplicates and direct circular
+                                handleTaskUpdate(targetTask.id, { dependencies: [...currentTargetDeps, sourceTask.id] });
+                            } else {
+                                toast({ title: "Invalid Dependency", description: "Cannot create duplicate or circular dependency.", variant: "destructive"});
+                            }
+                        }
+                    }
+                }
+
+            } else { // 'drag', 'resize-start', 'resize-end'
+                const taskDetails = taskRenderDetailsMap.get(dragState.taskId);
+                if (taskDetails) {
+                    handleTaskUpdate(dragState.taskId, {
+                        startDate: taskDetails.effectiveStartDate,
+                        dueDate: taskDetails.effectiveDueDate,
+                    });
+                }
+            }
+            
+            setDragState(null);
+            if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'default';
+            document.body.style.userSelect = '';
+        };
+
+        if (dragState) {
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+        }
+
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [dragState, dayCellWidth, taskRenderDetailsMap, handleTaskUpdate, allTasks, toast]);
+
 
   const handlePrevMonth = () => setViewStartDate(prev => subMonths(prev, 1));
   const handleNextMonth = () => setViewStartDate(prev => addMonths(prev, 1));
@@ -369,7 +638,8 @@ const GanttChart: React.FC = () => {
   );
 
   return (
-    <div className="gantt-chart-root flex flex-col h-[calc(100vh-200px)] overflow-hidden"> {/* Adjust height as needed */}
+    <TooltipProvider>
+    <div ref={ganttBodyRef} className="gantt-chart-root flex flex-col h-[calc(100vh-200px)] overflow-hidden"> {/* Adjust height as needed */}
       {/* Control Header */}
       <div className="flex justify-between items-center p-2 border-b border-border bg-card flex-shrink-0">
          <h2 className="text-lg font-semibold text-card-foreground">Project Timeline</h2>
@@ -406,14 +676,16 @@ const GanttChart: React.FC = () => {
                 className={cn(
                   "grid grid-cols-[40px_1fr_70px_70px_60px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150",
                   task.id === hoveredTaskId ? 'bg-primary/10 dark:bg-primary/20' : '',
-                  hoveredTaskId && task.id !== hoveredTaskId ? 'opacity-60' : 'opacity-100'
+                  (dragState && dragState.taskId !== task.id && dragState.type !== 'draw-dependency') || (hoveredTaskId && task.id !== hoveredTaskId) ? 'opacity-60' : 'opacity-100'
                 )}
                 style={{ height: `${ROW_HEIGHT}px` }}
                 onMouseEnter={() => setHoveredTaskId(task.id)}
                 onMouseLeave={() => setHoveredTaskId(null)}
               >
                 <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
-                <span className="font-medium truncate" title={task.title}>{task.title}</span>
+                <span className="font-medium truncate cursor-pointer hover:text-primary" title={task.title} >
+                  {task.title}
+                </span>
                 <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
                 <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
                 <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
@@ -465,19 +737,39 @@ const GanttChart: React.FC = () => {
                   const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2;
                   const taskBarTopOffset = TASK_BAR_VERTICAL_PADDING;
                   const milestoneTopOffset = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
+                  const isBeingDragged = dragState?.taskId === task.id && (dragState.type === 'drag' || dragState.type.startsWith('resize'));
+
 
                   return (
-                    <Tooltip key={task.id} delayDuration={100}>
+                    <Popover key={`${task.id}-popover`} open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id} onOpenChange={(open) => {
+                      if (!open) {
+                        setIsQuickEditPopoverOpen(false);
+                        setQuickEditPopoverState({taskId: null, currentTitle: PREDEFINED_TASK_TITLES[0] || "", currentStatus: 'To Do', currentProgress: 0});
+                      } else if (task.id !== quickEditPopoverState.taskId) {
+                         setQuickEditPopoverState({
+                           taskId: task.id,
+                           currentTitle: task.title,
+                           currentStatus: task.status,
+                           currentProgress: task.progress || 0,
+                         });
+                         setIsQuickEditPopoverOpen(true);
+                      }
+                    }}>
+                    <Tooltip delayDuration={isBeingDragged || (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) ? 999999 : 100}>
                       <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
                         <div
+                          onMouseDown={(e) => handleMouseDownOnTaskBar(e, task)}
+                          onClick={(e) => handleTaskBarClick(e, task)}
                           onMouseEnter={() => setHoveredTaskId(task.id)}
                           onMouseLeave={() => setHoveredTaskId(null)}
                           className={cn(
-                            "absolute transition-all duration-150 ease-in-out group cursor-pointer z-10",
+                            "absolute transition-opacity duration-150 ease-in-out group cursor-grab z-10",
                             getTaskBarColor(task.status, isMilestone),
                             !isMilestone && "rounded-sm",
-                            task.id === hoveredTaskId ? 'ring-2 ring-ring ring-offset-background ring-offset-1' : '',
-                            hoveredTaskId && task.id !== hoveredTaskId ? 'opacity-50' : 'opacity-100'
+                            (isBeingDragged || (dragState?.taskId === task.id && dragState.type === 'draw-dependency')) ? 'ring-2 ring-ring ring-offset-background ring-offset-1 shadow-lg' : 
+                            (task.id === hoveredTaskId ? 'ring-1 ring-primary/70' : ''),
+                            (dragState && dragState.taskId !== task.id && dragState.type !== 'draw-dependency') || (hoveredTaskId && task.id !== hoveredTaskId) ? 'opacity-50' : 'opacity-100'
                           )}
                           style={{
                             left: `${barStartX}px`,
@@ -486,6 +778,29 @@ const GanttChart: React.FC = () => {
                             height: isMilestone ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
                           }}
                         >
+                          {!isMilestone && (
+                            <>
+                            <div 
+                                className="resize-handle absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
+                                onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'start')}
+                                title="Resize start date"
+                            >
+                                <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
+                            </div>
+                            <div 
+                                className="resize-handle absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
+                                onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'end')}
+                                title="Resize end date"
+                            >
+                                <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
+                            </div>
+                            <div
+                              className="dependency-connector absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)}
+                              title="Draw dependency"
+                            />
+                            </>
+                          )}
                           {!isMilestone && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && barWidth > 0 && (
                             <div className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" style={{ width: `${task.progress}%`}} />
                           )}
@@ -497,11 +812,14 @@ const GanttChart: React.FC = () => {
                             </div>
                           )}
                           {!isMilestone && barWidth > (dayCellWidth * 0.75) && (
-                            <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden pr-1">
-                              {task.title}
-                            </span>
+                             <div className="absolute inset-0 flex items-center px-1.5 overflow-hidden">
+                                <span className="text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden text-ellipsis">
+                                {task.title}
+                                </span>
+                            </div>
                           )}
                         </div>
+                        </PopoverTrigger>
                       </TooltipTrigger>
                       <TooltipContent className="p-2 shadow-lg bg-popover text-popover-foreground rounded-md border max-w-xs w-auto z-50">
                         <div className="space-y-1">
@@ -532,8 +850,84 @@ const GanttChart: React.FC = () => {
                         </div>
                       </TooltipContent>
                     </Tooltip>
+                    <PopoverContent className="w-80 z-50" side="bottom" align="start">
+                        <div className="grid gap-4">
+                        <div className="space-y-2">
+                            <h4 className="font-medium leading-none">Quick Edit: {task.title}</h4>
+                            <p className="text-sm text-muted-foreground">
+                            Modify status or progress.
+                            </p>
+                        </div>
+                        <div className="grid gap-2">
+                            <div className="grid grid-cols-3 items-center gap-4">
+                                <Label htmlFor={`qe-title-${task.id}`}>Title</Label>
+                                <Select
+                                    value={quickEditPopoverState.currentTitle}
+                                    onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentTitle: value}))}
+                                >
+                                    <SelectTrigger id={`qe-title-${task.id}`} className="col-span-2 h-8">
+                                        <SelectValue placeholder="Select type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {PREDEFINED_TASK_TITLES.map(title => (
+                                            <SelectItem key={title} value={title}>{title}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid grid-cols-3 items-center gap-4">
+                            <Label htmlFor={`qe-status-${task.id}`}>Status</Label>
+                            <Select 
+                                value={quickEditPopoverState.currentStatus} 
+                                onValueChange={(value: TaskStatus) => setQuickEditPopoverState(prev => ({...prev, currentStatus: value}))}
+                            >
+                                <SelectTrigger id={`qe-status-${task.id}`} className="col-span-2 h-8">
+                                <SelectValue placeholder="Select status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                {TASK_STATUSES.map(status => (
+                                    <SelectItem key={status} value={status}>{status}</SelectItem>
+                                ))}
+                                </SelectContent>
+                            </Select>
+                            </div>
+                            <div className="grid grid-cols-3 items-center gap-4">
+                            <Label htmlFor={`qe-progress-${task.id}`}>Progress (%)</Label>
+                            <Input
+                                id={`qe-progress-${task.id}`}
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={quickEditPopoverState.currentProgress}
+                                onChange={(e) => setQuickEditPopoverState(prev => ({...prev, currentProgress: parseInt(e.target.value, 10) || 0}))}
+                                className="col-span-2 h-8"
+                            />
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <ShadcnButton variant="ghost" size="sm" onClick={() => setIsQuickEditPopoverOpen(false)}>Cancel</ShadcnButton>
+                            <ShadcnButton size="sm" onClick={handleSaveQuickEdit}><Save className="mr-1 h-4 w-4" />Save</ShadcnButton>
+                        </div>
+                        </div>
+                    </PopoverContent>
+                  </Popover>
                   );
                 })}
+
+                {/* Dependency Drawing Line */}
+                {dragState?.type === 'draw-dependency' && dragState.sourceTaskBarEndX !== undefined && dragState.sourceTaskBarCenterY !== undefined && dragState.currentMouseX !== undefined && dragState.currentMouseY !== undefined && (
+                    <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-40" style={{ width: timelineGridWidth, height: timelineGridHeight }}>
+                        <line
+                            x1={dragState.sourceTaskBarEndX}
+                            y1={dragState.sourceTaskBarCenterY}
+                            x2={dragState.currentMouseX}
+                            y2={dragState.currentMouseY}
+                            stroke="hsl(var(--primary))"
+                            strokeWidth="2"
+                            strokeDasharray="4 2"
+                        />
+                    </svg>
+                )}
 
                 {dependencyLines.length > 0 && (
                   <svg
@@ -564,6 +958,7 @@ const GanttChart: React.FC = () => {
         </div>
       </div>
     </div> 
+    </TooltipProvider>
   );
 };
 

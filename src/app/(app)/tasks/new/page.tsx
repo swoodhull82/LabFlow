@@ -21,7 +21,7 @@ import { createTask, getTasks } from "@/services/taskService";
 import { getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee, TaskStatus, TaskPriority, TaskRecurrence, Task } from "@/lib/types";
-import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES } from "@/lib/constants";
+import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES } from "@/lib/constants";
 import type PocketBase from "pocketbase";
 
 const getDetailedEmployeeFetchErrorMessage = (error: any): string => {
@@ -54,7 +54,7 @@ export default function NewTaskPage() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState<string>(PREDEFINED_TASK_TITLES[0] || "");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<TaskStatus>(TASK_STATUSES[0] || "To Do");
   const [priority, setPriority] = useState<TaskPriority>(TASK_PRIORITIES.find(p => p.toLowerCase() === 'medium') || TASK_PRIORITIES[0] || "Medium");
@@ -326,8 +326,17 @@ export default function NewTaskPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <Label htmlFor="title">Title</Label>
-              <Input id="title" placeholder="e.g., Calibrate pH meter" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <Label htmlFor="title">Task Type</Label>
+              <Select value={title} onValueChange={(value: string) => setTitle(value)}>
+                <SelectTrigger id="title">
+                  <SelectValue placeholder="Select task type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PREDEFINED_TASK_TITLES.map(taskTitle => (
+                    <SelectItem key={taskTitle} value={taskTitle}>{taskTitle}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label htmlFor="description">Description</Label>

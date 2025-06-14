@@ -29,7 +29,7 @@ import type PocketBase from "pocketbase";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES } from "@/lib/constants";
+import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, PREDEFINED_TASK_TITLES } from "@/lib/constants";
 
 const getPriorityBadgeVariant = (priority?: string) => {
   if (!priority) return "default";
@@ -122,7 +122,7 @@ const getDetailedErrorMessage = (error: any, context: string = "tasks"): string 
 };
 
 const taskEditFormSchema = z.object({
-  title: z.string().min(1, "Title is required."),
+  title: z.enum(PREDEFINED_TASK_TITLES as [string, ...string[]], { errorMap: () => ({ message: "Please select a valid task type."}) }),
   description: z.string().optional(),
   status: z.string().min(1, "Status is required.") as z.ZodType<TaskStatus>,
   priority: z.string().min(1, "Priority is required.") as z.ZodType<TaskPriority>,
@@ -173,6 +173,7 @@ export default function TasksPage() {
   const form = useForm<TaskEditFormData>({
     resolver: zodResolver(taskEditFormSchema),
     defaultValues: {
+      title: PREDEFINED_TASK_TITLES[0],
       dependencies: [],
       isMilestone: false,
     }
@@ -507,7 +508,7 @@ export default function TasksPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Title</TableHead>
+                  <TableHead>Task Type</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Priority</TableHead>
                   <TableHead>Due Date</TableHead>
@@ -583,10 +584,19 @@ export default function TasksPage() {
                   name="title"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Title</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+                      <FormLabel>Task Type</FormLabel>
+                       <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select task type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {PREDEFINED_TASK_TITLES.map(taskTitle => (
+                            <SelectItem key={taskTitle} value={taskTitle}>{taskTitle}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
