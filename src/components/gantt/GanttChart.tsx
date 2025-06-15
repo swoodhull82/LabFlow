@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
 import { getTasks, updateTask as updateTaskService } from "@/services/taskService";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, Save, Link as LinkIcon, PlusCircle } from "lucide-react";
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, Save, Link as LinkIcon, PlusCircle, CornerDownRight } from "lucide-react";
 import { Button as ShadcnButton } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
@@ -130,7 +130,7 @@ const QuickEditFormContent = ({
   onAddNewStep,
   router,
 }: {
-  task: Task;
+  task: Task & { isValidationProject?: boolean };
   popoverState: QuickEditPopoverState;
   setPopoverState: React.Dispatch<React.SetStateAction<QuickEditPopoverState>>;
   onSave: () => void;
@@ -199,7 +199,7 @@ const QuickEditFormContent = ({
             className="col-span-2 h-8"
           />
         </div>
-        {popoverState.currentTaskType === "VALIDATION_PROJECT" && (
+        {task.isValidationProject && (
           <ShadcnButton
             type="button"
             variant="outline"
@@ -258,12 +258,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
     try {
       const fetchOptions: any = { signal };
 
-      if (filterTaskType === "VALIDATION_PROJECT") {
-        fetchOptions.filter = `task_type = "VALIDATION_PROJECT"`;
-      } else if (filterTaskType === "ALL_EXCEPT_VALIDATION") {
-        fetchOptions.filter = `task_type != "VALIDATION_PROJECT" && task_type != "VALIDATION_STEP"`;
-      }
-
+      // If specific filtering like VALIDATION_PROJECT is needed, it will be applied client-side
+      // after fetching all potentially relevant tasks (projects and their steps).
+      // Fetching all tasks and then filtering allows easier dependency resolution.
 
       const fetchedTasks = await getTasks(pb, fetchOptions);
       const validRawTasks = fetchedTasks.filter(task =>
@@ -273,8 +270,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
       setAllTasks(validRawTasks);
 
       if (validRawTasks.length > 0) {
-        const projectMinDate = min(validRawTasks.map(t => startOfDay(new Date(t.startDate!))));
-        setViewStartDate(startOfMonth(projectMinDate));
+        // Determine viewStartDate based on the actual tasks that will be displayed after filtering & sorting
+        // This will be refined in the chartData useMemo
       } else {
         setViewStartDate(startOfMonth(new Date()));
       }
@@ -299,7 +296,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
     } finally {
       setIsLoading(false);
     }
-  }, [toast, filterTaskType]);
+  }, [toast]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -314,31 +311,92 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   }, [pbClient, fetchTimelineTasks]);
 
   const chartData = useMemo(() => {
-    const processedTasks = allTasks.map(task => {
+    const enrichedTasks = allTasks.map(task => {
       const taskStartDateObj = startOfDay(new Date(task.startDate!));
       const taskDueDateObj = startOfDay(new Date(task.dueDate!));
+      const isValidationProject = task.task_type === "VALIDATION_PROJECT";
+      const isValidationStep = task.task_type === "VALIDATION_STEP";
+      
+      let parentProjectId: string | undefined = undefined;
+      if (isValidationStep && task.dependencies && task.dependencies.length > 0) {
+        // A step's parent is assumed to be the first dependency that is a VALIDATION_PROJECT
+        const parentCandidate = allTasks.find(p => p.id === task.dependencies![0] && p.task_type === "VALIDATION_PROJECT");
+        if (parentCandidate) {
+          parentProjectId = parentCandidate.id;
+        }
+      }
+
       return {
         ...task,
         startDate: taskStartDateObj,
         dueDate: taskDueDateObj,
         progress: typeof task.progress === 'number' && task.progress >= 0 && task.progress <= 100 ? task.progress : 0,
-        isMilestone: task.task_type === "VALIDATION_PROJECT" && (task.isMilestone === true ||
+        isMilestone: isValidationProject && (task.isMilestone === true ||
                      (task.isMilestone !== false &&
                       isValid(taskStartDateObj) && isValid(taskDueDateObj) &&
                       isSameDay(taskStartDateObj, taskDueDateObj))),
         dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
+        isValidationProject,
+        isValidationStep,
+        parentProjectId,
       };
     });
 
+    let tasksToConsiderForSorting = enrichedTasks;
+    if (filterTaskType === "VALIDATION_PROJECT") {
+      const projectIdsMaster = enrichedTasks.filter(t => t.isValidationProject).map(t => t.id);
+      tasksToConsiderForSorting = enrichedTasks.filter(t => 
+        t.isValidationProject || 
+        (t.isValidationStep && t.parentProjectId && projectIdsMaster.includes(t.parentProjectId))
+      );
+    } else if (filterTaskType === "ALL_EXCEPT_VALIDATION") {
+      tasksToConsiderForSorting = enrichedTasks.filter(t => !t.isValidationProject && !t.isValidationStep);
+    }
+
+    const sortedHierarchically: typeof tasksToConsiderForSorting = [];
+    const taskPool = new Map(tasksToConsiderForSorting.map(t => [t.id, t]));
+    
+    const rootLevelTasks = tasksToConsiderForSorting.filter(t => {
+      if (t.isValidationProject) return true;
+      if (t.isValidationStep) {
+        return !(t.parentProjectId && taskPool.has(t.parentProjectId));
+      }
+      return true; 
+    });
+
+    rootLevelTasks.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+
+    for (const rootTask of rootLevelTasks) {
+      sortedHierarchically.push(rootTask);
+      if (rootTask.isValidationProject) {
+        const steps = tasksToConsiderForSorting.filter(step => 
+            step.isValidationStep && 
+            step.parentProjectId === rootTask.id &&
+            taskPool.has(step.id) 
+        );
+        steps.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+        sortedHierarchically.push(...steps);
+      }
+    }
+    
     const currentChartStartDate = viewStartDate;
     const currentChartEndDate = endOfMonth(addMonths(viewStartDate, GANTT_VIEW_MONTHS - 1));
 
-    const tasksToDisplay = processedTasks.filter(task =>
+    const tasksToDisplay = sortedHierarchically.filter(task =>
         (task.startDate <= currentChartEndDate && task.dueDate >= currentChartStartDate)
-    ).sort((a,b) => a.startDate.getTime() - b.startDate.getTime());
+    );
 
+    if (tasksToDisplay.length > 0 && viewStartDate === startOfMonth(new Date()) && allTasks.length === enrichedTasks.length) {
+        // Only adjust viewStartDate on initial load or full data set changes, not on every filter/sort
+        const projectMinDate = min(tasksToDisplay.map(t => t.startDate));
+        if (isValid(projectMinDate) && projectMinDate.getTime() !== viewStartDate.getTime()) {
+            // This will cause a re-run of useMemo. To avoid infinite loop, this needs careful handling.
+            // For now, we'll let viewStartDate be controlled manually or by initial allTasks load.
+            // setViewStartDate(startOfMonth(projectMinDate)); // Potential loop if not handled carefully
+        }
+    }
+    
     const totalDaysInView = differenceInDays(currentChartEndDate, currentChartStartDate) + 1;
-
     const getMonthYear = (date: Date) => format(date, 'MMM yyyy');
     const monthHeadersData: { name: string; span: number }[] = [];
 
@@ -356,19 +414,20 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
     }
 
     return {
-      tasksToDisplay,
+      tasksToDisplay, // This is now hierarchically sorted and filtered by view window
       chartStartDate: currentChartStartDate,
       chartEndDate: currentChartEndDate,
       totalDaysInView: totalDaysInView > 0 ? totalDaysInView : 0,
       monthHeaders: monthHeadersData,
     };
-  }, [allTasks, viewStartDate]);
+  }, [allTasks, viewStartDate, filterTaskType]);
+
 
   const { tasksToDisplay, chartStartDate, chartEndDate, totalDaysInView, monthHeaders } = chartData;
 
   const taskRenderDetailsMap = useMemo(() => {
     const map = new Map<string, {
-        task: Task & { startDate: Date; dueDate: Date; isMilestone: boolean; dependencies: string[] };
+        task: Task & { startDate: Date; dueDate: Date; isMilestone: boolean; dependencies: string[], isValidationProject?: boolean, isValidationStep?: boolean, parentProjectId?: string };
         index: number;
         barStartX: number;
         barEndX: number;
@@ -403,7 +462,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         const taskStartInView = max([taskStartActual, chartStartDate]);
         const taskEndInView = min([taskEndActual, chartEndDate]);
 
-        const isRenderMilestone = task.task_type === "VALIDATION_PROJECT" && task.isMilestone;
+        const isRenderMilestone = task.isValidationProject && task.isMilestone;
 
         if (taskStartInView > taskEndInView && !isRenderMilestone) return;
 
@@ -455,7 +514,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             const toX = dependentDetails.isMilestoneRender ? dependentDetails.barStartX + MILESTONE_SIZE / 2 : dependentDetails.barStartX;
             const toY = dependentDetails.barCenterY;
 
-            if (fromX >= toX && fromY === toY) return;
+            if (fromX >= toX && fromY === toY) return; // Avoid drawing line to self or backwards on same level
 
             const turnX = fromX + DEPENDENCY_LINE_OFFSET;
             const pathD = `M ${fromX} ${fromY} L ${turnX} ${fromY} L ${turnX} ${toY} L ${toX} ${toY}`;
@@ -482,9 +541,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             if (updates.hasOwnProperty('isMilestone')) {
                 payload.isMilestone = !!updates.isMilestone;
             }
-        } else {
-            payload.isMilestone = false;
-            if (!updates.hasOwnProperty('dependencies')) {
+        } else { // For other task types including VALIDATION_STEP
+            payload.isMilestone = false; // Ensure isMilestone is false for non-VP tasks
+            if (!updates.hasOwnProperty('dependencies')) { // If dependencies not in updates, don't change them
                 delete payload.dependencies;
             } else if (updates.dependencies === null || updates.dependencies === undefined) {
                 payload.dependencies = [];
@@ -495,17 +554,17 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         try {
             await updateTaskService(pbClient, taskId, payload);
             toast({ title: "Task Updated", description: `Task "${taskToUpdate.title}" was successfully updated.` });
-            if (pbClient) fetchTimelineTasks(pbClient);
+            if (pbClient) fetchTimelineTasks(pbClient); // Refetch all tasks to update the view
         } catch (err) {
             toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${taskToUpdate.title}"`), variant: "destructive" });
-            if (pbClient) fetchTimelineTasks(pbClient);
+            if (pbClient) fetchTimelineTasks(pbClient); // Refetch on failure too, to revert optimistic updates if any
         }
     }, [pbClient, allTasks, toast, fetchTimelineTasks]);
 
 
     const handleMouseDownOnTaskBar = useCallback((e: React.MouseEvent, task: Task) => {
-        if (e.button !== 0) return;
-        if (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) return;
+        if (e.button !== 0) return; // Only main button
+        if (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) return; // Don't drag if popover for this task is open
 
         const taskDetails = taskRenderDetailsMap.get(task.id);
         if (!taskDetails) return;
@@ -517,11 +576,11 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             type: 'drag',
             taskId: task.id,
             initialMouseX: e.clientX,
-            originalStartDate: taskDetails.effectiveStartDate,
+            originalStartDate: taskDetails.effectiveStartDate, // Use effective dates from map
             originalDueDate: taskDetails.effectiveDueDate,
         });
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'grabbing';
-        document.body.style.userSelect = 'none';
+        document.body.style.userSelect = 'none'; // Prevent text selection during drag
     }, [isQuickEditPopoverOpen, quickEditPopoverState.taskId, taskRenderDetailsMap]);
 
     const handleMouseDownOnResizeHandle = useCallback((e: React.MouseEvent, task: Task, handleType: 'start' | 'end') => {
@@ -544,9 +603,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
     }, [taskRenderDetailsMap]);
 
     const handleMouseDownOnDependencyConnector = useCallback((e: React.MouseEvent, task: Task) => {
-        if (e.button !== 0 || task.task_type !== "VALIDATION_PROJECT") return;
+        if (e.button !== 0 || task.task_type !== "VALIDATION_PROJECT") return; // Only allow drawing from VPs for now
         const taskDetails = taskRenderDetailsMap.get(task.id);
-        if (!taskDetails || taskDetails.isMilestoneRender) return;
+        if (!taskDetails || taskDetails.isMilestoneRender) return; // Don't draw from milestones
 
         e.preventDefault();
         e.stopPropagation();
@@ -555,12 +614,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         const timelineScroll = timelineScrollContainerRef.current;
         if (!ganttRect || !timelineScroll) return;
 
+        // Calculate mouse position relative to the scrollable timeline grid, accounting for header height
         const initialMouseXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
-        const initialMouseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Adjust for header height
+        const initialMouseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Approx header height
 
         setDependencyDrawState({
             sourceTaskId: task.id,
-            sourceTaskBarEndX: taskDetails.barEndX,
+            sourceTaskBarEndX: taskDetails.barEndX, // Start line from the end of the source task bar
             sourceTaskBarCenterY: taskDetails.barCenterY,
             currentMouseX: initialMouseXInGrid,
             currentMouseY: initialMouseYInGrid,
@@ -568,7 +628,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'crosshair';
     }, [taskRenderDetailsMap]);
 
-    const triggerPopoverForTask = useCallback((taskToEdit: Task) => {
+    const openQuickEditPopover = useCallback((taskToEdit: Task) => {
         setQuickEditPopoverState({
             taskId: taskToEdit.id,
             currentTitle: taskToEdit.title,
@@ -581,8 +641,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
     }, []);
 
     const handleTaskBarClick = useCallback((e: React.MouseEvent, task: Task) => {
+        // Prevent popover if it was a drag or click on specific interactive elements
         if (e.detail !== 1 || Math.abs(e.movementX) > 2 || Math.abs(e.movementY) > 2) {
-          return; // Not a simple click, likely a drag
+          return; // Not a simple click, likely a drag initiated
         }
         const targetElement = e.target as HTMLElement;
         if (targetElement.classList.contains('resize-handle') ||
@@ -590,24 +651,25 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             targetElement.closest('.dependency-connector')) {
           return; // Click was on a handle or connector
         }
-        triggerPopoverForTask(task);
-      }, [triggerPopoverForTask]);
+        openQuickEditPopover(task);
+      }, [openQuickEditPopover]);
 
     const handleLeftPanelItemClick = useCallback((e: React.MouseEvent, task: Task) => {
-        e.stopPropagation();
-        if (task.task_type === "VALIDATION_PROJECT") {
-            triggerPopoverForTask(task);
+        e.stopPropagation(); // Important to prevent outer elements from handling this if popover opens
+        if (task.task_type === "VALIDATION_PROJECT") { // Only open popover for VPs from left panel
+            openQuickEditPopover(task);
         }
-    }, [triggerPopoverForTask]);
+        // Could add logic here to scroll timeline to this task if desired
+    }, [openQuickEditPopover]);
     
     const handleAddNewStepInQuickEdit = useCallback((parentValidationProject: Task) => {
         if (parentValidationProject.task_type !== "VALIDATION_PROJECT") return;
         const queryParams = new URLSearchParams();
-        queryParams.set('defaultType', 'VALIDATION_STEP');
+        queryParams.set('defaultType', 'VALIDATION_STEP'); // Ensure this is the new specific type
         queryParams.set('dependsOnValidationProject', parentValidationProject.id);
         queryParams.set('defaultTitle', `Step for: ${parentValidationProject.title}`);
         router.push(`/tasks/new?${queryParams.toString()}`);
-        setIsQuickEditPopoverOpen(false);
+        setIsQuickEditPopoverOpen(false); // Close popover after initiating navigation
     }, [router]);
 
 
@@ -621,25 +683,29 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             progress: currentProgress,
         };
 
+        // Only include instrument_subtype if relevant for the task type
         if (currentTaskType === "MDL" || currentTaskType === "SOP") {
             updates.instrument_subtype = currentInstrumentSubtype;
         } else {
-            updates.instrument_subtype = undefined;
+            // Ensure it's not sent or is cleared if task type doesn't use it
+            updates.instrument_subtype = undefined; 
         }
         handleTaskUpdate(taskId, updates);
         setIsQuickEditPopoverOpen(false); // Close popover on save
     }, [quickEditPopoverState, handleTaskUpdate]);
 
+    // Shared handler for both Popover instances (left panel and timeline bar)
     const handlePopoverOpenChange = useCallback((newOpenState: boolean) => {
         setIsQuickEditPopoverOpen(newOpenState);
         if (!newOpenState) {
+            // Reset popover state when it's closed
             setQuickEditPopoverState({
                 taskId: null,
                 currentTitle: "",
-                currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP") || TASK_TYPES[0],
+                currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP") || TASK_TYPES[0], // Default task type
                 currentInstrumentSubtype: undefined,
-                currentStatus: 'To Do',
-                currentProgress: 0,
+                currentStatus: 'To Do', // Default status
+                currentProgress: 0,    // Default progress
             });
         }
     }, []);
@@ -655,7 +721,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                  if (!timelineScroll) return;
 
                  const currentXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
-                 const currentYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Adjust for header height
+                 const currentYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Approx header height
                  setDependencyDrawState(prev => prev ? { ...prev, currentMouseX: currentXInGrid, currentMouseY: currentYInGrid } : null);
             }
         };
@@ -671,24 +737,26 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 }
                 setDragState(null);
                 if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'default';
-                document.body.style.userSelect = '';
+                document.body.style.userSelect = ''; // Re-enable text selection
             } else if (dependencyDrawState) {
                 const ganttRect = ganttBodyRef.current?.getBoundingClientRect();
                 const timelineScroll = timelineScrollContainerRef.current;
 
                 if (ganttRect && timelineScroll) {
                     const releaseXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
-                    const releaseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Adjust for header height
+                    const releaseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60;
 
                     let targetDropTaskId: string | null = null;
+                    // Iterate over taskRenderDetailsMap to find which task was dropped on
                     for (const [taskId, details] of taskRenderDetailsMap.entries()) {
-                        if (taskId === dependencyDrawState.sourceTaskId || details.task.task_type !== "VALIDATION_PROJECT") continue;
+                        if (taskId === dependencyDrawState.sourceTaskId || details.task.task_type !== "VALIDATION_PROJECT") continue; // Can only depend on VPs
 
+                        // Define a bounding box for the drop target (e.g., start of the task bar)
                         const taskRowTop = details.index * ROW_HEIGHT;
                         const taskRowBottom = taskRowTop + ROW_HEIGHT;
-
+                        // Target the start of the bar more precisely
                         if (releaseYInGrid >= taskRowTop && releaseYInGrid <= taskRowBottom &&
-                            releaseXInGrid >= details.barStartX - dayCellWidth / 2 && releaseXInGrid <= details.barStartX + dayCellWidth / 2) { // Target the start of the bar
+                            releaseXInGrid >= details.barStartX - dayCellWidth/2 && releaseXInGrid <= details.barStartX + dayCellWidth/2) { 
                              targetDropTaskId = taskId;
                              break;
                         }
@@ -697,10 +765,12 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                     if (targetDropTaskId) {
                         const sourceTask = allTasks.find(t => t.id === dependencyDrawState.sourceTaskId);
                         const targetTask = allTasks.find(t => t.id === targetDropTaskId);
+                        // Ensure both are VPs if restricting dependencies between VPs only
                         if (sourceTask && targetTask && sourceTask.task_type === "VALIDATION_PROJECT" && targetTask.task_type === "VALIDATION_PROJECT") {
                             const currentTargetDeps = targetTask.dependencies || [];
-                            const currentSourceDeps = sourceTask.dependencies || [];
+                            const currentSourceDeps = sourceTask.dependencies || []; // For circular check
 
+                            // Check for duplicate and circular dependencies
                             if (!currentTargetDeps.includes(sourceTask.id) && !currentSourceDeps.includes(targetTask.id)) {
                                 handleTaskUpdate(targetTask.id, { dependencies: [...currentTargetDeps, sourceTask.id] });
                             } else {
@@ -769,7 +839,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
       leftEl?.removeEventListener('scroll', handleLeftScroll);
       rightInnerEl?.removeEventListener('scroll', handleRightScroll);
     };
-  }, [tasksToDisplay]);
+  }, [tasksToDisplay]); // Re-attach if tasksToDisplay changes, e.g. if scroll elements are re-rendered.
 
 
   if (isLoading) {
@@ -803,7 +873,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   const renderNoTasksMessage = () => (
     <div className="flex flex-col items-center justify-center h-full p-4 text-center text-sm">
         <p className="text-muted-foreground">
-          {filterTaskType === "VALIDATION_PROJECT" ? `No Validation Projects found for current view.` :
+          {filterTaskType === "VALIDATION_PROJECT" ? `No Validation Projects or their steps found for current view.` :
            filterTaskType === "ALL_EXCEPT_VALIDATION" ? `No standard tasks found for current view.` :
            "No tasks found for current view."}
         </p>
@@ -852,7 +922,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
           </div>
           <div ref={leftPanelScrollContainerRef} className="overflow-y-auto flex-1">
             {tasksToDisplay.length === 0 && !isLoading && renderNoTasksMessage()}
-            {tasksToDisplay.map((task, taskIndex) => (
+            {tasksToDisplay.map((task, taskIndex) => {
+              const isStep = task.isValidationStep && task.parentProjectId && tasksToDisplay.some(t => t.id === task.parentProjectId);
+              return (
               <div
                 key={task.id}
                 className={cn(
@@ -867,20 +939,22 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 onMouseLeave={() => setHoveredTaskId(null)}
               >
                 <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
-                <Popover open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id} onOpenChange={handlePopoverOpenChange}>
+                <Popover open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id && task.isValidationProject} onOpenChange={handlePopoverOpenChange}>
                   <PopoverTrigger asChild>
                     <span
                       className={cn(
                         "font-medium truncate hover:text-primary",
-                        (task.task_type === "VALIDATION_PROJECT") ? "cursor-pointer" : ""
+                        task.isValidationProject ? "cursor-pointer" : "",
+                        isStep ? "pl-4" : ""
                       )}
                       title={task.title}
                       onClick={(e) => handleLeftPanelItemClick(e, task)}
                     >
+                      {isStep && <CornerDownRight className="inline-block h-3 w-3 mr-1 text-muted-foreground" />}
                       {task.title}
                     </span>
                   </PopoverTrigger>
-                  {task.task_type === "VALIDATION_PROJECT" && (
+                  {task.isValidationProject && ( // Only VPs get the popover from left panel click
                     <PopoverContent className="w-96 z-50" side="right" align="start">
                        <QuickEditFormContent
                         task={task}
@@ -897,14 +971,14 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
                 <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
                 <div className="flex justify-center">
-                  {(task.task_type === "VALIDATION_PROJECT" || task.task_type === "ALL_EXCEPT_VALIDATION" && filterTaskType !== "VALIDATION_PROJECT") && (
+                  {task.isValidationProject && (
                     <ShadcnButton
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6"
-                      title={`Add New Step Task for this ${task.task_type === "VALIDATION_PROJECT" ? "Validation Project" : "Task"}`}
+                      title={`Add New Step Task for ${task.title}`}
                       onClick={(e) => {
-                        e.stopPropagation();
+                        e.stopPropagation(); // Important: prevent popover from left panel item click
                         const queryParams = new URLSearchParams();
                         queryParams.set('defaultType', 'VALIDATION_STEP');
                         queryParams.set('dependsOnValidationProject', task.id);
@@ -917,7 +991,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                   )}
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </div>
 
@@ -1011,7 +1085,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                               >
                                   <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
                               </div>
-                              {task.task_type === "VALIDATION_PROJECT" && (
+                              {task.isValidationProject && ( // Only VPs can be source of new dependency line
                                 <div
                                   className="dependency-connector absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity"
                                   onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)}
@@ -1023,14 +1097,14 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                             {!isMilestoneRender && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && barWidth > 0 && (
                               <div className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" style={{ width: `${task.progress}%`}} />
                             )}
-                            {isMilestoneRender && (
+                            {isMilestoneRender && ( // Style for milestone diamond
                               <div className="absolute inset-0 flex items-center justify-center">
                                 <svg viewBox="0 0 100 100" className="w-full h-full fill-current text-white/80" preserveAspectRatio="none">
                                   <polygon points="50,0 100,50 50,100 0,50" />
                                 </svg>
                               </div>
                             )}
-                            {!isMilestoneRender && barWidth > (dayCellWidth * 0.75) && (
+                            {!isMilestoneRender && barWidth > (dayCellWidth * 0.75) && ( // Show title if bar is wide enough
                                <div className="absolute inset-0 flex items-center px-1.5 overflow-hidden">
                                   <span className="text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden text-ellipsis">
                                     {task.title}
@@ -1044,7 +1118,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                           <div className="space-y-1">
                             <p className="font-semibold text-sm">
                                {task.title}
-                               {task.task_type === "VALIDATION_PROJECT" && task.isMilestone ? " (Milestone)" : ""}
+                               {task.isValidationProject && task.isMilestone ? " (Milestone)" : ""}
                             </p>
                             <p className="text-xs text-muted-foreground">Type: <span className="font-medium text-foreground">{task.task_type.replace(/_/g, ' ')}</span></p>
                             {(task.task_type === "MDL" || task.task_type === "SOP") && task.instrument_subtype && (
@@ -1064,7 +1138,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                                 <p className="text-xs text-muted-foreground mt-1">Depends on:</p>
                                 <ul className="list-disc list-inside pl-2 space-y-0.5">
                                   {task.dependencies.map(depId => {
-                                    const depTaskDetails = allTasks.find(t => t.id === depId);
+                                    const depTaskDetails = allTasks.find(t => t.id === depId); // Use allTasks for tooltip info
                                     return <li key={depId} className="text-xs font-medium text-foreground truncate" title={depTaskDetails?.title}>{depTaskDetails?.title || 'Unknown Task'}</li>;
                                   })}
                                 </ul>
@@ -1076,6 +1150,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                           </div>
                         </TooltipContent>
                       </Tooltip>
+                       {/* Popover content for timeline bar clicks (all task types) */}
                       <PopoverContent className="w-96 z-50" side="bottom" align="start">
                          <QuickEditFormContent
                           task={task}
@@ -1110,7 +1185,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                     width={timelineGridWidth}
                     height={timelineGridHeight}
                     xmlns="http://www.w3.org/2000/svg"
-                    style={{ zIndex: 20 }}
+                    style={{ zIndex: 20 }} // Ensure lines are above grid but below task bars if task bars have higher z-index
                   >
                     <defs>
                       <marker id="arrowhead" markerWidth={ARROW_SIZE*1.2} markerHeight={ARROW_SIZE*0.8} refX={ARROW_SIZE*1.1} refY={ARROW_SIZE*0.4} orient="auto-start-reverse">
@@ -1124,7 +1199,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 )}
               </>
             )}
-            {tasksToDisplay.length === 0 && !isLoading && (
+            {tasksToDisplay.length === 0 && !isLoading && ( // If no tasks to display in current view
                 <div style={{height: ROW_HEIGHT*3}} className="flex items-center justify-center">
                  {renderNoTasksMessage()}
                 </div>
@@ -1139,4 +1214,3 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 };
 
 export default GanttChart;
-
