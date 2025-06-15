@@ -6,7 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem
+} from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -18,7 +27,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 import type { Task, TaskStatus, TaskPriority, TaskRecurrence, Employee, TaskType } from "@/lib/types";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon, Milestone } from "lucide-react"; // Removed ListPlus, Trash
+import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon, Milestone } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -153,23 +162,21 @@ const taskEditFormSchema = z.object({
       });
     }
   } else if (data.task_type === "VALIDATION_STEP") {
-    if (data.isMilestone === true) { // Should always be false for VALIDATION_STEP
+    if (data.isMilestone === true) { 
          ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Milestones are not applicable to Validation Step tasks.",
             path: ["isMilestone"],
         });
     }
-    if (data.recurrence && data.recurrence !== "None") { // Should always be "None"
+    if (data.recurrence && data.recurrence !== "None") { 
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Recurrence is not applicable to Validation Step tasks.",
             path: ["recurrence"],
         });
     }
-    // Dependencies for VALIDATION_STEP are pre-set and shouldn't be user-modifiable in this general edit form
   } else { 
-    // For other standard tasks (not VALIDATION_PROJECT or VALIDATION_STEP)
     if (data.isMilestone) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -186,7 +193,6 @@ const taskEditFormSchema = z.object({
     }
   }
 
-  // Date validation applies if not a milestone Validation Project
   if (!(data.task_type === "VALIDATION_PROJECT" && data.isMilestone)) {
     if (data.startDate && data.dueDate && data.startDate > data.dueDate) {
         ctx.addIssue({
@@ -199,8 +205,8 @@ const taskEditFormSchema = z.object({
 });
 
 type TaskEditFormData = z.infer<typeof taskEditFormSchema>;
+type FilterStatusOption = 'incomplete' | 'complete' | 'all';
 
-// Global reference for allTasksForSelection to be used in Zod schema
 let allTasksForSelection: Task[] = [];
 
 export default function TasksPage() {
@@ -210,6 +216,7 @@ export default function TasksPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryStatusMessage, setRetryStatusMessage] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<FilterStatusOption>('incomplete');
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
@@ -257,9 +264,7 @@ export default function TasksPage() {
         } else if (value.task_type === "VALIDATION_STEP") {
            form.setValue("isMilestone", false, { shouldValidate: true });
            form.setValue("recurrence", "None", { shouldValidate: true });
-           // Dependencies for VALIDATION_STEP are typically pre-set and not user-editable here.
-           // form.setValue("dependencies", [], { shouldValidate: true }); 
-        } else { // For other non-VP, non-VS tasks
+        } else { 
            form.setValue("isMilestone", false, { shouldValidate: true });
            if (!form.getValues("recurrence")) { 
             form.setValue("recurrence", "None", { shouldValidate: true });
@@ -299,11 +304,19 @@ export default function TasksPage() {
       }
     };
 
+    let pbFilter = 'task_type != "VALIDATION_PROJECT" && task_type != "VALIDATION_STEP"';
+    if (filterStatus === 'incomplete') {
+      pbFilter += ' && status != "Done"';
+    } else if (filterStatus === 'complete') {
+      pbFilter += ' && status = "Done"';
+    }
+    // For 'all', no additional status filter is needed beyond the task_type filter.
+
     try {
       const fetchedTasks = await getTasks(pb, { 
         signal, 
         onRetry: handleRetryAttempt,
-        filter: 'task_type != "VALIDATION_PROJECT" && task_type != "VALIDATION_STEP" && status != "Done"' 
+        filter: pbFilter
       });
       setTasks(fetchedTasks);
       setRetryStatusMessage(null); 
@@ -328,7 +341,7 @@ export default function TasksPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [toast]);
+  }, [toast, filterStatus]);
 
   const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -423,7 +436,7 @@ export default function TasksPage() {
     return () => {
       controller.abort();
     };
-  }, [pbClient, fetchTasksCallback, fetchAndSetEmployees]);
+  }, [pbClient, fetchTasksCallback, fetchAndSetEmployees, filterStatus]);
 
   useEffect(() => {
     if (isEditDialogOpen && editingTask && pbClient && editingTask.task_type !== "VALIDATION_STEP") {
@@ -472,8 +485,7 @@ export default function TasksPage() {
     setTasks(optimisticUpdatedTasks);
 
     try {
-      const updatedTaskData = await updateTask(pbClient, taskId, { status: newStatus });
-      // Refetch tasks to apply filters (e.g., hide "Done" tasks)
+      await updateTask(pbClient, taskId, { status: newStatus });
       if (pbClient) fetchTasksCallback(pbClient);
       toast({ title: "Success", description: `Task marked as ${newStatus}.` });
     } catch (err) {
@@ -493,12 +505,13 @@ export default function TasksPage() {
     try {
       await deleteTask(pbClient, taskId);
       toast({ title: "Success", description: "Task deleted successfully." });
+      if (pbClient) fetchTasksCallback(pbClient); // Refetch to apply current filters
     } catch (err) {
       console.warn("Error deleting task:", err); 
       setTasks(originalTasks);
       toast({ title: "Error", description: getDetailedErrorMessage(err as any), variant: "destructive" });
     }
-  }, [pbClient, toast, tasks]);
+  }, [pbClient, toast, tasks, fetchTasksCallback]);
 
   const handleEditClick = useCallback((task: Task) => {
     setEditingTask(task);
@@ -525,7 +538,7 @@ export default function TasksPage() {
 
     const payload: Partial<Task> & { userId: string } = {
       title: data.title,
-      task_type: data.task_type, // Should not be changed, but included for completeness
+      task_type: data.task_type, 
       instrument_subtype: (data.task_type === "MDL" || data.task_type === "SOP") ? data.instrument_subtype : undefined,
       description: data.description,
       status: data.status,
@@ -534,14 +547,13 @@ export default function TasksPage() {
       dueDate: (data.task_type === "VALIDATION_PROJECT" && data.isMilestone && data.startDate) ? data.startDate : data.dueDate,
       recurrence: (data.task_type === "VALIDATION_PROJECT" || data.task_type === "VALIDATION_STEP") ? "None" : data.recurrence!,
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
-      isMilestone: data.task_type === "VALIDATION_PROJECT" ? data.isMilestone : false, // False for VALIDATION_STEP too
-      dependencies: data.task_type === "VALIDATION_STEP" ? editingTask.dependencies : (data.dependencies || []), // Preserve existing for VS
+      isMilestone: data.task_type === "VALIDATION_PROJECT" ? data.isMilestone : false, 
+      dependencies: data.task_type === "VALIDATION_STEP" ? editingTask.dependencies : (data.dependencies || []), 
       userId: user.id, 
     };
     
     try {
-      const updatedRecord = await updateTask(pbClient, editingTask.id, payload);
-      // Refetch tasks to apply filters (e.g., hide "Done" tasks if status changed)
+      await updateTask(pbClient, editingTask.id, payload);
       if (pbClient) fetchTasksCallback(pbClient);
       toast({ title: "Success", description: "Task updated successfully." });
       handleEditDialogClose();
@@ -603,15 +615,32 @@ export default function TasksPage() {
   }
 
   const isLoadingInitialData = isLoading || isLoadingEmployees;
+  const filterStatusDisplay = filterStatus.charAt(0).toUpperCase() + filterStatus.slice(1);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl md:text-3xl font-headline font-semibold">Task Management</h1>
         <div className="flex gap-2">
-          <Button variant="outline">
-            <Filter className="mr-2 h-4 w-4" /> Filter
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                <Filter className="mr-2 h-4 w-4" /> Filter: {filterStatusDisplay}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup 
+                value={filterStatus} 
+                onValueChange={(value) => setFilterStatus(value as FilterStatusOption)}
+              >
+                <DropdownMenuRadioItem value="incomplete">Incomplete</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="complete">Complete</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="all">All</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Link href="/tasks/new" passHref>
             <Button>
               <PlusCircle className="mr-2 h-4 w-4" /> Add Task
@@ -622,8 +651,11 @@ export default function TasksPage() {
 
       <Card className="shadow-md">
         <CardHeader>
-          <CardTitle className="font-headline">All Tasks</CardTitle>
-          <CardDescription>View, manage, and track all active laboratory tasks (excluding Validation Projects, Steps, and completed tasks).</CardDescription>
+          <CardTitle className="font-headline">Task List ({filterStatusDisplay})</CardTitle>
+          <CardDescription>
+            View, manage, and track laboratory tasks based on the selected filter. 
+            (Excludes Validation Projects & Steps).
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoadingInitialData && (
@@ -642,7 +674,8 @@ export default function TasksPage() {
           )}
           {!isLoadingInitialData && !error && tasks.length === 0 && (
             <div className="text-center py-10 text-muted-foreground">
-              <p>No active tasks found. Get started by adding a new task or check filters!</p>
+              <p>No tasks found matching the current filter: "{filterStatusDisplay}".</p>
+              {filterStatus !== 'all' && <p className="text-sm">Try selecting a different filter or adding new tasks.</p>}
             </div>
           )}
           {!isLoadingInitialData && !error && tasks.length > 0 && (
@@ -735,7 +768,7 @@ export default function TasksPage() {
                        <Select 
                           onValueChange={field.onChange} 
                           value={field.value}
-                          disabled // Task type should not be changed after creation
+                          disabled 
                         >
                         <FormControl>
                           <SelectTrigger>
@@ -1075,6 +1108,3 @@ export default function TasksPage() {
     </div>
   );
 }
-
-
-    
