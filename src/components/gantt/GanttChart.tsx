@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import type { Task, TaskStatus, TaskType } from '@/lib/types';
@@ -204,32 +205,49 @@ const QuickEditFormContent = ({
             className="col-span-2 h-8"
           />
         </div>
-        {task.isValidationProject && (
+      </div>
+      
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-4 mt-2 border-t">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          {task.isValidationProject && (
+            <ShadcnButton
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto"
+              onClick={() => onAddNewStep(task)}
+            >
+              <PlusCircle className="mr-2 h-4 w-4" /> Add Step
+            </ShadcnButton>
+          )}
+          {canDelete && (
+            <ShadcnButton
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="w-full sm:w-auto"
+              onClick={() => onDelete(task)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" /> Delete
+            </ShadcnButton>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end mt-2 sm:mt-0">
           <ShadcnButton
             type="button"
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="w-full mt-2"
-            onClick={() => onAddNewStep(task)}
+            onClick={() => router.push(`/tasks/${task.id}/edit`)}
           >
-            <PlusCircle className="mr-2 h-4 w-4" /> Add New Step Task
+            Full Edit
           </ShadcnButton>
-        )}
-      </div>
-      <div className="flex justify-between items-center gap-2 pt-2">
-         {canDelete && (
-          <ShadcnButton 
-            variant="destructive" 
-            size="sm" 
-            onClick={() => onDelete(task)}
-            className="flex-shrink-0"
+          <ShadcnButton
+            type="button"
+            size="sm"
+            onClick={onSave}
           >
-            <Trash2 className="mr-1 h-4 w-4" /> Delete
+            <Save className="mr-1 h-4 w-4" />Save
           </ShadcnButton>
-        )}
-        <div className="flex justify-end gap-2 flex-grow">
-            <ShadcnButton variant="ghost" size="sm" onClick={() => router.push(`/tasks/${task.id}/edit`)} >Full Edit</ShadcnButton>
-            <ShadcnButton size="sm" onClick={onSave}><Save className="mr-1 h-4 w-4" />Save</ShadcnButton>
         </div>
       </div>
     </div>
@@ -1291,3 +1309,4 @@ const buttonVariants = cva(
     },
   }
 );
+
