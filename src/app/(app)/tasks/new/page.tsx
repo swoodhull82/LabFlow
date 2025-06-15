@@ -277,7 +277,9 @@ export default function NewTaskPage() {
     if ((taskType === "MDL" || taskType === "SOP") && instrumentSubtype) {
       formData.append("instrument_subtype", instrumentSubtype);
     }
-    formData.append("description", description);
+    if (description.trim()) {
+      formData.append("description", description);
+    }
     formData.append("status", status);
     formData.append("priority", priority);
     formData.append("recurrence", effectiveRecurrence);
@@ -288,8 +290,6 @@ export default function NewTaskPage() {
         formData.append("isMilestone", "false"); // also for VALIDATION_STEP
     }
     
-    // Only append general dependencies if it's not a VALIDATION_STEP or if they are explicitly managed
-    // For VALIDATION_STEP, selectedDependencies should already contain the parent project link.
     if (selectedDependencies.length > 0) {
         formData.append("dependencies", JSON.stringify(selectedDependencies));
     }
@@ -324,7 +324,7 @@ export default function NewTaskPage() {
       }
     } catch (err: any) {
       console.error("Failed to create task (full error object):", err); 
-      let detailedMessage = "Failed to create task. Please try again.";
+      let detailedMessage = "Failed to create task. Please try again. Ensure 'VALIDATION_STEP' is an allowed value for 'task_type' in your PocketBase collection settings if creating a step.";
       
       if (err.data && typeof err.data === 'object') {
         let mainErrorMessage = "";
@@ -348,11 +348,11 @@ export default function NewTaskPage() {
           detailedMessage = mainErrorMessage;
         } else if (fieldErrorString) {
           detailedMessage = `Validation errors: ${fieldErrorString}`;
-        } else if (Object.keys(err.data).length > 0 && detailedMessage === "Failed to create task. Please try again.") {
+        } else if (Object.keys(err.data).length > 0 && detailedMessage.startsWith("Failed to create task.")) {
             try {
-                detailedMessage = `PocketBase error: ${JSON.stringify(err.data)}`;
+                detailedMessage = `PocketBase error: ${JSON.stringify(err.data)}. Ensure 'VALIDATION_STEP' is an allowed value for 'task_type' in your PocketBase collection.`;
             } catch (e) {
-                detailedMessage = `PocketBase error: Could not stringify error data.`;
+                detailedMessage = `PocketBase error: Could not stringify error data. Ensure 'VALIDATION_STEP' is an allowed value for 'task_type' in PocketBase.`;
             }
         }
       } else if (err.message && typeof err.message === 'string') { 
@@ -372,7 +372,7 @@ export default function NewTaskPage() {
   const isLoadingPrerequisites = isLoadingEmployees || (isLoadingTasksForSelection && taskType !== "VALIDATION_STEP");
   
   const availableTaskTypes = (defaultTypeFromQuery && (defaultTypeFromQuery === "VALIDATION_PROJECT" || defaultTypeFromQuery === "VALIDATION_STEP") && dependsOnValidationProjectQuery) 
-    ? TASK_TYPES.filter(t => t === defaultTypeFromQuery) // If it's a step task, lock type
+    ? TASK_TYPES.filter(t => t === defaultTypeFromQuery) 
     : defaultTypeFromQuery === "VALIDATION_PROJECT" 
       ? TASK_TYPES.filter(t => t === "VALIDATION_PROJECT") 
       : TASK_TYPES;
@@ -636,7 +636,7 @@ export default function NewTaskPage() {
               </div>
             </div>
             
-            {taskType !== "VALIDATION_STEP" && ( // Hide for VALIDATION_STEP as dependency is pre-set
+            {taskType !== "VALIDATION_STEP" && ( 
             <div>
               <Label htmlFor="dependencies">Dependencies (Optional)</Label>
                 <Popover open={isDependenciesPopoverOpen} onOpenChange={setIsDependenciesPopoverOpen}>
@@ -728,3 +728,4 @@ export default function NewTaskPage() {
     </div>
   );
 }
+
