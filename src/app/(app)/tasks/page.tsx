@@ -303,7 +303,7 @@ export default function TasksPage() {
       const fetchedTasks = await getTasks(pb, { 
         signal, 
         onRetry: handleRetryAttempt,
-        filter: 'task_type != "VALIDATION_PROJECT" && task_type != "VALIDATION_STEP"' 
+        filter: 'task_type != "VALIDATION_PROJECT" && task_type != "VALIDATION_STEP" && status != "Done"' 
       });
       setTasks(fetchedTasks);
       setRetryStatusMessage(null); 
@@ -473,16 +473,15 @@ export default function TasksPage() {
 
     try {
       const updatedTaskData = await updateTask(pbClient, taskId, { status: newStatus });
-      setTasks(prevTasks => prevTasks.map(task => 
-        task.id === taskId ? updatedTaskData : task
-      ));
+      // Refetch tasks to apply filters (e.g., hide "Done" tasks)
+      if (pbClient) fetchTasksCallback(pbClient);
       toast({ title: "Success", description: `Task marked as ${newStatus}.` });
     } catch (err) {
       console.warn("Error updating task status:", err); 
       setTasks(currentTasks); 
       toast({ title: "Error", description: `Failed to update task status: ${getDetailedErrorMessage(err as any)}`, variant: "destructive" });
     }
-  }, [pbClient, toast, tasks]);
+  }, [pbClient, toast, tasks, fetchTasksCallback]);
 
   const handleDeleteTask = useCallback(async (taskId: string) => {
     if (!pbClient) {
@@ -542,7 +541,8 @@ export default function TasksPage() {
     
     try {
       const updatedRecord = await updateTask(pbClient, editingTask.id, payload);
-      setTasks(prev => prev.map(t => t.id === editingTask.id ? updatedRecord : t));
+      // Refetch tasks to apply filters (e.g., hide "Done" tasks if status changed)
+      if (pbClient) fetchTasksCallback(pbClient);
       toast({ title: "Success", description: "Task updated successfully." });
       handleEditDialogClose();
     } catch (err: any) {
@@ -623,7 +623,7 @@ export default function TasksPage() {
       <Card className="shadow-md">
         <CardHeader>
           <CardTitle className="font-headline">All Tasks</CardTitle>
-          <CardDescription>View, manage, and track all laboratory tasks (excluding Validation Projects and Steps).</CardDescription>
+          <CardDescription>View, manage, and track all active laboratory tasks (excluding Validation Projects, Steps, and completed tasks).</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoadingInitialData && (
@@ -642,7 +642,7 @@ export default function TasksPage() {
           )}
           {!isLoadingInitialData && !error && tasks.length === 0 && (
             <div className="text-center py-10 text-muted-foreground">
-              <p>No tasks found. Get started by adding a new task!</p>
+              <p>No active tasks found. Get started by adding a new task or check filters!</p>
             </div>
           )}
           {!isLoadingInitialData && !error && tasks.length > 0 && (
@@ -1075,3 +1075,6 @@ export default function TasksPage() {
     </div>
   );
 }
+
+
+    
