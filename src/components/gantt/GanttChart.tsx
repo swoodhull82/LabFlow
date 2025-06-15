@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import type { Task, TaskStatus, TaskType } from '@/lib/types';
@@ -664,13 +663,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         }
         triggerPopoverForTask(task);
       }, [triggerPopoverForTask]);
-
-    const handleLeftPanelItemClick = useCallback((e: React.MouseEvent, task: Task) => {
-        e.stopPropagation(); 
-        if (task.isValidationProject || task.isValidationStep) { 
-            triggerPopoverForTask(task);
-        }
-    }, [triggerPopoverForTask]);
     
     const handleAddNewStepInQuickEdit = useCallback((parentValidationProject: Task) => {
         if (parentValidationProject.task_type !== "VALIDATION_PROJECT") return;
@@ -704,20 +696,42 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         setIsQuickEditPopoverOpen(false); 
     }, [quickEditPopoverState, handleTaskUpdate]);
     
-    const handlePopoverOpenChange = useCallback((newOpenState: boolean) => {
-        setIsQuickEditPopoverOpen(newOpenState);
-        if (!newOpenState) {
-            
-            setQuickEditPopoverState({
-                taskId: null,
-                currentTitle: "",
-                currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP") || TASK_TYPES[0], 
-                currentInstrumentSubtype: undefined,
-                currentStatus: 'To Do', 
-                currentProgress: 0,    
-            });
+    const handlePopoverOpenChange = useCallback((newOpenState: boolean, taskForPopover?: Task & { isValidationProject?: boolean; isValidationStep?: boolean }) => {
+        if (newOpenState) {
+            // This is when PopoverTrigger wants to open it
+            if (taskForPopover && (taskForPopover.isValidationProject || taskForPopover.isValidationStep)) {
+                setQuickEditPopoverState({
+                    taskId: taskForPopover.id,
+                    currentTitle: taskForPopover.title,
+                    currentTaskType: taskForPopover.task_type,
+                    currentInstrumentSubtype: taskForPopover.instrument_subtype,
+                    currentStatus: taskForPopover.status,
+                    currentProgress: taskForPopover.progress || 0,
+                });
+                setIsQuickEditPopoverOpen(true);
+            } else {
+                // If trying to open for an invalid task type, ensure it's closed
+                setIsQuickEditPopoverOpen(false);
+            }
+        } else {
+            // This is when PopoverTrigger wants to close it, or it's closed by other means
+            // Only reset global state if the currently closing popover is the one that's active OR if no specific task is provided (general close)
+            if (!taskForPopover || (quickEditPopoverState.taskId === taskForPopover.id)) {
+                setIsQuickEditPopoverOpen(false);
+                // Only reset state if the popover was actually open and is now closing, to prevent unnecessary updates.
+                if (isQuickEditPopoverOpen) { 
+                    setQuickEditPopoverState({
+                        taskId: null,
+                        currentTitle: "",
+                        currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP") || TASK_TYPES[0],
+                        currentInstrumentSubtype: undefined,
+                        currentStatus: 'To Do',
+                        currentProgress: 0,
+                    });
+                }
+            }
         }
-    }, []);
+    }, [quickEditPopoverState.taskId, isQuickEditPopoverOpen]);
 
     const handleDeleteTaskInQuickEdit = useCallback((task: Task) => {
         setTaskToDelete(task);
@@ -954,15 +968,19 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             {tasksToDisplay.length === 0 && !isLoading && renderNoTasksMessage()}
             {tasksToDisplay.map((task, taskIndex) => {
               const isStep = task.isValidationStep && task.parentProjectId && tasksToDisplay.some(t => t.id === task.parentProjectId);
-              const currentTaskIsTargetedByPopover = isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id;
+              const canOpenPopover = task.isValidationProject || task.isValidationStep;
 
               return (
-              <Popover key={`${task.id}-leftpanel-popover`} open={currentTaskIsTargetedByPopover && (task.isValidationProject || task.isValidationStep)} onOpenChange={handlePopoverOpenChange}>
-                <PopoverTrigger asChild>
+              <Popover 
+                key={`${task.id}-leftpanel-popover`} 
+                open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id} 
+                onOpenChange={(newOpenState) => handlePopoverOpenChange(newOpenState, task)}
+              >
+                <PopoverTrigger asChild disabled={!canOpenPopover}>
                 <div
                   className={cn(
                     "grid grid-cols-[40px_1fr_70px_70px_60px_60px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150",
-                    (task.isValidationProject || task.isValidationStep) ? "cursor-pointer" : "",
+                    canOpenPopover ? "cursor-pointer" : "cursor-default",
                     task.id === hoveredTaskId ? 'bg-primary/10 dark:bg-primary/20' : '',
                     (dragState && dragState.taskId !== task.id && dragState.type !== 'draw-dependency') ||
                     (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) ||
@@ -971,7 +989,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                   style={{ height: `${ROW_HEIGHT}px` }}
                   onMouseEnter={() => setHoveredTaskId(task.id)}
                   onMouseLeave={() => setHoveredTaskId(null)}
-                  onClick={(e) => handleLeftPanelItemClick(e, task)}
+                  // Removed direct onClick here
                 >
                   <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
                   <span
@@ -1028,7 +1046,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                     </div>
                 </div>
                 </PopoverTrigger>
-                {(task.isValidationProject || task.isValidationStep) && (
+                {canOpenPopover && quickEditPopoverState.taskId === task.id && ( // Ensure content is only rendered for the active popover target
                   <PopoverContent className="w-96 z-50" side="right" align="start" onOpenAutoFocus={(e) => e.preventDefault()}>
                       <QuickEditFormContent
                         task={task}
@@ -1091,28 +1109,35 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                   const milestoneTopOffset = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
                   const isBeingDragged = dragState?.taskId === task.id;
                   const isBeingDepDrawnFrom = dependencyDrawState?.sourceTaskId === task.id;
-                  const currentTaskIsTargetedByPopover = isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id;
+                  const canOpenPopoverOnBar = task.isValidationProject || task.isValidationStep;
 
 
                   return (
-                    <Popover key={`${task.id}-timeline-popover`} open={currentTaskIsTargetedByPopover} onOpenChange={handlePopoverOpenChange}>
+                    <Popover 
+                        key={`${task.id}-timeline-popover`} 
+                        open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id} 
+                        onOpenChange={(newOpenState) => handlePopoverOpenChange(newOpenState, task)}
+                    >
                       <Tooltip delayDuration={isBeingDragged || isBeingDepDrawnFrom || (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) ? 999999 : 100}>
                         <TooltipTrigger asChild>
-                          <PopoverTrigger asChild>
+                          <PopoverTrigger asChild disabled={!canOpenPopoverOnBar}>
                           <div
                             onMouseDown={(e) => handleMouseDownOnTaskBar(e, task)}
-                            onClick={(e) => handleTaskBarClick(e, task)}
+                            onClick={(e) => {
+                                if (canOpenPopoverOnBar) handleTaskBarClick(e, task);
+                            }}
                             onMouseEnter={() => setHoveredTaskId(task.id)}
                             onMouseLeave={() => setHoveredTaskId(null)}
                             className={cn(
-                              "absolute transition-opacity duration-150 ease-in-out group cursor-grab z-10 flex items-center justify-center",
+                              "absolute transition-opacity duration-150 ease-in-out group z-10 flex items-center justify-center",
                               getTaskBarColor(task.status, isMilestoneRender, task.task_type),
                               !isMilestoneRender && "rounded-sm",
                               (isBeingDragged || isBeingDepDrawnFrom) ? 'ring-2 ring-ring ring-offset-background ring-offset-1 shadow-lg' :
                               (task.id === hoveredTaskId ? 'ring-1 ring-primary/70' : ''),
                               ( (dragState && dragState.taskId !== task.id) ||
                                 (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) ||
-                                (hoveredTaskId && task.id !== hoveredTaskId) ) ? 'opacity-50' : 'opacity-100'
+                                (hoveredTaskId && task.id !== hoveredTaskId) ) ? 'opacity-50' : 'opacity-100',
+                              canOpenPopoverOnBar ? "cursor-grab" : "cursor-grab" // Keep grab for dragging, popover on click if allowed
                             )}
                             style={{
                               left: `${barStartX}px`,
@@ -1203,17 +1228,19 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                         </TooltipContent>
                       </Tooltip>
                        
-                      <PopoverContent className="w-96 z-50" side="bottom" align="start" onOpenAutoFocus={(e) => e.preventDefault()}>
-                         <QuickEditFormContent
-                          task={task}
-                          popoverState={quickEditPopoverState}
-                          setPopoverState={setQuickEditPopoverState}
-                          onSave={handleSaveQuickEdit}
-                          onAddNewStep={handleAddNewStepInQuickEdit}
-                          router={router}
-                          onTriggerDelete={handleDeleteTaskInQuickEdit}
-                        />
-                      </PopoverContent>
+                      {canOpenPopoverOnBar && quickEditPopoverState.taskId === task.id && (
+                        <PopoverContent className="w-96 z-50" side="bottom" align="start" onOpenAutoFocus={(e) => e.preventDefault()}>
+                            <QuickEditFormContent
+                            task={task}
+                            popoverState={quickEditPopoverState}
+                            setPopoverState={setQuickEditPopoverState}
+                            onSave={handleSaveQuickEdit}
+                            onAddNewStep={handleAddNewStepInQuickEdit}
+                            router={router}
+                            onTriggerDelete={handleDeleteTaskInQuickEdit}
+                            />
+                        </PopoverContent>
+                       )}
                     </Popover>
                   );
                 })}
