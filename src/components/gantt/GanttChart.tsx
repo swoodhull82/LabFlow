@@ -52,7 +52,7 @@ const MIN_TASK_DURATION_DAYS = 1;
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean, taskType?: TaskType): string => {
   if (taskType === "VALIDATION_PROJECT" && isMilestone) return 'bg-purple-500 hover:bg-purple-600';
-  if (taskType === "VALIDATION_STEP") return 'bg-teal-500 hover:bg-teal-600'; // Color for VALIDATION_STEP
+  if (taskType === "VALIDATION_STEP") return 'bg-teal-500 hover:bg-teal-600';
   if (!status) return 'bg-primary hover:bg-primary/90';
   switch (status.toLowerCase()) {
     case 'done':
@@ -122,6 +122,104 @@ interface GanttChartProps {
   displayHeaderControls?: 'defaultTitle' | 'addValidationButton';
 }
 
+const QuickEditFormContent = ({
+  task,
+  popoverState,
+  setPopoverState,
+  onSave,
+  onAddNewStep,
+  router,
+}: {
+  task: Task;
+  popoverState: QuickEditPopoverState;
+  setPopoverState: React.Dispatch<React.SetStateAction<QuickEditPopoverState>>;
+  onSave: () => void;
+  onAddNewStep: (parentProject: Task) => void;
+  router: ReturnType<typeof useRouter>;
+}) => {
+  return (
+    <div className="grid gap-4">
+      <div className="space-y-2">
+        <h4 className="font-medium leading-none">Quick Edit: {popoverState.currentTitle}</h4>
+        <p className="text-sm text-muted-foreground">Modify task details.</p>
+      </div>
+      <div className="grid gap-2">
+        <div className="grid grid-cols-3 items-center gap-4">
+          <Label htmlFor={`qe-title-${task.id}`}>Name</Label>
+          <Input
+            id={`qe-title-${task.id}`}
+            value={popoverState.currentTitle}
+            onChange={(e) => setPopoverState(prev => ({...prev, currentTitle: e.target.value}))}
+            className="col-span-2 h-8"
+          />
+        </div>
+        {(popoverState.currentTaskType === "MDL" || popoverState.currentTaskType === "SOP") && (
+          <div className="grid grid-cols-3 items-center gap-4">
+            <Label htmlFor={`qe-instrument-${task.id}`}>Subtype</Label>
+            <Select
+              value={popoverState.currentInstrumentSubtype || ""}
+              onValueChange={(value) => setPopoverState(prev => ({...prev, currentInstrumentSubtype: value}))}
+            >
+              <SelectTrigger id={`qe-instrument-${task.id}`} className="col-span-2 h-8">
+                <SelectValue placeholder="Select subtype" />
+              </SelectTrigger>
+              <SelectContent>
+                {(popoverState.currentTaskType === "MDL" ? INSTRUMENT_SUBTYPES : SOP_SUBTYPES).map(subtype => (
+                  <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        <div className="grid grid-cols-3 items-center gap-4">
+          <Label htmlFor={`qe-status-${task.id}`}>Status</Label>
+          <Select
+            value={popoverState.currentStatus}
+            onValueChange={(value: TaskStatus) => setPopoverState(prev => ({...prev, currentStatus: value}))}
+          >
+            <SelectTrigger id={`qe-status-${task.id}`} className="col-span-2 h-8">
+              <SelectValue placeholder="Select status" />
+            </SelectTrigger>
+            <SelectContent>
+              {TASK_STATUSES.map(status => (
+                <SelectItem key={status} value={status}>{status}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid grid-cols-3 items-center gap-4">
+          <Label htmlFor={`qe-progress-${task.id}`}>Progress (%)</Label>
+          <Input
+            id={`qe-progress-${task.id}`}
+            type="number"
+            min="0"
+            max="100"
+            value={popoverState.currentProgress}
+            onChange={(e) => setPopoverState(prev => ({...prev, currentProgress: parseInt(e.target.value, 10) || 0}))}
+            className="col-span-2 h-8"
+          />
+        </div>
+        {popoverState.currentTaskType === "VALIDATION_PROJECT" && (
+          <ShadcnButton
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full mt-2"
+            onClick={() => onAddNewStep(task)}
+          >
+            <PlusCircle className="mr-2 h-4 w-4" /> Add New Step Task
+          </ShadcnButton>
+        )}
+      </div>
+      <div className="flex justify-end gap-2 pt-2">
+        <ShadcnButton variant="ghost" size="sm" onClick={() => router.push(`/tasks/${task.id}/edit`)} >Full Edit</ShadcnButton>
+        <ShadcnButton size="sm" onClick={onSave}><Save className="mr-1 h-4 w-4" />Save</ShadcnButton>
+      </div>
+    </div>
+  );
+};
+
+
 const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderControls = 'defaultTitle' }) => {
   const { pbClient } = useAuth();
   const { toast } = useToast();
@@ -142,7 +240,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   const [quickEditPopoverState, setQuickEditPopoverState] = useState<QuickEditPopoverState>({
     taskId: null,
     currentTitle: "",
-    currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0],
+    currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP") || TASK_TYPES[0],
     currentInstrumentSubtype: undefined,
     currentStatus: 'To Do',
     currentProgress: 0,
@@ -163,7 +261,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
       if (filterTaskType === "VALIDATION_PROJECT") {
         fetchOptions.filter = `task_type = "VALIDATION_PROJECT"`;
       } else if (filterTaskType === "ALL_EXCEPT_VALIDATION") {
-        fetchOptions.filter = `task_type != "VALIDATION_PROJECT"`;
+        fetchOptions.filter = `task_type != "VALIDATION_PROJECT" && task_type != "VALIDATION_STEP"`;
       }
 
 
@@ -386,7 +484,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             }
         } else {
             payload.isMilestone = false;
-            // Keep existing dependencies for non-VP tasks if not explicitly cleared
             if (!updates.hasOwnProperty('dependencies')) {
                 delete payload.dependencies;
             } else if (updates.dependencies === null || updates.dependencies === undefined) {
@@ -398,10 +495,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         try {
             await updateTaskService(pbClient, taskId, payload);
             toast({ title: "Task Updated", description: `Task "${taskToUpdate.title}" was successfully updated.` });
-            fetchTimelineTasks(pbClient);
+            if (pbClient) fetchTimelineTasks(pbClient);
         } catch (err) {
             toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${taskToUpdate.title}"`), variant: "destructive" });
-            fetchTimelineTasks(pbClient);
+            if (pbClient) fetchTimelineTasks(pbClient);
         }
     }, [pbClient, allTasks, toast, fetchTimelineTasks]);
 
@@ -459,7 +556,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         if (!ganttRect || !timelineScroll) return;
 
         const initialMouseXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
-        const initialMouseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60;
+        const initialMouseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Adjust for header height
 
         setDependencyDrawState({
             sourceTaskId: task.id,
@@ -471,48 +568,44 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'crosshair';
     }, [taskRenderDetailsMap]);
 
-    const openQuickEditPopover = useCallback((taskToEdit: Task) => {
-      setQuickEditPopoverState({
-        taskId: taskToEdit.id,
-        currentTitle: taskToEdit.title,
-        currentTaskType: taskToEdit.task_type,
-        currentInstrumentSubtype: taskToEdit.instrument_subtype,
-        currentStatus: taskToEdit.status,
-        currentProgress: taskToEdit.progress || 0,
-      });
-      setIsQuickEditPopoverOpen(true);
+    const triggerPopoverForTask = useCallback((taskToEdit: Task) => {
+        setQuickEditPopoverState({
+            taskId: taskToEdit.id,
+            currentTitle: taskToEdit.title,
+            currentTaskType: taskToEdit.task_type,
+            currentInstrumentSubtype: taskToEdit.instrument_subtype,
+            currentStatus: taskToEdit.status,
+            currentProgress: taskToEdit.progress || 0,
+        });
+        setIsQuickEditPopoverOpen(true);
     }, []);
 
     const handleTaskBarClick = useCallback((e: React.MouseEvent, task: Task) => {
         if (e.detail !== 1 || Math.abs(e.movementX) > 2 || Math.abs(e.movementY) > 2) {
-          return;
+          return; // Not a simple click, likely a drag
         }
         const targetElement = e.target as HTMLElement;
         if (targetElement.classList.contains('resize-handle') ||
             targetElement.classList.contains('dependency-connector') ||
             targetElement.closest('.dependency-connector')) {
-          return;
+          return; // Click was on a handle or connector
         }
-        openQuickEditPopover(task);
-      }, [openQuickEditPopover]);
+        triggerPopoverForTask(task);
+      }, [triggerPopoverForTask]);
 
     const handleLeftPanelItemClick = useCallback((e: React.MouseEvent, task: Task) => {
         e.stopPropagation();
-        // Open popover only for VALIDATION_PROJECT from left panel for now
-        // to avoid conflict if other task types get their own popover logic later
         if (task.task_type === "VALIDATION_PROJECT") {
-            openQuickEditPopover(task);
+            triggerPopoverForTask(task);
         }
-    }, [openQuickEditPopover]);
-
-    const handleAddNewStepTaskFromPopover = useCallback((parentValidationProject: Task) => {
+    }, [triggerPopoverForTask]);
+    
+    const handleAddNewStepInQuickEdit = useCallback((parentValidationProject: Task) => {
         if (parentValidationProject.task_type !== "VALIDATION_PROJECT") return;
-
         const queryParams = new URLSearchParams();
-        queryParams.set('defaultType', 'VALIDATION_STEP'); // Changed from SOP
+        queryParams.set('defaultType', 'VALIDATION_STEP');
         queryParams.set('dependsOnValidationProject', parentValidationProject.id);
         queryParams.set('defaultTitle', `Step for: ${parentValidationProject.title}`);
-
         router.push(`/tasks/new?${queryParams.toString()}`);
         setIsQuickEditPopoverOpen(false);
     }, [router]);
@@ -533,9 +626,23 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         } else {
             updates.instrument_subtype = undefined;
         }
-
         handleTaskUpdate(taskId, updates);
+        setIsQuickEditPopoverOpen(false); // Close popover on save
     }, [quickEditPopoverState, handleTaskUpdate]);
+
+    const handlePopoverOpenChange = useCallback((newOpenState: boolean) => {
+        setIsQuickEditPopoverOpen(newOpenState);
+        if (!newOpenState) {
+            setQuickEditPopoverState({
+                taskId: null,
+                currentTitle: "",
+                currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP") || TASK_TYPES[0],
+                currentInstrumentSubtype: undefined,
+                currentStatus: 'To Do',
+                currentProgress: 0,
+            });
+        }
+    }, []);
 
 
     useEffect(() => {
@@ -548,7 +655,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                  if (!timelineScroll) return;
 
                  const currentXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
-                 const currentYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60;
+                 const currentYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Adjust for header height
                  setDependencyDrawState(prev => prev ? { ...prev, currentMouseX: currentXInGrid, currentMouseY: currentYInGrid } : null);
             }
         };
@@ -571,7 +678,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
                 if (ganttRect && timelineScroll) {
                     const releaseXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
-                    const releaseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60;
+                    const releaseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; // Adjust for header height
 
                     let targetDropTaskId: string | null = null;
                     for (const [taskId, details] of taskRenderDetailsMap.entries()) {
@@ -581,7 +688,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                         const taskRowBottom = taskRowTop + ROW_HEIGHT;
 
                         if (releaseYInGrid >= taskRowTop && releaseYInGrid <= taskRowBottom &&
-                            releaseXInGrid >= details.barStartX - dayCellWidth / 2 && releaseXInGrid <= details.barStartX + dayCellWidth / 2) {
+                            releaseXInGrid >= details.barStartX - dayCellWidth / 2 && releaseXInGrid <= details.barStartX + dayCellWidth / 2) { // Target the start of the bar
                              targetDropTaskId = taskId;
                              break;
                         }
@@ -760,30 +867,46 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 onMouseLeave={() => setHoveredTaskId(null)}
               >
                 <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
-                <span
-                  className={cn(
-                    "font-medium truncate hover:text-primary",
-                     (task.task_type === "VALIDATION_PROJECT" || quickEditPopoverState.taskId === task.id) ? "cursor-pointer" : ""
+                <Popover open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id} onOpenChange={handlePopoverOpenChange}>
+                  <PopoverTrigger asChild>
+                    <span
+                      className={cn(
+                        "font-medium truncate hover:text-primary",
+                        (task.task_type === "VALIDATION_PROJECT") ? "cursor-pointer" : ""
+                      )}
+                      title={task.title}
+                      onClick={(e) => handleLeftPanelItemClick(e, task)}
+                    >
+                      {task.title}
+                    </span>
+                  </PopoverTrigger>
+                  {task.task_type === "VALIDATION_PROJECT" && (
+                    <PopoverContent className="w-96 z-50" side="right" align="start">
+                       <QuickEditFormContent
+                        task={task}
+                        popoverState={quickEditPopoverState}
+                        setPopoverState={setQuickEditPopoverState}
+                        onSave={handleSaveQuickEdit}
+                        onAddNewStep={handleAddNewStepInQuickEdit}
+                        router={router}
+                      />
+                    </PopoverContent>
                   )}
-                  title={task.title}
-                  onClick={(e) => handleLeftPanelItemClick(e, task)}
-                >
-                   {task.title}
-                </span>
+                </Popover>
                 <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
                 <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
                 <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
                 <div className="flex justify-center">
-                  {task.task_type === "VALIDATION_PROJECT" && (
+                  {(task.task_type === "VALIDATION_PROJECT" || task.task_type === "ALL_EXCEPT_VALIDATION" && filterTaskType !== "VALIDATION_PROJECT") && (
                     <ShadcnButton
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6"
-                      title="Add New Step Task for this Validation Project"
+                      title={`Add New Step Task for this ${task.task_type === "VALIDATION_PROJECT" ? "Validation Project" : "Task"}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         const queryParams = new URLSearchParams();
-                        queryParams.set('defaultType', 'VALIDATION_STEP'); // Changed from SOP
+                        queryParams.set('defaultType', 'VALIDATION_STEP');
                         queryParams.set('dependsOnValidationProject', task.id);
                         queryParams.set('defaultTitle', `Step for: ${task.title}`);
                         router.push(`/tasks/new?${queryParams.toString()}`);
@@ -846,212 +969,124 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
 
                   return (
-                    <Popover key={`${task.id}-popover`}
-                      open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id}
-                       onOpenChange={(newOpenState) => {
-                        setIsQuickEditPopoverOpen(newOpenState);
-                        if (!newOpenState) {
-                          setQuickEditPopoverState({ // Reset state when popover closes
-                            taskId: null,
-                            currentTitle: "",
-                            currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0],
-                            currentInstrumentSubtype: undefined,
-                            currentStatus: 'To Do',
-                            currentProgress: 0,
-                          });
-                        }
-                      }}
-                    >
-                    <Tooltip delayDuration={isBeingDragged || isBeingDepDrawnFrom || (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) ? 999999 : 100}>
-                      <TooltipTrigger asChild>
-                        <PopoverTrigger asChild>
-                        <div
-                          onMouseDown={(e) => handleMouseDownOnTaskBar(e, task)}
-                          onClick={(e) => handleTaskBarClick(e, task)}
-                          onMouseEnter={() => setHoveredTaskId(task.id)}
-                          onMouseLeave={() => setHoveredTaskId(null)}
-                          className={cn(
-                            "absolute transition-opacity duration-150 ease-in-out group cursor-grab z-10 flex items-center justify-center",
-                            getTaskBarColor(task.status, isMilestoneRender, task.task_type),
-                            !isMilestoneRender && "rounded-sm",
-                            (isBeingDragged || isBeingDepDrawnFrom) ? 'ring-2 ring-ring ring-offset-background ring-offset-1 shadow-lg' :
-                            (task.id === hoveredTaskId ? 'ring-1 ring-primary/70' : ''),
-                            ( (dragState && dragState.taskId !== task.id) ||
-                              (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) ||
-                              (hoveredTaskId && task.id !== hoveredTaskId) ) ? 'opacity-50' : 'opacity-100'
-                          )}
-                          style={{
-                            left: `${barStartX}px`,
-                            width: `${barWidth < 0 ? 0 : barWidth}px`,
-                            top: `${(taskIndex * ROW_HEIGHT) + (isMilestoneRender ? milestoneTopOffset : taskBarTopOffset)}px`,
-                            height: isMilestoneRender ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
-                          }}
-                        >
-                          {!isMilestoneRender && (
-                            <>
-                            <div
-                                className="resize-handle absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
-                                onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'start')}
-                                title="Resize start date"
-                            >
-                                <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
-                            </div>
-                            <div
-                                className="resize-handle absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
-                                onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'end')}
-                                title="Resize end date"
-                            >
-                                <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
-                            </div>
-                            {task.task_type === "VALIDATION_PROJECT" && (
+                    <Popover key={`${task.id}-timeline-popover`} open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id} onOpenChange={handlePopoverOpenChange}>
+                      <Tooltip delayDuration={isBeingDragged || isBeingDepDrawnFrom || (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) ? 999999 : 100}>
+                        <TooltipTrigger asChild>
+                          <PopoverTrigger asChild>
+                          <div
+                            onMouseDown={(e) => handleMouseDownOnTaskBar(e, task)}
+                            onClick={(e) => handleTaskBarClick(e, task)}
+                            onMouseEnter={() => setHoveredTaskId(task.id)}
+                            onMouseLeave={() => setHoveredTaskId(null)}
+                            className={cn(
+                              "absolute transition-opacity duration-150 ease-in-out group cursor-grab z-10 flex items-center justify-center",
+                              getTaskBarColor(task.status, isMilestoneRender, task.task_type),
+                              !isMilestoneRender && "rounded-sm",
+                              (isBeingDragged || isBeingDepDrawnFrom) ? 'ring-2 ring-ring ring-offset-background ring-offset-1 shadow-lg' :
+                              (task.id === hoveredTaskId ? 'ring-1 ring-primary/70' : ''),
+                              ( (dragState && dragState.taskId !== task.id) ||
+                                (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) ||
+                                (hoveredTaskId && task.id !== hoveredTaskId) ) ? 'opacity-50' : 'opacity-100'
+                            )}
+                            style={{
+                              left: `${barStartX}px`,
+                              width: `${barWidth < 0 ? 0 : barWidth}px`,
+                              top: `${(taskIndex * ROW_HEIGHT) + (isMilestoneRender ? milestoneTopOffset : taskBarTopOffset)}px`,
+                              height: isMilestoneRender ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
+                            }}
+                          >
+                            {!isMilestoneRender && (
+                              <>
                               <div
-                                className="dependency-connector absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity"
-                                onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)}
-                                title="Draw dependency"
-                              />
-                            )}
-                            </>
-                          )}
-                          {!isMilestoneRender && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && barWidth > 0 && (
-                            <div className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" style={{ width: `${task.progress}%`}} />
-                          )}
-                          {isMilestoneRender && (
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <svg viewBox="0 0 100 100" className="w-full h-full fill-current text-white/80" preserveAspectRatio="none">
-                                <polygon points="50,0 100,50 50,100 0,50" />
-                              </svg>
-                            </div>
-                          )}
-                          {!isMilestoneRender && barWidth > (dayCellWidth * 0.75) && (
-                             <div className="absolute inset-0 flex items-center px-1.5 overflow-hidden">
-                                <span className="text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden text-ellipsis">
-                                  {task.title}
-                                </span>
-                            </div>
-                          )}
-                        </div>
-                        </PopoverTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent className="p-2 shadow-lg bg-popover text-popover-foreground rounded-md border max-w-xs w-auto z-50">
-                        <div className="space-y-1">
-                          <p className="font-semibold text-sm">
-                             {task.title}
-                             {task.task_type === "VALIDATION_PROJECT" && task.isMilestone ? " (Milestone)" : ""}
-                          </p>
-                          <p className="text-xs text-muted-foreground">Type: <span className="font-medium text-foreground">{task.task_type.replace(/_/g, ' ')}</span></p>
-                          {(task.task_type === "MDL" || task.task_type === "SOP") && task.instrument_subtype && (
-                             <p className="text-xs text-muted-foreground">Subtype: <span className="font-medium text-foreground">{task.instrument_subtype}</span></p>
-                          )}
-                          <p className="text-xs text-muted-foreground">Status: <span className="font-medium text-foreground">{task.status}</span></p>
-                          <p className="text-xs text-muted-foreground">Priority: <span className="font-medium text-foreground">{task.priority}</span></p>
-                          <p className="text-xs text-muted-foreground">Progress: <span className="font-medium text-foreground">{task.progress || 0}%</span></p>
-                          <p className="text-xs text-muted-foreground">
-                            Dates: {format(task.startDate, 'MMM d, yy')} - {format(task.dueDate, 'MMM d, yy')}
-                          </p>
-                          {task.assignedTo_text && (
-                            <p className="text-xs text-muted-foreground">Assigned to: <span className="font-medium text-foreground">{task.assignedTo_text}</span></p>
-                          )}
-                          {task.dependencies && task.dependencies.length > 0 && (
-                            <div>
-                              <p className="text-xs text-muted-foreground mt-1">Depends on:</p>
-                              <ul className="list-disc list-inside pl-2 space-y-0.5">
-                                {task.dependencies.map(depId => {
-                                  const depTaskDetails = allTasks.find(t => t.id === depId);
-                                  return <li key={depId} className="text-xs font-medium text-foreground truncate" title={depTaskDetails?.title}>{depTaskDetails?.title || 'Unknown Task'}</li>;
-                                })}
-                              </ul>
-                            </div>
-                          )}
-                           {(!task.dependencies || task.dependencies.length === 0) && (
-                             <p className="text-xs text-muted-foreground">Dependencies: None</p>
-                           )}
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                    <PopoverContent className="w-96 z-50" side="bottom" align="start">
-                        <div className="grid gap-4">
-                        <div className="space-y-2">
-                            <h4 className="font-medium leading-none">Quick Edit: {quickEditPopoverState.currentTitle}</h4>
-                            <p className="text-sm text-muted-foreground">
-                            Modify task details.
-                            </p>
-                        </div>
-                        <div className="grid gap-2">
-                            <div className="grid grid-cols-3 items-center gap-4">
-                                <Label htmlFor={`qe-title-${task.id}`}>Name</Label>
-                                <Input
-                                  id={`qe-title-${task.id}`}
-                                  value={quickEditPopoverState.currentTitle}
-                                  onChange={(e) => setQuickEditPopoverState(prev => ({...prev, currentTitle: e.target.value}))}
-                                  className="col-span-2 h-8"
-                                />
-                            </div>
-                            {/* Instrument Subtype for MDL/SOP only, not for VALIDATION_PROJECT or VALIDATION_STEP */}
-                            {(quickEditPopoverState.currentTaskType === "MDL" || quickEditPopoverState.currentTaskType === "SOP") && (
-                                <div className="grid grid-cols-3 items-center gap-4">
-                                <Label htmlFor={`qe-instrument-${task.id}`}>Subtype</Label>
-                                <Select
-                                    value={quickEditPopoverState.currentInstrumentSubtype || ""}
-                                    onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentInstrumentSubtype: value}))}
-                                >
-                                    <SelectTrigger id={`qe-instrument-${task.id}`} className="col-span-2 h-8">
-                                        <SelectValue placeholder="Select subtype" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {(quickEditPopoverState.currentTaskType === "MDL" ? INSTRUMENT_SUBTYPES : SOP_SUBTYPES).map(subtype => (
-                                            <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                </div>
-                            )}
-                            <div className="grid grid-cols-3 items-center gap-4">
-                            <Label htmlFor={`qe-status-${task.id}`}>Status</Label>
-                            <Select
-                                value={quickEditPopoverState.currentStatus}
-                                onValueChange={(value: TaskStatus) => setQuickEditPopoverState(prev => ({...prev, currentStatus: value}))}
-                            >
-                                <SelectTrigger id={`qe-status-${task.id}`} className="col-span-2 h-8">
-                                <SelectValue placeholder="Select status" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                {TASK_STATUSES.map(status => (
-                                    <SelectItem key={status} value={status}>{status}</SelectItem>
-                                ))}
-                                </SelectContent>
-                            </Select>
-                            </div>
-                            <div className="grid grid-cols-3 items-center gap-4">
-                            <Label htmlFor={`qe-progress-${task.id}`}>Progress (%)</Label>
-                            <Input
-                                id={`qe-progress-${task.id}`}
-                                type="number"
-                                min="0"
-                                max="100"
-                                value={quickEditPopoverState.currentProgress}
-                                onChange={(e) => setQuickEditPopoverState(prev => ({...prev, currentProgress: parseInt(e.target.value, 10) || 0}))}
-                                className="col-span-2 h-8"
-                            />
-                            </div>
-                            {quickEditPopoverState.currentTaskType === "VALIDATION_PROJECT" && (
-                              <ShadcnButton
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="w-full mt-2"
-                                onClick={() => handleAddNewStepTaskFromPopover(task)}
+                                  className="resize-handle absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
+                                  onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'start')}
+                                  title="Resize start date"
                               >
-                                <PlusCircle className="mr-2 h-4 w-4" /> Add New Step Task
-                              </ShadcnButton>
+                                  <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
+                              </div>
+                              <div
+                                  className="resize-handle absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
+                                  onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'end')}
+                                  title="Resize end date"
+                              >
+                                  <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
+                              </div>
+                              {task.task_type === "VALIDATION_PROJECT" && (
+                                <div
+                                  className="dependency-connector absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)}
+                                  title="Draw dependency"
+                                />
+                              )}
+                              </>
                             )}
-                        </div>
-                        <div className="flex justify-end gap-2 pt-2">
-                            <ShadcnButton variant="ghost" size="sm" onClick={() => setIsQuickEditPopoverOpen(false)}>Cancel</ShadcnButton>
-                            <ShadcnButton size="sm" onClick={handleSaveQuickEdit}><Save className="mr-1 h-4 w-4" />Save</ShadcnButton>
-                        </div>
-                        </div>
-                    </PopoverContent>
-                  </Popover>
+                            {!isMilestoneRender && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && barWidth > 0 && (
+                              <div className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" style={{ width: `${task.progress}%`}} />
+                            )}
+                            {isMilestoneRender && (
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <svg viewBox="0 0 100 100" className="w-full h-full fill-current text-white/80" preserveAspectRatio="none">
+                                  <polygon points="50,0 100,50 50,100 0,50" />
+                                </svg>
+                              </div>
+                            )}
+                            {!isMilestoneRender && barWidth > (dayCellWidth * 0.75) && (
+                               <div className="absolute inset-0 flex items-center px-1.5 overflow-hidden">
+                                  <span className="text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden text-ellipsis">
+                                    {task.title}
+                                  </span>
+                              </div>
+                            )}
+                          </div>
+                          </PopoverTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent className="p-2 shadow-lg bg-popover text-popover-foreground rounded-md border max-w-xs w-auto z-50">
+                          <div className="space-y-1">
+                            <p className="font-semibold text-sm">
+                               {task.title}
+                               {task.task_type === "VALIDATION_PROJECT" && task.isMilestone ? " (Milestone)" : ""}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Type: <span className="font-medium text-foreground">{task.task_type.replace(/_/g, ' ')}</span></p>
+                            {(task.task_type === "MDL" || task.task_type === "SOP") && task.instrument_subtype && (
+                               <p className="text-xs text-muted-foreground">Subtype: <span className="font-medium text-foreground">{task.instrument_subtype}</span></p>
+                            )}
+                            <p className="text-xs text-muted-foreground">Status: <span className="font-medium text-foreground">{task.status}</span></p>
+                            <p className="text-xs text-muted-foreground">Priority: <span className="font-medium text-foreground">{task.priority}</span></p>
+                            <p className="text-xs text-muted-foreground">Progress: <span className="font-medium text-foreground">{task.progress || 0}%</span></p>
+                            <p className="text-xs text-muted-foreground">
+                              Dates: {format(task.startDate, 'MMM d, yy')} - {format(task.dueDate, 'MMM d, yy')}
+                            </p>
+                            {task.assignedTo_text && (
+                              <p className="text-xs text-muted-foreground">Assigned to: <span className="font-medium text-foreground">{task.assignedTo_text}</span></p>
+                            )}
+                            {task.dependencies && task.dependencies.length > 0 && (
+                              <div>
+                                <p className="text-xs text-muted-foreground mt-1">Depends on:</p>
+                                <ul className="list-disc list-inside pl-2 space-y-0.5">
+                                  {task.dependencies.map(depId => {
+                                    const depTaskDetails = allTasks.find(t => t.id === depId);
+                                    return <li key={depId} className="text-xs font-medium text-foreground truncate" title={depTaskDetails?.title}>{depTaskDetails?.title || 'Unknown Task'}</li>;
+                                  })}
+                                </ul>
+                              </div>
+                            )}
+                             {(!task.dependencies || task.dependencies.length === 0) && (
+                               <p className="text-xs text-muted-foreground">Dependencies: None</p>
+                             )}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                      <PopoverContent className="w-96 z-50" side="bottom" align="start">
+                         <QuickEditFormContent
+                          task={task}
+                          popoverState={quickEditPopoverState}
+                          setPopoverState={setQuickEditPopoverState}
+                          onSave={handleSaveQuickEdit}
+                          onAddNewStep={handleAddNewStepInQuickEdit}
+                          router={router}
+                        />
+                      </PopoverContent>
+                    </Popover>
                   );
                 })}
 
@@ -1104,3 +1139,4 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 };
 
 export default GanttChart;
+
