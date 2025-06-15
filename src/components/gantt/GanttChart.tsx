@@ -52,6 +52,7 @@ const MIN_TASK_DURATION_DAYS = 1;
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean, taskType?: TaskType): string => {
   if (taskType === "VALIDATION_PROJECT" && isMilestone) return 'bg-purple-500 hover:bg-purple-600';
+  if (taskType === "VALIDATION_STEP") return 'bg-teal-500 hover:bg-teal-600'; // Color for VALIDATION_STEP
   if (!status) return 'bg-primary hover:bg-primary/90';
   switch (status.toLowerCase()) {
     case 'done':
@@ -497,14 +498,18 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
     const handleLeftPanelItemClick = useCallback((e: React.MouseEvent, task: Task) => {
         e.stopPropagation();
-        openQuickEditPopover(task);
+        // Open popover only for VALIDATION_PROJECT from left panel for now
+        // to avoid conflict if other task types get their own popover logic later
+        if (task.task_type === "VALIDATION_PROJECT") {
+            openQuickEditPopover(task);
+        }
     }, [openQuickEditPopover]);
 
     const handleAddNewStepTaskFromPopover = useCallback((parentValidationProject: Task) => {
         if (parentValidationProject.task_type !== "VALIDATION_PROJECT") return;
 
         const queryParams = new URLSearchParams();
-        queryParams.set('defaultType', 'SOP');
+        queryParams.set('defaultType', 'VALIDATION_STEP'); // Changed from SOP
         queryParams.set('dependsOnValidationProject', parentValidationProject.id);
         queryParams.set('defaultTitle', `Step for: ${parentValidationProject.title}`);
 
@@ -530,7 +535,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         }
 
         handleTaskUpdate(taskId, updates);
-        //setIsQuickEditPopoverOpen(false); // Will be closed by onOpenChange
     }, [quickEditPopoverState, handleTaskUpdate]);
 
 
@@ -779,7 +783,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                       onClick={(e) => {
                         e.stopPropagation();
                         const queryParams = new URLSearchParams();
-                        queryParams.set('defaultType', 'SOP');
+                        queryParams.set('defaultType', 'VALIDATION_STEP'); // Changed from SOP
                         queryParams.set('dependsOnValidationProject', task.id);
                         queryParams.set('defaultTitle', `Step for: ${task.title}`);
                         router.push(`/tasks/new?${queryParams.toString()}`);
@@ -844,10 +848,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                   return (
                     <Popover key={`${task.id}-popover`}
                       open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id}
-                      onOpenChange={(newOpenState) => {
+                       onOpenChange={(newOpenState) => {
                         setIsQuickEditPopoverOpen(newOpenState);
                         if (!newOpenState) {
-                          setQuickEditPopoverState({
+                          setQuickEditPopoverState({ // Reset state when popover closes
                             taskId: null,
                             currentTitle: "",
                             currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0],
@@ -982,6 +986,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                                   className="col-span-2 h-8"
                                 />
                             </div>
+                            {/* Instrument Subtype for MDL/SOP only, not for VALIDATION_PROJECT or VALIDATION_STEP */}
                             {(quickEditPopoverState.currentTaskType === "MDL" || quickEditPopoverState.currentTaskType === "SOP") && (
                                 <div className="grid grid-cols-3 items-center gap-4">
                                 <Label htmlFor={`qe-instrument-${task.id}`}>Subtype</Label>
@@ -1099,4 +1104,3 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 };
 
 export default GanttChart;
-

@@ -75,9 +75,9 @@ const quarterlyCompletionChartConfigInitial = {
 } as ChartConfig;
 
 const quarterlyCompletionChartConfig = taskTypesForDashboardChart.reduce((acc, type, index) => {
-  acc[type] = { label: `${type} Rate`, color: `hsl(var(--chart-${(index % 5) + 1}))` };
-  acc[`${type}_total`] = { label: `${type} Total` };
-  acc[`${type}_completed`] = { label: `${type} Completed` };
+  acc[type] = { label: `${type.replace(/_/g, ' ')} Rate`, color: `hsl(var(--chart-${(index % 5) + 1}))` };
+  acc[`${type}_total`] = { label: `${type.replace(/_/g, ' ')} Total` };
+  acc[`${type}_completed`] = { label: `${type.replace(/_/g, ' ')} Completed` };
   return acc;
 }, quarterlyCompletionChartConfigInitial);
 
@@ -238,7 +238,6 @@ export default function DashboardPage() {
     setActiveTasksByEmployeeData(employeeDataForChart);
 
 
-    // Quarterly Completion Rate Logic - Updated
     const yearlyTotalTasksByType: { [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: number } = {};
     const quarterlyCompletedRawCountByType: {
       [quarterKey: string]: { [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: number };
@@ -544,7 +543,7 @@ export default function DashboardPage() {
                                 strokeWidth={2} 
                                 dot={{ r: 4, fill: `var(--color-${type})` }} 
                                 activeDot={{ r: 6, fill: `var(--color-${type})`}} 
-                                name={quarterlyCompletionChartConfig[type]?.label as string || `${type} Rate`} 
+                                name={quarterlyCompletionChartConfig[type]?.label as string || `${type.replace(/_/g, ' ')} Rate`} 
                                 connectNulls={false} 
                             />
                           ))}

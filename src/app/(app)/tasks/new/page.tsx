@@ -60,7 +60,7 @@ export default function NewTaskPage() {
   const defaultTitleFromQuery = searchParams.get("defaultTitle");
 
 
-  const [taskType, setTaskType] = useState<TaskType>(defaultTypeFromQuery || TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0]);
+  const [taskType, setTaskType] = useState<TaskType>(defaultTypeFromQuery || TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP") || TASK_TYPES[0]);
   const [title, setTitle] = useState<string>(defaultTitleFromQuery || "");
   const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
   const [description, setDescription] = useState("");
@@ -90,7 +90,7 @@ export default function NewTaskPage() {
   useEffect(() => {
     if (defaultTypeFromQuery) {
       setTaskType(defaultTypeFromQuery);
-      if (defaultTypeFromQuery === "VALIDATION_PROJECT") {
+      if (defaultTypeFromQuery === "VALIDATION_PROJECT" || defaultTypeFromQuery === "VALIDATION_STEP") {
         setRecurrence("None"); 
       }
     }
@@ -142,7 +142,6 @@ export default function NewTaskPage() {
     setIsLoadingTasksForSelection(true);
     setFetchTasksError(null);
     try {
-      // Fetch all tasks, not just validation projects, to allow broader dependency selection.
       const fetchedTasks = await getTasks(pb, { signal }); 
       setAllTasksForSelection(fetchedTasks);
     } catch (err: any) {
@@ -172,8 +171,12 @@ export default function NewTaskPage() {
     const controller = new AbortController();
     if (pbClient) {
       fetchAndSetEmployees(pbClient, controller.signal);
-      // Always fetch all tasks for dependency selection, regardless of current taskType
-      fetchAllTasksForDependencySelection(pbClient, controller.signal);
+      if (taskType !== "VALIDATION_STEP") { // Only fetch for general dependencies if not a VALIDATION_STEP
+        fetchAllTasksForDependencySelection(pbClient, controller.signal);
+      } else {
+        setIsLoadingTasksForSelection(false); // Not needed for VALIDATION_STEP
+        setAllTasksForSelection([]);
+      }
     } else {
       setIsLoadingEmployees(true); 
       setIsLoadingTasksForSelection(true);
@@ -181,21 +184,27 @@ export default function NewTaskPage() {
     return () => {
       controller.abort();
     };
-  }, [pbClient, fetchAndSetEmployees, fetchAllTasksForDependencySelection]);
+  }, [pbClient, fetchAndSetEmployees, fetchAllTasksForDependencySelection, taskType]);
 
   useEffect(() => {
     if (taskType !== "MDL" && taskType !== "SOP") {
       setInstrumentSubtype(undefined);
     }
-    if (taskType !== "VALIDATION_PROJECT") {
+    if (taskType === "VALIDATION_PROJECT") {
+      setRecurrence("None"); 
+    } else if (taskType === "VALIDATION_STEP") {
       setIsMilestone(false);
-      // Do not clear selectedDependencies if it was pre-filled by query param
+      setRecurrence("None");
+       if (!dependsOnValidationProjectQuery) { // Only clear general dependencies if not pre-filled
+          setSelectedDependencies([]);
+      }
+    } else { // For other task types
+      setIsMilestone(false);
       if (!dependsOnValidationProjectQuery) {
         setSelectedDependencies([]);
       }
-    } else {
-      setRecurrence("None"); 
     }
+
 
     if (taskType === "VALIDATION_PROJECT" && isMilestone && startDate) {
       setDueDate(startDate);
@@ -244,9 +253,9 @@ export default function NewTaskPage() {
       return;
     }
     
-    const effectiveRecurrence = taskType === "VALIDATION_PROJECT" ? "None" : recurrence;
-    if (taskType !== "VALIDATION_PROJECT" && (!effectiveRecurrence || !TASK_RECURRENCES.includes(effectiveRecurrence))) {
-      toast({ title: "Validation Error", description: "Task recurrence is required for non-Validation tasks.", variant: "destructive" });
+    const effectiveRecurrence = (taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") ? "None" : recurrence;
+    if (taskType !== "VALIDATION_PROJECT" && taskType !== "VALIDATION_STEP" && (!effectiveRecurrence || !TASK_RECURRENCES.includes(effectiveRecurrence))) {
+      toast({ title: "Validation Error", description: "Task recurrence is required for this task type.", variant: "destructive" });
       return;
     }
     if (taskType === "VALIDATION_PROJECT" && isMilestone && !startDate) {
@@ -276,9 +285,11 @@ export default function NewTaskPage() {
     if (taskType === "VALIDATION_PROJECT") {
         formData.append("isMilestone", isMilestone.toString());
     } else {
-        formData.append("isMilestone", "false");
+        formData.append("isMilestone", "false"); // also for VALIDATION_STEP
     }
     
+    // Only append general dependencies if it's not a VALIDATION_STEP or if they are explicitly managed
+    // For VALIDATION_STEP, selectedDependencies should already contain the parent project link.
     if (selectedDependencies.length > 0) {
         formData.append("dependencies", JSON.stringify(selectedDependencies));
     }
@@ -306,15 +317,10 @@ export default function NewTaskPage() {
     try {
       await createTask(pbClient, formData);
       toast({ title: "Success", description: `New ${taskType.replace(/_/g, ' ')} task created successfully!` });
-      if (taskType === "VALIDATION_PROJECT") {
+      if (taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP" || dependsOnValidationProjectQuery) {
         router.push("/validations");
       } else {
-        // If it was a step task for a validation project, redirect to validations page to see context
-        if (dependsOnValidationProjectQuery) {
-          router.push("/validations");
-        } else {
-          router.push("/tasks");
-        }
+        router.push("/tasks");
       }
     } catch (err: any) {
       console.error("Failed to create task (full error object):", err); 
@@ -363,9 +369,9 @@ export default function NewTaskPage() {
     }
   };
   
-  const isLoadingPrerequisites = isLoadingEmployees || isLoadingTasksForSelection;
+  const isLoadingPrerequisites = isLoadingEmployees || (isLoadingTasksForSelection && taskType !== "VALIDATION_STEP");
   
-  const availableTaskTypes = (defaultTypeFromQuery && defaultTypeFromQuery !== "VALIDATION_PROJECT" && dependsOnValidationProjectQuery) 
+  const availableTaskTypes = (defaultTypeFromQuery && (defaultTypeFromQuery === "VALIDATION_PROJECT" || defaultTypeFromQuery === "VALIDATION_STEP") && dependsOnValidationProjectQuery) 
     ? TASK_TYPES.filter(t => t === defaultTypeFromQuery) // If it's a step task, lock type
     : defaultTypeFromQuery === "VALIDATION_PROJECT" 
       ? TASK_TYPES.filter(t => t === "VALIDATION_PROJECT") 
@@ -422,14 +428,17 @@ export default function NewTaskPage() {
     );
   }
 
+  const isCreatingStepTask = taskType === "VALIDATION_STEP" && !!dependsOnValidationProjectQuery;
+
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl md:text-3xl font-headline font-semibold">
-          {taskType === "VALIDATION_PROJECT" ? "New Validation Project" : (dependsOnValidationProjectQuery ? `New Step for Validation` : "Add New Task")}
+          {taskType === "VALIDATION_PROJECT" ? "New Validation Project" : 
+           (isCreatingStepTask ? `New Step for Validation Project` : "Add New Task")}
         </h1>
         <Button variant="outline" asChild>
-          <Link href={taskType === "VALIDATION_PROJECT" || dependsOnValidationProjectQuery ? "/validations" : "/tasks"}>Cancel</Link>
+          <Link href={taskType === "VALIDATION_PROJECT" || isCreatingStepTask ? "/validations" : "/tasks"}>Cancel</Link>
         </Button>
       </div>
 
@@ -448,15 +457,14 @@ export default function NewTaskPage() {
                   setTaskType(value);
                   setInstrumentSubtype(undefined); 
                   setIsMilestone(false);
-                  if (!dependsOnValidationProjectQuery) { // Only clear dependencies if not pre-filled
+                  if (!dependsOnValidationProjectQuery) { 
                       setSelectedDependencies([]);
                   }
-                  if (value === "VALIDATION_PROJECT") {
+                  if (value === "VALIDATION_PROJECT" || value === "VALIDATION_STEP") {
                     setRecurrence("None");
-                  } else if (recurrence === "None" && !defaultTypeFromQuery) { 
                   }
                 }}
-                disabled={!!(defaultTypeFromQuery && (defaultTypeFromQuery === "VALIDATION_PROJECT" || dependsOnValidationProjectQuery))}
+                disabled={!!(defaultTypeFromQuery && (defaultTypeFromQuery === "VALIDATION_PROJECT" || defaultTypeFromQuery === "VALIDATION_STEP") && dependsOnValidationProjectQuery)}
               >
                 <SelectTrigger id="task_type">
                   <SelectValue placeholder="Select task type" />
@@ -471,11 +479,15 @@ export default function NewTaskPage() {
 
             <div>
               <Label htmlFor="title">
-                {taskType === "VALIDATION_PROJECT" ? "Validation Project Name" : "Task Name"}
+                {taskType === "VALIDATION_PROJECT" ? "Validation Project Name" : 
+                 (isCreatingStepTask ? "Step Name" : "Task Name")}
               </Label>
               <Input 
                 id="title" 
-                placeholder={taskType === "VALIDATION_PROJECT" ? "e.g., New HPLC Method Validation" : (dependsOnValidationProjectQuery ? "e.g., Protocol Definition" : "e.g., Daily Balances Check")} 
+                placeholder={
+                  taskType === "VALIDATION_PROJECT" ? "e.g., New HPLC Method Validation" : 
+                  (isCreatingStepTask ? "e.g., Protocol Definition" : "e.g., Daily Balances Check")
+                } 
                 value={title} 
                 onChange={(e) => setTitle(e.target.value)} 
               />
@@ -584,7 +596,7 @@ export default function NewTaskPage() {
 
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             {taskType !== "VALIDATION_PROJECT" && (
+             {taskType !== "VALIDATION_PROJECT" && taskType !== "VALIDATION_STEP" && (
                 <div>
                   <Label htmlFor="recurrence">Recurrence</Label>
                   <Select value={recurrence} onValueChange={(value: TaskRecurrence) => setRecurrence(value)} >
@@ -599,7 +611,7 @@ export default function NewTaskPage() {
                   </Select>
                 </div>
               )}
-              <div className={taskType === "VALIDATION_PROJECT" ? "md:col-span-2" : ""}>
+              <div className={(taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") ? "md:col-span-2" : ""}>
                 <Label htmlFor="assignedTo">Assigned To</Label>
                 <Select 
                   onValueChange={(value: string) => setAssignedToText(value === "__NONE__" ? undefined : value)} 
@@ -624,6 +636,7 @@ export default function NewTaskPage() {
               </div>
             </div>
             
+            {taskType !== "VALIDATION_STEP" && ( // Hide for VALIDATION_STEP as dependency is pre-set
             <div>
               <Label htmlFor="dependencies">Dependencies (Optional)</Label>
                 <Popover open={isDependenciesPopoverOpen} onOpenChange={setIsDependenciesPopoverOpen}>
@@ -655,7 +668,7 @@ export default function NewTaskPage() {
                                       id={`dep-${taskItem.id}`}
                                       checked={selectedDependencies.includes(taskItem.id)}
                                       onCheckedChange={() => handleDependencyChange(taskItem.id)}
-                                      disabled={dependsOnValidationProjectQuery === taskItem.id} // Disable unchecking pre-filled dep
+                                      disabled={dependsOnValidationProjectQuery === taskItem.id} 
                                   />
                                   <label
                                       htmlFor={`dep-${taskItem.id}`}
@@ -677,6 +690,7 @@ export default function NewTaskPage() {
                   </PopoverContent>
               </Popover>
             </div>
+            )}
 
             <div>
               <Label htmlFor="attachments">Attachments</Label>
@@ -703,7 +717,7 @@ export default function NewTaskPage() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button type="submit" disabled={isSubmitting || isLoadingPrerequisites || !!fetchTasksError || !!fetchEmployeesError}>
+              <Button type="submit" disabled={isSubmitting || isLoadingPrerequisites || (fetchTasksError && taskType !== "VALIDATION_STEP") || fetchEmployeesError}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Save Task
               </Button>
@@ -714,4 +728,3 @@ export default function NewTaskPage() {
     </div>
   );
 }
-

@@ -152,7 +152,24 @@ const taskEditFormSchema = z.object({
         path: ["startDate"],
       });
     }
+  } else if (data.task_type === "VALIDATION_STEP") {
+    if (data.isMilestone === true) { // Should always be false for VALIDATION_STEP
+         ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Milestones are not applicable to Validation Step tasks.",
+            path: ["isMilestone"],
+        });
+    }
+    if (data.recurrence && data.recurrence !== "None") { // Should always be "None"
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Recurrence is not applicable to Validation Step tasks.",
+            path: ["recurrence"],
+        });
+    }
+    // Dependencies for VALIDATION_STEP are pre-set and shouldn't be user-modifiable in this general edit form
   } else { 
+    // For other standard tasks (not VALIDATION_PROJECT or VALIDATION_STEP)
     if (data.isMilestone) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -160,37 +177,24 @@ const taskEditFormSchema = z.object({
         path: ["isMilestone"],
       });
     }
-    if (data.dependencies && data.dependencies.length > 0) {
-      // This rule might need adjustment if "step tasks" (which are not VALIDATION_PROJECT type)
-      // are allowed to have dependencies on their parent project.
-      // For now, keeping it strict that non-VP tasks can't have dependencies in this form.
-      // If a step task *is* a VALIDATION_PROJECT, this rule won't trigger.
-      // If a step task is e.g. SOP and has a dependency, this rule might be too strict.
-      // Let's assume for now dependencies are mainly for VALIDATION_PROJECT task linking.
-      const isStepTask = allTasksForSelection.find(t => t.id === data.dependencies?.[0])?.task_type === "VALIDATION_PROJECT";
-      if (!isStepTask) { // Allow dependency if it's on a VALIDATION_PROJECT (i.e. it's a step task)
-         ctx.addIssue({
-           code: z.ZodIssueCode.custom,
-           message: "Dependencies are primarily managed for 'VALIDATION_PROJECT' task structures.",
-           path: ["dependencies"],
-         });
-      }
-    }
     if (!data.recurrence || !TASK_RECURRENCES.includes(data.recurrence as TaskRecurrence)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Recurrence is required and must be a valid option for non-VALIDATION_PROJECT tasks.",
+        message: "Recurrence is required and must be a valid option for this task type.",
         path: ["recurrence"],
       });
     }
   }
 
-  if (!data.isMilestone && data.startDate && data.dueDate && data.startDate > data.dueDate) {
-     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Start date must be before or same as due date.",
-      path: ["startDate"], 
-    });
+  // Date validation applies if not a milestone Validation Project
+  if (!(data.task_type === "VALIDATION_PROJECT" && data.isMilestone)) {
+    if (data.startDate && data.dueDate && data.startDate > data.dueDate) {
+        ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Start date must be before or same as due date.",
+        path: ["startDate"], 
+        });
+    }
   }
 });
 
@@ -211,7 +215,6 @@ export default function TasksPage() {
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [fetchEmployeesError, setFetchEmployeesError] = useState<string | null>(null);
 
-  // This state will hold all tasks for the dependency dropdown in the edit form
   const [allTasksForDependencyEdit, setAllTasksForDependencyEdit] = useState<Task[]>([]);
   const [isLoadingTasksForDependencyEdit, setIsLoadingTasksForDependencyEdit] = useState(true);
   const [fetchTasksErrorEdit, setFetchTasksErrorEdit] = useState<string | null>(null);
@@ -229,7 +232,7 @@ export default function TasksPage() {
     resolver: zodResolver(taskEditFormSchema),
     defaultValues: {
       title: "",
-      task_type: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0],
+      task_type: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t!== "VALIDATION_STEP") || TASK_TYPES[0],
       instrument_subtype: undefined,
       dependencies: [],
       isMilestone: false,
@@ -249,14 +252,18 @@ export default function TasksPage() {
         if (value.task_type !== "MDL" && value.task_type !== "SOP") {
           form.setValue("instrument_subtype", undefined, { shouldValidate: true });
         }
-        if (value.task_type !== "VALIDATION_PROJECT") {
-          form.setValue("isMilestone", false, { shouldValidate: true });
-          form.setValue("dependencies", [], { shouldValidate: true });
+        if (value.task_type === "VALIDATION_PROJECT") {
+           form.setValue("recurrence", "None", { shouldValidate: true });
+        } else if (value.task_type === "VALIDATION_STEP") {
+           form.setValue("isMilestone", false, { shouldValidate: true });
+           form.setValue("recurrence", "None", { shouldValidate: true });
+           // Dependencies for VALIDATION_STEP are typically pre-set and not user-editable here.
+           // form.setValue("dependencies", [], { shouldValidate: true }); 
+        } else { // For other non-VP, non-VS tasks
+           form.setValue("isMilestone", false, { shouldValidate: true });
            if (!form.getValues("recurrence")) { 
             form.setValue("recurrence", "None", { shouldValidate: true });
           }
-        } else {
-           form.setValue("recurrence", "None", { shouldValidate: true });
         }
       }
       if (name === "isMilestone" || name === "startDate") {
@@ -371,16 +378,14 @@ export default function TasksPage() {
     };
 
     try {
-      // Fetch all tasks, as any task could be a dependency
       const fetchedTasks = await getTasks(pb, { 
         signal, 
         onRetry: handleDepRetry 
       });
       
-      // Exclude the task currently being edited from the list of potential dependencies
       const filteredForEdit = currentEditingTaskId ? fetchedTasks.filter(t => t.id !== currentEditingTaskId) : fetchedTasks;
       setAllTasksForDependencyEdit(filteredForEdit);
-      allTasksForSelection = filteredForEdit; // Update global ref for Zod
+      allTasksForSelection = filteredForEdit; 
       setDependenciesRetryMessage(null); 
     } catch (err: any) {
       setDependenciesRetryMessage(null); 
@@ -421,13 +426,13 @@ export default function TasksPage() {
   }, [pbClient, fetchTasksCallback, fetchAndSetEmployees]);
 
   useEffect(() => {
-    if (isEditDialogOpen && editingTask && pbClient) {
+    if (isEditDialogOpen && editingTask && pbClient && editingTask.task_type !== "VALIDATION_STEP") {
       const controller = new AbortController();
       fetchAllTasksForDepEdit(pbClient, editingTask.id, controller.signal);
       return () => controller.abort();
-    } else if (!isEditDialogOpen) {
-        setAllTasksForDependencyEdit([]); // Clear when dialog is closed
-        allTasksForSelection = []; // Clear global ref for Zod
+    } else if (!isEditDialogOpen || (editingTask && editingTask.task_type === "VALIDATION_STEP")) {
+        setAllTasksForDependencyEdit([]); 
+        allTasksForSelection = [];
         setIsLoadingTasksForDependencyEdit(false);
     }
   }, [isEditDialogOpen, editingTask, pbClient, fetchAllTasksForDepEdit]);
@@ -444,10 +449,10 @@ export default function TasksPage() {
         priority: editingTask.priority,
         startDate: editingTask.startDate ? new Date(editingTask.startDate) : undefined,
         dueDate: editingTask.dueDate ? new Date(editingTask.dueDate) : undefined,
-        recurrence: editingTask.task_type === "VALIDATION_PROJECT" ? "None" : (editingTask.recurrence || "None"),
+        recurrence: (editingTask.task_type === "VALIDATION_PROJECT" || editingTask.task_type === "VALIDATION_STEP") ? "None" : (editingTask.recurrence || "None"),
         assignedTo_text: editingTask.assignedTo_text || "",
         dependencies: Array.isArray(editingTask.dependencies) ? editingTask.dependencies : [],
-        isMilestone: editingTask.isMilestone || false,
+        isMilestone: editingTask.task_type === "VALIDATION_STEP" ? false : (editingTask.isMilestone || false),
       });
     }
   }, [editingTask, form]);
@@ -521,17 +526,17 @@ export default function TasksPage() {
 
     const payload: Partial<Task> & { userId: string } = {
       title: data.title,
-      task_type: data.task_type,
+      task_type: data.task_type, // Should not be changed, but included for completeness
       instrument_subtype: (data.task_type === "MDL" || data.task_type === "SOP") ? data.instrument_subtype : undefined,
       description: data.description,
       status: data.status,
       priority: data.priority,
       startDate: data.startDate,
       dueDate: (data.task_type === "VALIDATION_PROJECT" && data.isMilestone && data.startDate) ? data.startDate : data.dueDate,
-      recurrence: data.task_type === "VALIDATION_PROJECT" ? "None" : data.recurrence!,
+      recurrence: (data.task_type === "VALIDATION_PROJECT" || data.task_type === "VALIDATION_STEP") ? "None" : data.recurrence!,
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
-      isMilestone: data.task_type === "VALIDATION_PROJECT" ? data.isMilestone : false,
-      dependencies: data.dependencies || [],
+      isMilestone: data.task_type === "VALIDATION_PROJECT" ? data.isMilestone : false, // False for VALIDATION_STEP too
+      dependencies: data.task_type === "VALIDATION_STEP" ? editingTask.dependencies : (data.dependencies || []), // Preserve existing for VS
       userId: user.id, 
     };
     
@@ -922,7 +927,7 @@ export default function TasksPage() {
                 </div>
 
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {watchedTaskType !== "VALIDATION_PROJECT" && (
+                    {watchedTaskType !== "VALIDATION_PROJECT" && watchedTaskType !== "VALIDATION_STEP" && (
                       <FormField
                           control={form.control}
                           name="recurrence"
@@ -950,7 +955,7 @@ export default function TasksPage() {
                         control={form.control}
                         name="assignedTo_text"
                         render={({ field }) => (
-                        <FormItem className={watchedTaskType === "VALIDATION_PROJECT" ? "md:col-span-2" : ""}>
+                        <FormItem className={(watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP") ? "md:col-span-2" : ""}>
                             <FormLabel>Assigned To (Optional)</FormLabel>
                             <Select 
                               onValueChange={field.onChange} 
@@ -979,7 +984,7 @@ export default function TasksPage() {
                         )}
                     />
                 </div>
-                {/* Dependencies can be edited for any task type now */}
+                {watchedTaskType !== "VALIDATION_STEP" && (
                  <FormField
                   control={form.control}
                   name="dependencies"
@@ -1049,6 +1054,7 @@ export default function TasksPage() {
                     </FormItem>
                   )}
                  />
+                )}
 
                 <DialogFooter>
                   <DialogClose asChild>
@@ -1056,7 +1062,7 @@ export default function TasksPage() {
                       Cancel
                     </Button>
                   </DialogClose>
-                  <Button type="submit" disabled={isSubmittingEdit || isLoadingEmployees || isLoadingTasksForDependencyEdit}>
+                  <Button type="submit" disabled={isSubmittingEdit || isLoadingEmployees || (isLoadingTasksForDependencyEdit && watchedTaskType !== "VALIDATION_STEP")}>
                     {isSubmittingEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                     Save Changes
                   </Button>

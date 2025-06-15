@@ -11,7 +11,7 @@ export interface User {
   selected_lucide_icon?: string; // Stores the name of the user-selected Lucide icon
 }
 
-export type TaskType = "MDL" | "SOP" | "IA" | "iDOC" | "oDOC" | "VALIDATION_PROJECT";
+export type TaskType = "MDL" | "SOP" | "IA" | "iDOC" | "oDOC" | "VALIDATION_PROJECT" | "VALIDATION_STEP";
 export type TaskStatus = "To Do" | "In Progress" | "Blocked" | "Done" | "Overdue";
 export type TaskPriority = "Low" | "Medium" | "High" | "Urgent";
 export type TaskRecurrence = "None" | "Daily" | "Weekly" | "Monthly" | "Yearly";
