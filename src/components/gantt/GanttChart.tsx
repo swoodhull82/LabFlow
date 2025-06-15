@@ -131,7 +131,6 @@ const QuickEditFormContent = ({
   setPopoverState,
   onSave,
   onAddNewStep,
-  onDelete,
   router,
 }: {
   task: Task & { isValidationProject?: boolean; isValidationStep?: boolean };
@@ -139,10 +138,8 @@ const QuickEditFormContent = ({
   setPopoverState: React.Dispatch<React.SetStateAction<QuickEditPopoverState>>;
   onSave: () => void;
   onAddNewStep: (parentProject: Task) => void;
-  onDelete: (taskToDelete: Task) => void;
   router: ReturnType<typeof useRouter>;
 }) => {
-  const canDelete = task.task_type === "VALIDATION_PROJECT" || task.task_type === "VALIDATION_STEP";
   return (
     <div className="grid gap-4">
       <div className="space-y-2">
@@ -218,17 +215,6 @@ const QuickEditFormContent = ({
               onClick={() => onAddNewStep(task)}
             >
               <PlusCircle className="mr-2 h-4 w-4" /> Add Step
-            </ShadcnButton>
-          )}
-          {canDelete && (
-            <ShadcnButton
-              type="button"
-              variant="destructive"
-              size="sm"
-              className="w-full sm:w-auto"
-              onClick={() => onDelete(task)}
-            >
-              <Trash2 className="mr-2 h-4 w-4" /> Delete
             </ShadcnButton>
           )}
         </div>
@@ -717,27 +703,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         handleTaskUpdate(taskId, updates);
         setIsQuickEditPopoverOpen(false); 
     }, [quickEditPopoverState, handleTaskUpdate]);
-
-    const handleDeleteTaskInQuickEdit = useCallback((task: Task) => {
-        setTaskToDelete(task);
-        setIsQuickEditPopoverOpen(false); // Close popover before opening dialog
-        setIsDeleteDialogOpen(true);
-    }, []);
-
-    const handleConfirmDeleteTask = useCallback(async () => {
-        if (!taskToDelete || !pbClient) return;
-        try {
-            await deleteTaskService(pbClient, taskToDelete.id);
-            toast({ title: "Task Deleted", description: `Task "${taskToDelete.title}" has been deleted.` });
-            fetchTimelineTasks(pbClient); // Refetch tasks
-        } catch (err) {
-            toast({ title: "Delete Failed", description: getDetailedErrorMessage(err, "deleting task"), variant: "destructive" });
-        } finally {
-            setIsDeleteDialogOpen(false);
-            setTaskToDelete(null);
-        }
-    }, [taskToDelete, pbClient, toast, fetchTimelineTasks]);
-
     
     const handlePopoverOpenChange = useCallback((newOpenState: boolean) => {
         setIsQuickEditPopoverOpen(newOpenState);
@@ -753,6 +718,21 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             });
         }
     }, []);
+
+
+    const handleConfirmDeleteTask = useCallback(async () => {
+        if (!taskToDelete || !pbClient) return;
+        try {
+            await deleteTaskService(pbClient, taskToDelete.id);
+            toast({ title: "Task Deleted", description: `Task "${taskToDelete.title}" has been deleted.` });
+            fetchTimelineTasks(pbClient); // Refetch tasks
+        } catch (err) {
+            toast({ title: "Delete Failed", description: getDetailedErrorMessage(err, "deleting task"), variant: "destructive" });
+        } finally {
+            setIsDeleteDialogOpen(false);
+            setTaskToDelete(null);
+        }
+    }, [taskToDelete, pbClient, toast, fetchTimelineTasks]);
 
 
     useEffect(() => {
@@ -955,13 +935,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             className="flex-shrink-0 bg-card border-r border-border flex flex-col"
         >
           <div className="h-[60px] flex items-center p-2 font-semibold text-xs border-b border-border flex-shrink-0 sticky top-0 bg-card z-20">
-            <div className="grid grid-cols-[40px_1fr_70px_70px_60px_30px] w-full items-center gap-2">
+            <div className="grid grid-cols-[40px_1fr_70px_70px_60px_60px] w-full items-center gap-2">
                 <span className="text-center text-muted-foreground uppercase">WBS</span>
                 <span className="text-muted-foreground uppercase">Task Name</span>
                 <span className="text-center text-muted-foreground uppercase">Start</span>
                 <span className="text-center text-muted-foreground uppercase">End</span>
                 <span className="text-center text-muted-foreground uppercase">Prog.</span>
-                <span className="text-center text-muted-foreground uppercase"></span> 
+                <span className="text-center text-muted-foreground uppercase">Actions</span> 
             </div>
           </div>
           <div ref={leftPanelScrollContainerRef} className="overflow-y-auto flex-1">
@@ -973,7 +953,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 <PopoverTrigger asChild>
                 <div
                   className={cn(
-                    "grid grid-cols-[40px_1fr_70px_70px_60px_30px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150",
+                    "grid grid-cols-[40px_1fr_70px_70px_60px_60px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150",
                     (task.isValidationProject || task.isValidationStep) ? "cursor-pointer" : "",
                     task.id === hoveredTaskId ? 'bg-primary/10 dark:bg-primary/20' : '',
                     (dragState && dragState.taskId !== task.id && dragState.type !== 'draw-dependency') ||
@@ -999,7 +979,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                   <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
                   <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
                   <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
-                  <div className="flex justify-center">
+                  <div className="flex justify-center items-center gap-1">
                     {task.isValidationProject && (
                       <ShadcnButton
                         variant="ghost"
@@ -1018,6 +998,21 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                         <PlusCircle className="h-4 w-4 text-muted-foreground hover:text-primary" />
                       </ShadcnButton>
                     )}
+                    {(task.isValidationProject || task.isValidationStep) && (
+                      <ShadcnButton
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        title={`Delete Task: ${task.title}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTaskToDelete(task);
+                          setIsDeleteDialogOpen(true);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive/70 hover:text-destructive" />
+                      </ShadcnButton>
+                    )}
                   </div>
                 </div>
                 </PopoverTrigger>
@@ -1029,7 +1024,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                       setPopoverState={setQuickEditPopoverState}
                       onSave={handleSaveQuickEdit}
                       onAddNewStep={handleAddNewStepInQuickEdit}
-                      onDelete={handleDeleteTaskInQuickEdit}
                       router={router}
                     />
                   </PopoverContent>
@@ -1202,7 +1196,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                           setPopoverState={setQuickEditPopoverState}
                           onSave={handleSaveQuickEdit}
                           onAddNewStep={handleAddNewStepInQuickEdit}
-                          onDelete={handleDeleteTaskInQuickEdit}
                           router={router}
                         />
                       </PopoverContent>
@@ -1309,4 +1302,3 @@ const buttonVariants = cva(
     },
   }
 );
-
