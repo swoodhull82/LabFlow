@@ -303,7 +303,7 @@ export default function TasksPage() {
       const fetchedTasks = await getTasks(pb, { 
         signal, 
         onRetry: handleRetryAttempt,
-        filter: 'task_type != "VALIDATION_PROJECT"' 
+        filter: 'task_type != "VALIDATION_PROJECT" && task_type != "VALIDATION_STEP"' 
       });
       setTasks(fetchedTasks);
       setRetryStatusMessage(null); 
@@ -623,7 +623,7 @@ export default function TasksPage() {
       <Card className="shadow-md">
         <CardHeader>
           <CardTitle className="font-headline">All Tasks</CardTitle>
-          <CardDescription>View, manage, and track all laboratory tasks (excluding Validation Projects).</CardDescription>
+          <CardDescription>View, manage, and track all laboratory tasks (excluding Validation Projects and Steps).</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoadingInitialData && (
