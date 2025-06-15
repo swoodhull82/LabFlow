@@ -6,7 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem
+} from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -18,7 +27,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 import type { Task, TaskStatus, TaskPriority, TaskRecurrence, Employee, TaskType } from "@/lib/types";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon, Milestone, Trash, ListPlus } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon, Milestone } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -128,7 +137,6 @@ const taskEditFormSchema = z.object({
   assignedTo_text: z.string().optional(),
   dependencies: z.array(z.string()).optional(),
   isMilestone: z.boolean().optional(),
-  steps: z.array(z.string()).optional(),
 }).superRefine((data, ctx) => {
   if (data.task_type === "MDL" && !data.instrument_subtype) {
     ctx.addIssue({
@@ -153,6 +161,21 @@ const taskEditFormSchema = z.object({
         path: ["startDate"],
       });
     }
+  } else if (data.task_type === "VALIDATION_STEP") {
+    if (data.isMilestone === true) { 
+         ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Milestones are not applicable to Validation Step tasks.",
+            path: ["isMilestone"],
+        });
+    }
+    if (data.recurrence && data.recurrence !== "None") { 
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Recurrence is not applicable to Validation Step tasks.",
+            path: ["recurrence"],
+        });
+    }
   } else { 
     if (data.isMilestone) {
       ctx.addIssue({
@@ -161,40 +184,30 @@ const taskEditFormSchema = z.object({
         path: ["isMilestone"],
       });
     }
-    if (data.dependencies && data.dependencies.length > 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Dependencies are only applicable to 'VALIDATION_PROJECT' tasks.",
-        path: ["dependencies"],
-      });
-    }
-     if (data.steps && data.steps.length > 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Steps are only applicable to 'VALIDATION_PROJECT' tasks.",
-        path: ["steps"],
-      });
-    }
     if (!data.recurrence || !TASK_RECURRENCES.includes(data.recurrence as TaskRecurrence)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Recurrence is required and must be a valid option for non-VALIDATION_PROJECT tasks.",
+        message: "Recurrence is required and must be a valid option for this task type.",
         path: ["recurrence"],
       });
     }
   }
 
-  if (!data.isMilestone && data.startDate && data.dueDate && data.startDate > data.dueDate) {
-     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Start date must be before or same as due date.",
-      path: ["startDate"], 
-    });
+  if (!(data.task_type === "VALIDATION_PROJECT" && data.isMilestone)) {
+    if (data.startDate && data.dueDate && data.startDate > data.dueDate) {
+        ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Start date must be before or same as due date.",
+        path: ["startDate"], 
+        });
+    }
   }
 });
 
 type TaskEditFormData = z.infer<typeof taskEditFormSchema>;
+type FilterStatusOption = 'incomplete' | 'complete' | 'all';
 
+let allTasksForSelection: Task[] = [];
 
 export default function TasksPage() {
   const { pbClient, user } = useAuth();
@@ -203,14 +216,16 @@ export default function TasksPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryStatusMessage, setRetryStatusMessage] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<FilterStatusOption>('incomplete');
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [fetchEmployeesError, setFetchEmployeesError] = useState<string | null>(null);
 
-  const [allTasksForSelection, setAllTasksForSelection] = useState<Task[]>([]);
-  const [isLoadingTasksForSelection, setIsLoadingTasksForSelection] = useState(true);
+  const [allTasksForDependencyEdit, setAllTasksForDependencyEdit] = useState<Task[]>([]);
+  const [isLoadingTasksForDependencyEdit, setIsLoadingTasksForDependencyEdit] = useState(true);
   const [fetchTasksErrorEdit, setFetchTasksErrorEdit] = useState<string | null>(null);
+
   const [dependenciesRetryMessage, setDependenciesRetryMessage] = useState<string | null>(null);
   const [isDependenciesPopoverOpenEdit, setIsDependenciesPopoverOpenEdit] = useState(false);
   const [isDatePickerOpenEdit, setIsDatePickerOpenEdit] = useState(false);
@@ -219,44 +234,41 @@ export default function TasksPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
-  const [newStepText, setNewStepText] = useState("");
 
   const form = useForm<TaskEditFormData>({
     resolver: zodResolver(taskEditFormSchema),
     defaultValues: {
       title: "",
-      task_type: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0],
+      task_type: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t!== "VALIDATION_STEP") || TASK_TYPES[0],
       instrument_subtype: undefined,
       dependencies: [],
       isMilestone: false,
       recurrence: "None",
-      steps: [],
     }
   });
 
   const watchedTaskType = form.watch("task_type");
   const watchedIsMilestone = form.watch("isMilestone");
-  const watchedStartDate = form.watch("startDate"); 
-  const watchedSteps = form.watch("steps");
   const watchedFormStartDate = form.watch("startDate");
   const watchedFormDueDate = form.watch("dueDate");
 
 
   useEffect(() => {
     const subscription = form.watch((value, { name }) => {
-      if (name === "task_type") { // Should not happen as task_type is disabled, but good practice
+      if (name === "task_type") { 
         if (value.task_type !== "MDL" && value.task_type !== "SOP") {
           form.setValue("instrument_subtype", undefined, { shouldValidate: true });
         }
-        if (value.task_type !== "VALIDATION_PROJECT") {
-          form.setValue("isMilestone", false, { shouldValidate: true });
-          form.setValue("dependencies", [], { shouldValidate: true });
-          form.setValue("steps", [], { shouldValidate: true });
+        if (value.task_type === "VALIDATION_PROJECT") {
+           form.setValue("recurrence", "None", { shouldValidate: true });
+        } else if (value.task_type === "VALIDATION_STEP") {
+           form.setValue("isMilestone", false, { shouldValidate: true });
+           form.setValue("recurrence", "None", { shouldValidate: true });
+        } else { 
+           form.setValue("isMilestone", false, { shouldValidate: true });
            if (!form.getValues("recurrence")) { 
             form.setValue("recurrence", "None", { shouldValidate: true });
           }
-        } else {
-           form.setValue("recurrence", "None", { shouldValidate: true });
         }
       }
       if (name === "isMilestone" || name === "startDate") {
@@ -292,11 +304,19 @@ export default function TasksPage() {
       }
     };
 
+    let pbFilter = 'task_type != "VALIDATION_PROJECT" && task_type != "VALIDATION_STEP"';
+    if (filterStatus === 'incomplete') {
+      pbFilter += ' && status != "Done"';
+    } else if (filterStatus === 'complete') {
+      pbFilter += ' && status = "Done"';
+    }
+    // For 'all', no additional status filter is needed beyond the task_type filter.
+
     try {
       const fetchedTasks = await getTasks(pb, { 
         signal, 
         onRetry: handleRetryAttempt,
-        filter: 'task_type != "VALIDATION_PROJECT"' 
+        filter: pbFilter
       });
       setTasks(fetchedTasks);
       setRetryStatusMessage(null); 
@@ -321,7 +341,7 @@ export default function TasksPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [toast]);
+  }, [toast, filterStatus]);
 
   const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -357,12 +377,12 @@ export default function TasksPage() {
     }
   }, [toast]);
 
-  const fetchAllTasksForDependencySelectionEdit = useCallback(async (pb: PocketBase | null, currentTaskId: string | null, signal?: AbortSignal) => {
+  const fetchAllTasksForDepEdit = useCallback(async (pb: PocketBase | null, currentEditingTaskId: string | null, signal?: AbortSignal) => {
     if (!pb) {
-      setIsLoadingTasksForSelection(false);
+      setIsLoadingTasksForDependencyEdit(false);
       return;
     }
-    setIsLoadingTasksForSelection(true);
+    setIsLoadingTasksForDependencyEdit(true);
     setFetchTasksErrorEdit(null);
     setDependenciesRetryMessage(null); 
 
@@ -373,11 +393,12 @@ export default function TasksPage() {
     try {
       const fetchedTasks = await getTasks(pb, { 
         signal, 
-        onRetry: handleDepRetry,
-        filter: 'task_type = "VALIDATION_PROJECT"' 
+        onRetry: handleDepRetry 
       });
       
-      setAllTasksForSelection(currentTaskId ? fetchedTasks.filter(t => t.id !== currentTaskId) : fetchedTasks);
+      const filteredForEdit = currentEditingTaskId ? fetchedTasks.filter(t => t.id !== currentEditingTaskId) : fetchedTasks;
+      setAllTasksForDependencyEdit(filteredForEdit);
+      allTasksForSelection = filteredForEdit; 
       setDependenciesRetryMessage(null); 
     } catch (err: any) {
       setDependenciesRetryMessage(null); 
@@ -398,7 +419,7 @@ export default function TasksPage() {
         console.warn("Error fetching tasks for edit dependency selection (after retries):", detailedError, err);
       }
     } finally {
-      setIsLoadingTasksForSelection(false);
+      setIsLoadingTasksForDependencyEdit(false);
     }
   }, [toast]);
 
@@ -415,18 +436,19 @@ export default function TasksPage() {
     return () => {
       controller.abort();
     };
-  }, [pbClient, fetchTasksCallback, fetchAndSetEmployees]);
+  }, [pbClient, fetchTasksCallback, fetchAndSetEmployees, filterStatus]);
 
   useEffect(() => {
-    if (isEditDialogOpen && editingTask && pbClient && watchedTaskType === "VALIDATION_PROJECT") {
+    if (isEditDialogOpen && editingTask && pbClient && editingTask.task_type !== "VALIDATION_STEP") {
       const controller = new AbortController();
-      fetchAllTasksForDependencySelectionEdit(pbClient, editingTask.id, controller.signal);
+      fetchAllTasksForDepEdit(pbClient, editingTask.id, controller.signal);
       return () => controller.abort();
-    } else if (watchedTaskType !== "VALIDATION_PROJECT") {
-        setAllTasksForSelection([]);
-        setIsLoadingTasksForSelection(false);
+    } else if (!isEditDialogOpen || (editingTask && editingTask.task_type === "VALIDATION_STEP")) {
+        setAllTasksForDependencyEdit([]); 
+        allTasksForSelection = [];
+        setIsLoadingTasksForDependencyEdit(false);
     }
-  }, [isEditDialogOpen, editingTask, pbClient, fetchAllTasksForDependencySelectionEdit, watchedTaskType]);
+  }, [isEditDialogOpen, editingTask, pbClient, fetchAllTasksForDepEdit]);
 
 
   useEffect(() => {
@@ -440,42 +462,40 @@ export default function TasksPage() {
         priority: editingTask.priority,
         startDate: editingTask.startDate ? new Date(editingTask.startDate) : undefined,
         dueDate: editingTask.dueDate ? new Date(editingTask.dueDate) : undefined,
-        recurrence: editingTask.task_type === "VALIDATION_PROJECT" ? "None" : (editingTask.recurrence || "None"),
+        recurrence: (editingTask.task_type === "VALIDATION_PROJECT" || editingTask.task_type === "VALIDATION_STEP") ? "None" : (editingTask.recurrence || "None"),
         assignedTo_text: editingTask.assignedTo_text || "",
         dependencies: Array.isArray(editingTask.dependencies) ? editingTask.dependencies : [],
-        isMilestone: editingTask.isMilestone || false,
-        steps: Array.isArray(editingTask.steps) ? editingTask.steps : [],
+        isMilestone: editingTask.task_type === "VALIDATION_STEP" ? false : (editingTask.isMilestone || false),
       });
     }
   }, [editingTask, form]);
 
 
-  const handleToggleTaskStatus = async (taskId: string, currentStatus: TaskStatus) => {
+  const handleToggleTaskStatus = useCallback(async (taskId: string, currentStatus: TaskStatus) => {
     if (!pbClient) {
       toast({ title: "Error", description: "Client not available.", variant: "destructive" });
       return;
     }
 
     const newStatus: TaskStatus = currentStatus === "Done" ? "To Do" : "Done";
-    const optimisticUpdatedTasks = tasks.map(task => 
+    const currentTasks = tasks; 
+    const optimisticUpdatedTasks = currentTasks.map(task => 
       task.id === taskId ? { ...task, status: newStatus } : task
     );
     setTasks(optimisticUpdatedTasks);
 
     try {
-      const updatedTaskData = await updateTask(pbClient, taskId, { status: newStatus });
-      setTasks(prevTasks => prevTasks.map(task => 
-        task.id === taskId ? updatedTaskData : task
-      ));
+      await updateTask(pbClient, taskId, { status: newStatus });
+      if (pbClient) fetchTasksCallback(pbClient);
       toast({ title: "Success", description: `Task marked as ${newStatus}.` });
     } catch (err) {
       console.warn("Error updating task status:", err); 
-      setTasks(tasks); 
+      setTasks(currentTasks); 
       toast({ title: "Error", description: `Failed to update task status: ${getDetailedErrorMessage(err as any)}`, variant: "destructive" });
     }
-  };
+  }, [pbClient, toast, tasks, fetchTasksCallback]);
 
-  const handleDeleteTask = async (taskId: string) => {
+  const handleDeleteTask = useCallback(async (taskId: string) => {
     if (!pbClient) {
         toast({ title: "Error", description: "Client not available.", variant: "destructive" });
         return;
@@ -485,41 +505,27 @@ export default function TasksPage() {
     try {
       await deleteTask(pbClient, taskId);
       toast({ title: "Success", description: "Task deleted successfully." });
+      if (pbClient) fetchTasksCallback(pbClient); // Refetch to apply current filters
     } catch (err) {
       console.warn("Error deleting task:", err); 
       setTasks(originalTasks);
       toast({ title: "Error", description: getDetailedErrorMessage(err as any), variant: "destructive" });
     }
-  };
+  }, [pbClient, toast, tasks, fetchTasksCallback]);
 
-  const handleEditClick = (task: Task) => {
+  const handleEditClick = useCallback((task: Task) => {
     setEditingTask(task);
     setIsEditDialogOpen(true);
-  };
+  }, []);
 
   const handleEditDialogClose = () => {
     setIsEditDialogOpen(false);
     setEditingTask(null);
     form.reset(); 
-    setAllTasksForSelection([]); 
+    setAllTasksForDependencyEdit([]); 
+    allTasksForSelection = [];
     setIsDependenciesPopoverOpenEdit(false); 
     setIsDatePickerOpenEdit(false);
-    setNewStepText("");
-  };
-
-  const handleAddStep = () => {
-    if (newStepText.trim() === "") {
-      toast({ title: "Cannot add empty step", variant: "destructive" });
-      return;
-    }
-    const currentSteps = form.getValues("steps") || [];
-    form.setValue("steps", [...currentSteps, newStepText.trim()], { shouldValidate: true });
-    setNewStepText("");
-  };
-
-  const handleDeleteStep = (indexToDelete: number) => {
-    const currentSteps = form.getValues("steps") || [];
-    form.setValue("steps", currentSteps.filter((_, index) => index !== indexToDelete), { shouldValidate: true });
   };
 
 
@@ -532,24 +538,23 @@ export default function TasksPage() {
 
     const payload: Partial<Task> & { userId: string } = {
       title: data.title,
-      task_type: data.task_type,
+      task_type: data.task_type, 
       instrument_subtype: (data.task_type === "MDL" || data.task_type === "SOP") ? data.instrument_subtype : undefined,
       description: data.description,
       status: data.status,
       priority: data.priority,
       startDate: data.startDate,
       dueDate: (data.task_type === "VALIDATION_PROJECT" && data.isMilestone && data.startDate) ? data.startDate : data.dueDate,
-      recurrence: data.task_type === "VALIDATION_PROJECT" ? "None" : data.recurrence!,
+      recurrence: (data.task_type === "VALIDATION_PROJECT" || data.task_type === "VALIDATION_STEP") ? "None" : data.recurrence!,
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
-      isMilestone: data.task_type === "VALIDATION_PROJECT" ? data.isMilestone : false,
-      dependencies: data.task_type === "VALIDATION_PROJECT" ? (data.dependencies || []) : [],
-      steps: data.task_type === "VALIDATION_PROJECT" ? (data.steps || []) : [],
+      isMilestone: data.task_type === "VALIDATION_PROJECT" ? data.isMilestone : false, 
+      dependencies: data.task_type === "VALIDATION_STEP" ? editingTask.dependencies : (data.dependencies || []), 
       userId: user.id, 
     };
     
     try {
-      const updatedRecord = await updateTask(pbClient, editingTask.id, payload);
-      setTasks(prev => prev.map(t => t.id === editingTask.id ? updatedRecord : t));
+      await updateTask(pbClient, editingTask.id, payload);
+      if (pbClient) fetchTasksCallback(pbClient);
       toast({ title: "Success", description: "Task updated successfully." });
       handleEditDialogClose();
     } catch (err: any) {
@@ -582,7 +587,6 @@ export default function TasksPage() {
 
     if (selected) {
         if (!(currentTaskType === "VALIDATION_PROJECT" && currentIsMilestone) && (selected as DateRange)?.from && !(selected as DateRange)?.to) {
-            // Range mode, only 'from' selected, keep open
         } else {
             setIsDatePickerOpenEdit(false);
         }
@@ -611,15 +615,32 @@ export default function TasksPage() {
   }
 
   const isLoadingInitialData = isLoading || isLoadingEmployees;
+  const filterStatusDisplay = filterStatus.charAt(0).toUpperCase() + filterStatus.slice(1);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl md:text-3xl font-headline font-semibold">Task Management</h1>
         <div className="flex gap-2">
-          <Button variant="outline">
-            <Filter className="mr-2 h-4 w-4" /> Filter
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                <Filter className="mr-2 h-4 w-4" /> Filter: {filterStatusDisplay}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup 
+                value={filterStatus} 
+                onValueChange={(value) => setFilterStatus(value as FilterStatusOption)}
+              >
+                <DropdownMenuRadioItem value="incomplete">Incomplete</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="complete">Complete</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="all">All</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Link href="/tasks/new" passHref>
             <Button>
               <PlusCircle className="mr-2 h-4 w-4" /> Add Task
@@ -630,8 +651,11 @@ export default function TasksPage() {
 
       <Card className="shadow-md">
         <CardHeader>
-          <CardTitle className="font-headline">All Tasks</CardTitle>
-          <CardDescription>View, manage, and track all laboratory tasks (excluding Validation Projects).</CardDescription>
+          <CardTitle className="font-headline">Task List ({filterStatusDisplay})</CardTitle>
+          <CardDescription>
+            View, manage, and track laboratory tasks based on the selected filter. 
+            (Excludes Validation Projects & Steps).
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoadingInitialData && (
@@ -650,7 +674,8 @@ export default function TasksPage() {
           )}
           {!isLoadingInitialData && !error && tasks.length === 0 && (
             <div className="text-center py-10 text-muted-foreground">
-              <p>No tasks found. Get started by adding a new task!</p>
+              <p>No tasks found matching the current filter: "{filterStatusDisplay}".</p>
+              {filterStatus !== 'all' && <p className="text-sm">Try selecting a different filter or adding new tasks.</p>}
             </div>
           )}
           {!isLoadingInitialData && !error && tasks.length > 0 && (
@@ -752,7 +777,7 @@ export default function TasksPage() {
                         </FormControl>
                         <SelectContent>
                           {TASK_TYPES.map(tt => (
-                            <SelectItem key={tt} value={tt} disabled={tt === "VALIDATION_PROJECT" && editingTask.task_type !== "VALIDATION_PROJECT"}>
+                            <SelectItem key={tt} value={tt}> 
                               {tt.replace(/_/g, ' ')}
                             </SelectItem>
                           ))}
@@ -935,7 +960,7 @@ export default function TasksPage() {
                 </div>
 
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {watchedTaskType !== "VALIDATION_PROJECT" && (
+                    {watchedTaskType !== "VALIDATION_PROJECT" && watchedTaskType !== "VALIDATION_STEP" && (
                       <FormField
                           control={form.control}
                           name="recurrence"
@@ -963,7 +988,7 @@ export default function TasksPage() {
                         control={form.control}
                         name="assignedTo_text"
                         render={({ field }) => (
-                        <FormItem className={watchedTaskType === "VALIDATION_PROJECT" ? "md:col-span-2" : ""}>
+                        <FormItem className={(watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP") ? "md:col-span-2" : ""}>
                             <FormLabel>Assigned To (Optional)</FormLabel>
                             <Select 
                               onValueChange={field.onChange} 
@@ -992,7 +1017,7 @@ export default function TasksPage() {
                         )}
                     />
                 </div>
-                {watchedTaskType === "VALIDATION_PROJECT" && (
+                {watchedTaskType !== "VALIDATION_STEP" && (
                  <FormField
                   control={form.control}
                   name="dependencies"
@@ -1004,10 +1029,10 @@ export default function TasksPage() {
                           <Button
                             variant={"outline"}
                             className="w-full justify-start text-left font-normal"
-                            disabled={isLoadingTasksForSelection || !!fetchTasksErrorEdit}
+                            disabled={isLoadingTasksForDependencyEdit || !!fetchTasksErrorEdit}
                           >
                             <LinkIcon className="mr-2 h-4 w-4" />
-                            {isLoadingTasksForSelection ? "Loading tasks..." :
+                            {isLoadingTasksForDependencyEdit ? "Loading tasks..." :
                               fetchTasksErrorEdit ? "Error loading tasks" :
                               (field.value && field.value.length > 0) ? `${field.value.length} selected` : "Select dependent tasks"}
                           </Button>
@@ -1016,16 +1041,16 @@ export default function TasksPage() {
                            {dependenciesRetryMessage && (
                              <div className="p-4 text-center text-sm text-orange-600">{dependenciesRetryMessage}</div>
                            )}
-                           {isLoadingTasksForSelection && !dependenciesRetryMessage ? ( 
+                           {isLoadingTasksForDependencyEdit && !dependenciesRetryMessage ? ( 
                                 <div className="p-4 text-center text-sm">Loading tasks...</div>
                             ) : fetchTasksErrorEdit && !dependenciesRetryMessage ? ( 
                                 <div className="p-4 text-center text-sm text-destructive">{fetchTasksErrorEdit}</div>
-                            ) : !isLoadingTasksForSelection && !fetchTasksErrorEdit && allTasksForSelection.length === 0 && !dependenciesRetryMessage ? (
-                                <div className="p-4 text-center text-sm">No other 'VALIDATION_PROJECT' tasks available to select.</div>
+                            ) : !isLoadingTasksForDependencyEdit && !fetchTasksErrorEdit && allTasksForDependencyEdit.length === 0 && !dependenciesRetryMessage ? (
+                                <div className="p-4 text-center text-sm">No other tasks available to select.</div>
                             ) : !dependenciesRetryMessage && !fetchTasksErrorEdit && ( 
                                 <ScrollArea className="h-48">
                                     <div className="p-4 space-y-2">
-                                    {allTasksForSelection.map(taskItem => (
+                                    {allTasksForDependencyEdit.map(taskItem => (
                                         <div key={taskItem.id} className="flex items-center space-x-2">
                                         <Checkbox
                                             id={`edit-dep-${taskItem.id}`}
@@ -1042,14 +1067,14 @@ export default function TasksPage() {
                                             className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 truncate"
                                             title={taskItem.title}
                                         >
-                                            {taskItem.title}
+                                            {taskItem.title} ({taskItem.task_type.replace(/_/g, ' ')})
                                         </label>
                                         </div>
                                     ))}
                                     </div>
                                 </ScrollArea>
                             )}
-                            {(!dependenciesRetryMessage && !isLoadingTasksForSelection) && ( 
+                            {(!dependenciesRetryMessage && !isLoadingTasksForDependencyEdit) && ( 
                                 <div className="p-2 border-t">
                                     <Button type="button" size="sm" className="w-full" onClick={() => setIsDependenciesPopoverOpenEdit(false)}>
                                         Done
@@ -1064,45 +1089,13 @@ export default function TasksPage() {
                  />
                 )}
 
-                {watchedTaskType === "VALIDATION_PROJECT" && (
-                  <div className="space-y-2">
-                    <Label>Steps</Label>
-                    <div className="space-y-2">
-                      {watchedSteps && watchedSteps.map((step, index) => (
-                        <div key={index} className="flex items-center gap-2 p-2 border rounded-md bg-muted/50">
-                          <span className="flex-1 text-sm">{step}</span>
-                          <Button type="button" variant="ghost" size="icon" onClick={() => handleDeleteStep(index)} className="h-6 w-6">
-                            <Trash className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <Input 
-                        type="text" 
-                        placeholder="New step description" 
-                        value={newStepText}
-                        onChange={(e) => setNewStepText(e.target.value)}
-                        className="flex-1 h-9"
-                      />
-                      <Button type="button" onClick={handleAddStep} size="sm">
-                        <ListPlus className="mr-2 h-4 w-4" /> Add Step
-                      </Button>
-                    </div>
-                    {form.formState.errors.steps && (
-                        <p className="text-sm text-destructive mt-1">{form.formState.errors.steps.message}</p>
-                    )}
-                  </div>
-                )}
-
-
                 <DialogFooter>
                   <DialogClose asChild>
                     <Button type="button" variant="outline" onClick={handleEditDialogClose} disabled={isSubmittingEdit}>
                       Cancel
                     </Button>
                   </DialogClose>
-                  <Button type="submit" disabled={isSubmittingEdit || isLoadingEmployees || (watchedTaskType === "VALIDATION_PROJECT" && isLoadingTasksForSelection)}>
+                  <Button type="submit" disabled={isSubmittingEdit || isLoadingEmployees || (isLoadingTasksForDependencyEdit && watchedTaskType !== "VALIDATION_STEP")}>
                     {isSubmittingEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                     Save Changes
                   </Button>

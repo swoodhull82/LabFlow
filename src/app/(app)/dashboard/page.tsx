@@ -71,17 +71,13 @@ const employeeTasksChartConfig = {
 } satisfies ChartConfig;
 
 const quarterlyCompletionChartConfigInitial = {
-  goalRate: { label: "Goal Rate", color: "hsl(var(--muted-foreground))" }, // More neutral color for goal
-  // Add dummy entries for tooltip data if needed, or handle in tooltip directly
+  goalRate: { label: "Goal Rate", color: "hsl(var(--muted-foreground))" }, 
 } as ChartConfig;
 
-// Dynamically build the chart config for task types
 const quarterlyCompletionChartConfig = taskTypesForDashboardChart.reduce((acc, type, index) => {
-  acc[type] = { label: `${type} Rate`, color: `hsl(var(--chart-${(index % 5) + 1}))` };
-  // For tooltip to show total/completed, we can add them like this if ChartTooltipContent uses them.
-  // Or, we can construct the tooltip string manually using the `totals` field from the data point.
-  acc[`${type}_total`] = { label: `${type} Total` };
-  acc[`${type}_completed`] = { label: `${type} Completed` };
+  acc[type] = { label: `${type.replace(/_/g, ' ')} Rate`, color: `hsl(var(--chart-${(index % 5) + 1}))` };
+  acc[`${type}_total`] = { label: `${type.replace(/_/g, ' ')} Total` };
+  acc[`${type}_completed`] = { label: `${type.replace(/_/g, ' ')} Completed` };
   return acc;
 }, quarterlyCompletionChartConfigInitial);
 
@@ -193,7 +189,7 @@ export default function DashboardPage() {
         statusCounts["To Do"]++;
       }
 
-      if (!isTaskMarkedDone && !isEffectivelyOverdue && task.task_type !== "VALIDATION_PROJECT") { // Active tasks for employee chart exclude VPs
+      if (!isTaskMarkedDone && !isEffectivelyOverdue && task.task_type !== "VALIDATION_PROJECT") {
         if (task.assignedTo_text) {
           employeeTaskCounts[task.assignedTo_text] = (employeeTaskCounts[task.assignedTo_text] || 0) + 1;
         }
@@ -208,7 +204,6 @@ export default function DashboardPage() {
         if (isEffectivelyOverdue) {
           overdueSummaryCount++;
         }
-         // Active tasks for summary should also consider task_type for accuracy, if needed.
         if (!isEffectivelyOverdue && (task.status === "In Progress" || task.status === "To Do" || task.status === "Blocked")) {
           activeSummaryCount++;
         }
@@ -242,57 +237,54 @@ export default function DashboardPage() {
       .sort((a,b) => b.activeTasks - a.activeTasks);
     setActiveTasksByEmployeeData(employeeDataForChart);
 
-    const quarterlyAggByType: {
-      [quarterKey: string]: {
-        [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: { total: number; completed: number };
-      };
-    } = {};
-    
+
+    const yearlyTotalTasksByType: { [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: number } = {};
+    const quarterlyCompletedRawCountByType: {
+      [quarterKey: string]: { [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: number };
+    } = { Q1: {}, Q2: {}, Q3: {}, Q4: {} };
+
     tasksToProcess.forEach(task => {
-      if (task.task_type === "VALIDATION_PROJECT") return; 
+      if (task.task_type === "VALIDATION_PROJECT" || !taskTypesForDashboardChart.includes(task.task_type as any)) return;
+      const taskType = task.task_type as Exclude<TaskType, "VALIDATION_PROJECT">;
+      
+      const taskDueDate = task.dueDate ? startOfDay(new Date(task.dueDate)) : null;
+      if (taskDueDate && getYear(taskDueDate) === yearForQuarterlyChart) {
+        yearlyTotalTasksByType[taskType] = (yearlyTotalTasksByType[taskType] || 0) + 1;
 
-      if (task.dueDate) {
-          const dueDateObj = startOfDay(new Date(task.dueDate));
-          if (getYear(dueDateObj) === yearForQuarterlyChart) {
-              const quarterNum = getQuarter(dueDateObj);
-              const quarterKey = `Q${quarterNum}`;
-              const currentTaskType = task.task_type as Exclude<TaskType, "VALIDATION_PROJECT">;
-
-              if (!taskTypesForDashboardChart.includes(currentTaskType)) return;
-
-              if (!quarterlyAggByType[quarterKey]) {
-                quarterlyAggByType[quarterKey] = {};
-              }
-              if (!quarterlyAggByType[quarterKey][currentTaskType]) {
-                quarterlyAggByType[quarterKey][currentTaskType] = { total: 0, completed: 0 };
-              }
-
-              quarterlyAggByType[quarterKey][currentTaskType]!.total++;
-              if (task.status === "Done") {
-                quarterlyAggByType[quarterKey][currentTaskType]!.completed++;
-              }
-          }
+        if (task.status === "Done") {
+          const quarterNum = getQuarter(taskDueDate);
+          const quarterKey = `Q${quarterNum}`;
+          quarterlyCompletedRawCountByType[quarterKey][taskType] = (quarterlyCompletedRawCountByType[quarterKey][taskType] || 0) + 1;
+        }
       }
     });
     
     const quarterlyChartDataPoints: QuarterlyCompletionDataPoint[] = [];
     const yearShort = format(new Date(yearForQuarterlyChart, 0, 1), "yy");
     const goalRates = [25, 50, 75, 100]; 
+    const cumulativeCompletedByType: { [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: number } = {};
+    taskTypesForDashboardChart.forEach(type => cumulativeCompletedByType[type] = 0);
 
     for (let i = 1; i <= 4; i++) {
         const quarterKey = `Q${i}`;
-        const aggForQuarter = quarterlyAggByType[quarterKey] || {};
-
         const ratesForQuarter: QuarterlyCompletionDataPoint['rates'] = {};
         const totalsForQuarter: QuarterlyCompletionDataPoint['totals'] = {};
 
         taskTypesForDashboardChart.forEach(type => {
-            const dataForType = aggForQuarter[type] || { total: 0, completed: 0 };
+            const completedInThisQuarterForType = quarterlyCompletedRawCountByType[quarterKey]?.[type] || 0;
+            cumulativeCompletedByType[type] = (cumulativeCompletedByType[type] || 0) + completedInThisQuarterForType;
+            
+            const totalForYearForType = yearlyTotalTasksByType[type] || 0;
+
             ratesForQuarter[type] =
-                dataForType.total > 0
-                ? parseFloat(((dataForType.completed / dataForType.total) * 100).toFixed(1))
+                totalForYearForType > 0
+                ? parseFloat((( (cumulativeCompletedByType[type] || 0) / totalForYearForType) * 100).toFixed(1))
                 : 0;
-            totalsForQuarter[type] = dataForType;
+            
+            totalsForQuarter[type] = { 
+              total: totalForYearForType, 
+              completed: cumulativeCompletedByType[type] || 0 
+            };
         });
 
         quarterlyChartDataPoints.push({
@@ -483,7 +475,7 @@ export default function DashboardPage() {
                             <TrendingUp className="mr-2 h-5 w-5 text-primary" />
                             Quarterly Task Completion Rate (by Type)
                             </CardTitle>
-                            <CardDescription>Trend of task completion vs. goals for the selected year.</CardDescription>
+                            <CardDescription>Cumulative completion vs. yearly totals for non-validation tasks.</CardDescription>
                         </div>
                         <Select
                             value={selectedQuarterlyYear.toString()}
@@ -520,17 +512,19 @@ export default function DashboardPage() {
                                         const rate = dataPoint.rates[type];
                                         const totals = dataPoint.totals[type];
                                         const configEntry = quarterlyCompletionChartConfig[type];
+                                        
                                         if (rate === undefined && (!totals || totals.total === 0)) return null; 
                                         
                                         return (
                                         <p key={type} style={{ color: configEntry?.color as string || 'inherit' }}>
                                             {configEntry?.label || type}: {rate !== undefined ? `${rate}%` : 'N/A'}
-                                            {totals && ` (${totals.completed}/${totals.total})`}
+                                            {totals && totals.total > 0 && ` (${totals.completed}/${totals.total} yearly)`}
+                                            {totals && totals.total === 0 && ` (0/0 yearly)`}
                                         </p>
                                         );
                                     })}
-                                    <p style={{ color: quarterlyCompletionChartConfig.goalRate.color as string || 'inherit' }}>
-                                        Goal: {dataPoint.goalRate}%
+                                    <p style={{ color: quarterlyCompletionChartConfig.goalRate.color as string || 'inherit' }} className="mt-1">
+                                        Overall Goal: {dataPoint.goalRate}%
                                     </p>
                                     </div>
                                 );
@@ -549,8 +543,8 @@ export default function DashboardPage() {
                                 strokeWidth={2} 
                                 dot={{ r: 4, fill: `var(--color-${type})` }} 
                                 activeDot={{ r: 6, fill: `var(--color-${type})`}} 
-                                name={quarterlyCompletionChartConfig[type]?.label as string || `${type} Rate`} 
-                                connectNulls={false} // Don't connect if a type has no data for a quarter
+                                name={quarterlyCompletionChartConfig[type]?.label as string || `${type.replace(/_/g, ' ')} Rate`} 
+                                connectNulls={false} 
                             />
                           ))}
                           <Line 

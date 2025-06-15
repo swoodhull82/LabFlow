@@ -7,7 +7,7 @@ export const TASK_RECURRENCES: TaskRecurrence[] = ["None", "Daily", "Weekly", "M
 
 export const APP_NAME = "LabFlow";
 
-export const TASK_TYPES: readonly TaskType[] = ["MDL", "SOP", "IA", "iDOC", "oDOC", "VALIDATION_PROJECT"];
+export const TASK_TYPES: readonly TaskType[] = ["MDL", "SOP", "IA", "iDOC", "oDOC", "VALIDATION_PROJECT", "VALIDATION_STEP"];
 export const INSTRUMENT_SUBTYPES: readonly string[] = ["nexiON", "agilent 7900", "DMA-80 Mercury Analyzer"];
 
 const generateSopSubtypes = (): string[] => {

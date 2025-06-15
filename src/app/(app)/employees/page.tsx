@@ -159,7 +159,7 @@ export default function EmployeesPage() {
     }
   }, [editingEmployee, form]);
 
-  const handleDeleteEmployee = async (employeeId: string) => {
+  const handleDeleteEmployee = useCallback(async (employeeId: string) => {
     if (!pbClient) {
       toast({ title: "Error", description: "Client not available.", variant: "destructive" });
       return;
@@ -174,12 +174,12 @@ export default function EmployeesPage() {
       setEmployees(originalEmployees);
       toast({ title: "Error", description: getDetailedErrorMessage(error), variant: "destructive" });
     }
-  };
+  }, [pbClient, toast, employees]);
   
-  const handleEditClick = (employee: Employee) => {
+  const handleEditClick = useCallback((employee: Employee) => {
     setEditingEmployee(employee);
     setIsEditDialogOpen(true);
-  };
+  }, []);
 
   const handleEditDialogClose = () => {
     setIsEditDialogOpen(false);
@@ -477,3 +477,4 @@ export default function EmployeesPage() {
     
 
     
+

@@ -91,45 +91,60 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const { toast } = useToast();
 
   const handleAuthChange = useCallback(() => {
-    const model = client.authStore.model;
-    const isValid = client.authStore.isValid;
-    setLoading(true); 
+    const currentModel = client.authStore.model;
+    const currentIsValid = client.authStore.isValid;
+    const previousUserId = user?.id; // Access 'user' state from the closure
 
-    if (isValid && model) {
-      const appUser = createUserFromModel(model);
-      setUser(currentUser => {
-        if (!appUser) return null;
-        // Basic shallow comparison, might need deep comparison if appUser structure becomes complex
-        if (currentUser && JSON.stringify(currentUser) === JSON.stringify(appUser)) {
-          return currentUser;
-        }
-        return appUser;
-      });
+    const isLoggingIn = currentIsValid && currentModel && !previousUserId;
+    const isLoggingOut = (!currentIsValid || !currentModel) && previousUserId;
+    const isUserChanging = currentIsValid && currentModel && previousUserId && currentModel.id !== previousUserId;
+    const significantChange = isLoggingIn || isLoggingOut || isUserChanging;
 
+    if (significantChange) {
+      setLoading(true);
+    }
+
+    if (currentIsValid && currentModel) {
+      const appUser = createUserFromModel(currentModel);
+      // Only call setUser if the user object reference or relevant properties might actually change
+      if (appUser?.id !== previousUserId || (appUser && !previousUserId) || (!appUser && previousUserId) || (appUser && user && appUser.role !== user.role) ) {
+        setUser(appUser);
+      }
+      
       if (appUser) {
         localStorage.setItem("labflowUserRole", appUser.role);
       } else {
         localStorage.removeItem("labflowUserRole");
       }
     } else {
-      setUser(null);
+      if (previousUserId) { // Only call setUser if there was a user before
+        setUser(null);
+      }
       localStorage.removeItem("labflowUserRole");
     }
-    setLoading(false);
-  }, []);
+
+    if (significantChange) {
+      setLoading(false);
+    } else if (loading && !significantChange) {
+      // If loading was true (e.g. initial load) but no significant auth change, turn it off.
+      // This handles the initial check where client.authStore.onChange(..., true) runs.
+      setLoading(false);
+    }
+  }, [user, loading]); // Add user and loading to dependency array
 
   useEffect(() => {
+    // The initial true ensures it runs once on mount to set initial state.
     const unsubscribe = client.authStore.onChange(handleAuthChange, true); 
     return () => {
       unsubscribe();
     };
-  }, [handleAuthChange]);
-
+  }, [handleAuthChange]); // Explicitly add handleAuthChange
 
   const login = useCallback(async (email: string, password: string) => {
-    setLoading(true);
+    setLoading(true); // setLoading true here is appropriate for login action
     try {
       await client.collection('users').authWithPassword(email, password);
+      // handleAuthChange will be triggered by PocketBase, setting user and eventually loading to false.
     } catch (error: any) {
       console.error("Login failed (raw error object):", error);
       let errorMessage = "An unexpected error occurred during login. Please try again.";
@@ -162,13 +177,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       console.error("Login failed (processed errorMessage):", errorMessage);
       toast({ title: "Login Failed", description: errorMessage, variant: "destructive" });
-      setLoading(false); 
+      setLoading(false); // Ensure loading is set to false on login failure
     }
+    // No setLoading(false) here if successful, as handleAuthChange will do it.
   }, [toast]); 
 
   const logout = useCallback(() => {
-    setLoading(true);
+    setLoading(true); // setLoading true here is appropriate for logout action
     client.authStore.clear();
+    // handleAuthChange will be triggered by PocketBase, setting user to null and eventually loading to false.
     router.push("/"); 
     toast({ title: "Logged Out", description: "You have been successfully logged out." });
   }, [router, toast]);
@@ -184,6 +201,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       formData.append('selected_lucide_icon', ''); // Clear selected icon preference
 
       await client.collection('users').update(user.id, formData);
+      // PocketBase's authStore.onChange will trigger handleAuthChange, which updates user state
       toast({ title: "Avatar Updated", description: "Your profile picture has been changed." });
     } catch (error: any) {
       console.error("Failed to update avatar:", error);
@@ -211,6 +229,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         selected_lucide_icon: iconName,
       };
       await client.collection('users').update(user.id, data);
+      // PocketBase's authStore.onChange will trigger handleAuthChange
       toast({ title: "Icon Updated", description: "Your profile icon has been changed." });
     } catch (error: any) {
       console.error("Failed to update selected icon:", error);
@@ -230,6 +249,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         selected_lucide_icon: null,
       };
       await client.collection('users').update(user.id, data);
+      // PocketBase's authStore.onChange will trigger handleAuthChange
       toast({ title: "Avatar Reset", description: "Your profile picture has been reset to the default." });
     } catch (error: any) {
       console.error("Failed to clear avatar and selection:", error);
@@ -264,3 +284,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

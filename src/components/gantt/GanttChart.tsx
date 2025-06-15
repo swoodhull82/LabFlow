@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { Task, TaskStatus, TaskType } from '@/lib/types';
+import type { Task, TaskStatus, TaskType, Employee } from '@/lib/types'; // Added Employee
 import {
   addDays,
   differenceInDays,
@@ -20,37 +20,44 @@ import {
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
-import { getTasks, updateTask as updateTaskService } from "@/services/taskService"; 
+import { getTasks, updateTask as updateTaskService, deleteTask as deleteTaskService, getEmployees as getEmployeesService } from "@/services/taskService"; // Assuming getEmployees is in taskService or a new service
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, Save, Link as LinkIcon, PlusCircle, Trash2, ListPlus } from "lucide-react";
-import { Button as ShadcnButton } from "@/components/ui/button"; 
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, PlusCircle, CornerDownRight, Trash2, Save, CalendarIcon, XCircle } from "lucide-react";
+import { Button as ShadcnButton } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Popover, PopoverContent, PopoverTrigger, PopoverAnchor } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TASK_STATUSES, TASK_TYPES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 import type PocketBase from "pocketbase";
 import Link from "next/link";
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { useRouter } from 'next/navigation';
+import { cva } from "class-variance-authority";
 
-const ROW_HEIGHT = 48; 
-const LEFT_PANEL_WIDTH = 450; 
-const TASK_BAR_VERTICAL_PADDING = 8; 
-const GANTT_VIEW_MONTHS = 3; 
-const MILESTONE_SIZE = 16; 
 
-const MIN_DAY_CELL_WIDTH = 15; 
-const MAX_DAY_CELL_WIDTH = 60; 
-const DEFAULT_DAY_CELL_WIDTH = 30; 
+const ROW_HEIGHT = 48;
+const LEFT_PANEL_WIDTH = 450;
+const TASK_BAR_VERTICAL_PADDING = 8;
+const GANTT_VIEW_MONTHS = 3;
+const MILESTONE_SIZE = 16;
 
-const DEPENDENCY_LINE_OFFSET = 15; 
-const ARROW_SIZE = 5; 
-const RESIZE_HANDLE_WIDTH = 8; 
+const MIN_DAY_CELL_WIDTH = 15;
+const MAX_DAY_CELL_WIDTH = 60;
+const DEFAULT_DAY_CELL_WIDTH = 30;
+
+const DEPENDENCY_LINE_OFFSET = 15;
+const ARROW_SIZE = 5;
+const RESIZE_HANDLE_WIDTH = 8;
 const MIN_TASK_DURATION_DAYS = 1;
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean, taskType?: TaskType): string => {
   if (taskType === "VALIDATION_PROJECT" && isMilestone) return 'bg-purple-500 hover:bg-purple-600';
+  if (taskType === "VALIDATION_STEP") return 'bg-teal-500 hover:bg-teal-600';
   if (!status) return 'bg-primary hover:bg-primary/90';
   switch (status.toLowerCase()) {
     case 'done':
@@ -106,25 +113,35 @@ interface DependencyDrawState {
   currentMouseY: number;
 }
 
-interface QuickEditPopoverState {
-  taskId: string | null;
-  currentTitle: string; 
-  currentTaskType: TaskType; 
-  currentInstrumentSubtype?: string;
-  currentStatus: TaskStatus;
-  currentProgress: number;
-  currentSteps: string[];
-  newStepText: string;
-}
-
 interface GanttChartProps {
-  filterTaskType?: TaskType; 
+  filterTaskType?: TaskType | "ALL_EXCEPT_VALIDATION" | "VALIDATION_AND_ITS_STEPS";
   displayHeaderControls?: 'defaultTitle' | 'addValidationButton';
 }
+
+const quickEditFormSchema = z.object({
+  title: z.string().min(1, "Title is required."),
+  startDate: z.date().optional(),
+  dueDate: z.date().optional(),
+  isMilestone: z.boolean().optional(),
+}).refine(data => {
+    if (data.isMilestone && !data.startDate) {
+      return false; // Milestone requires a start date
+    }
+    if (data.startDate && data.dueDate && !data.isMilestone && data.startDate > data.dueDate) {
+        return false; // Start date must be before or same as due date for non-milestones
+    }
+    return true;
+}, {
+    message: "Start date must be valid. For milestones, date is required. For ranges, start must be <= due.",
+    path: ["startDate"], // Generic path, specific error handling can be done in UI if needed
+});
+type QuickEditFormData = z.infer<typeof quickEditFormSchema>;
+
 
 const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderControls = 'defaultTitle' }) => {
   const { pbClient } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
   const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -133,21 +150,15 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [dependencyDrawState, setDependencyDrawState] = useState<DependencyDrawState | null>(null);
-  
+
   const timelineScrollContainerRef = useRef<HTMLDivElement>(null);
   const leftPanelScrollContainerRef = useRef<HTMLDivElement>(null);
   const ganttBodyRef = useRef<HTMLDivElement>(null);
 
-  const [quickEditPopoverState, setQuickEditPopoverState] = useState<QuickEditPopoverState>({
-    taskId: null,
-    currentTitle: "",
-    currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], // Default to a non-validation type initially
-    currentInstrumentSubtype: undefined,
-    currentStatus: 'To Do',
-    currentProgress: 0,
-    currentSteps: [],
-    newStepText: "",
-  });
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+
+  const [quickEditTask, setQuickEditTask] = useState<Task | null>(null);
   const [isQuickEditPopoverOpen, setIsQuickEditPopoverOpen] = useState(false);
 
 
@@ -160,13 +171,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
     setError(null);
     try {
       const fetchOptions: any = { signal };
-      if (filterTaskType) {
-        fetchOptions.filter = `task_type = "${filterTaskType}"`;
-      } else {
-        
-        fetchOptions.filter = `task_type != "VALIDATION_PROJECT"`;
-      }
-
 
       const fetchedTasks = await getTasks(pb, fetchOptions);
       const validRawTasks = fetchedTasks.filter(task =>
@@ -176,8 +180,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
       setAllTasks(validRawTasks);
 
       if (validRawTasks.length > 0) {
-        const projectMinDate = min(validRawTasks.map(t => startOfDay(new Date(t.startDate!))));
-        setViewStartDate(startOfMonth(projectMinDate));
+        // Initial viewStartDate adjustment can be done here if needed, or rely on chartData memo
       } else {
         setViewStartDate(startOfMonth(new Date()));
       }
@@ -202,7 +205,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
     } finally {
       setIsLoading(false);
     }
-  }, [toast, filterTaskType]);
+  }, [toast]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -217,32 +220,84 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   }, [pbClient, fetchTimelineTasks]);
 
   const chartData = useMemo(() => {
-    const processedTasks = allTasks.map(task => {
+    const enrichedTasks = allTasks.map(task => {
       const taskStartDateObj = startOfDay(new Date(task.startDate!));
       const taskDueDateObj = startOfDay(new Date(task.dueDate!));
+      const isValidationProject = task.task_type === "VALIDATION_PROJECT";
+      const isValidationStep = task.task_type === "VALIDATION_STEP";
+      
+      let parentProjectId: string | undefined = undefined;
+      if (isValidationStep && task.dependencies && task.dependencies.length > 0) {
+        const parentCandidate = allTasks.find(p => p.id === task.dependencies![0] && p.task_type === "VALIDATION_PROJECT");
+        if (parentCandidate) {
+          parentProjectId = parentCandidate.id;
+        }
+      }
+
       return {
         ...task,
         startDate: taskStartDateObj,
         dueDate: taskDueDateObj,
         progress: typeof task.progress === 'number' && task.progress >= 0 && task.progress <= 100 ? task.progress : 0,
-        isMilestone: task.task_type === "VALIDATION_PROJECT" && (task.isMilestone === true ||
+        isMilestone: isValidationProject && (task.isMilestone === true ||
                      (task.isMilestone !== false &&
                       isValid(taskStartDateObj) && isValid(taskDueDateObj) &&
                       isSameDay(taskStartDateObj, taskDueDateObj))),
         dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
-        steps: Array.isArray(task.steps) ? task.steps : [],
+        isValidationProject,
+        isValidationStep,
+        parentProjectId,
       };
     });
 
+    let tasksToConsiderForSorting = enrichedTasks;
+    if (filterTaskType === "VALIDATION_PROJECT") {
+      const projectIdsMaster = enrichedTasks.filter(t => t.isValidationProject).map(t => t.id);
+      tasksToConsiderForSorting = enrichedTasks.filter(t => 
+        t.isValidationProject || 
+        (t.isValidationStep && t.parentProjectId && projectIdsMaster.includes(t.parentProjectId))
+      );
+    } else if (filterTaskType === "ALL_EXCEPT_VALIDATION") {
+      tasksToConsiderForSorting = enrichedTasks.filter(t => !t.isValidationProject && !t.isValidationStep);
+    } else if (filterTaskType && filterTaskType !== "VALIDATION_AND_ITS_STEPS") {
+      tasksToConsiderForSorting = enrichedTasks.filter(t => t.task_type === filterTaskType);
+    }
+
+
+    const sortedHierarchically: typeof tasksToConsiderForSorting = [];
+    const taskPool = new Map(tasksToConsiderForSorting.map(t => [t.id, t]));
+    
+    const rootLevelTasks = tasksToConsiderForSorting.filter(t => {
+      if (t.isValidationProject) return true;
+      if (t.isValidationStep) {
+        return !(t.parentProjectId && taskPool.has(t.parentProjectId));
+      }
+      return true; 
+    });
+
+    rootLevelTasks.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+
+    for (const rootTask of rootLevelTasks) {
+      sortedHierarchically.push(rootTask);
+      if (rootTask.isValidationProject) {
+        const steps = tasksToConsiderForSorting.filter(step => 
+            step.isValidationStep && 
+            step.parentProjectId === rootTask.id &&
+            taskPool.has(step.id) 
+        );
+        steps.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+        sortedHierarchically.push(...steps);
+      }
+    }
+    
     const currentChartStartDate = viewStartDate;
     const currentChartEndDate = endOfMonth(addMonths(viewStartDate, GANTT_VIEW_MONTHS - 1));
-    
-    const tasksToDisplay = processedTasks.filter(task =>
+
+    const tasksToDisplay = sortedHierarchically.filter(task =>
         (task.startDate <= currentChartEndDate && task.dueDate >= currentChartStartDate)
-    ).sort((a,b) => a.startDate.getTime() - b.startDate.getTime());
-
+    );
+    
     const totalDaysInView = differenceInDays(currentChartEndDate, currentChartStartDate) + 1;
-
     const getMonthYear = (date: Date) => format(date, 'MMM yyyy');
     const monthHeadersData: { name: string; span: number }[] = [];
 
@@ -266,16 +321,17 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
       totalDaysInView: totalDaysInView > 0 ? totalDaysInView : 0,
       monthHeaders: monthHeadersData,
     };
-  }, [allTasks, viewStartDate]);
+  }, [allTasks, viewStartDate, filterTaskType]);
+
 
   const { tasksToDisplay, chartStartDate, chartEndDate, totalDaysInView, monthHeaders } = chartData;
 
   const taskRenderDetailsMap = useMemo(() => {
     const map = new Map<string, {
-        task: Task & { startDate: Date; dueDate: Date; isMilestone: boolean; dependencies: string[]; steps: string[] };
+        task: Task & { startDate: Date; dueDate: Date; isMilestone: boolean; dependencies: string[], isValidationProject?: boolean, isValidationStep?: boolean, parentProjectId?: string };
         index: number;
         barStartX: number;
-        barEndX: number; 
+        barEndX: number;
         barWidth: number;
         barCenterY: number;
         isMilestoneRender: boolean;
@@ -289,7 +345,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
         if (dragState && dragState.taskId === task.id) {
             const dragOffsetDays = Math.round(( (dragState.currentMouseX ?? dragState.initialMouseX) - dragState.initialMouseX) / dayCellWidth);
-            
+
             if (dragState.type === 'drag') {
                 taskStartActual = addDays(dragState.originalStartDate, dragOffsetDays);
                 taskEndActual = addDays(dragState.originalDueDate, dragOffsetDays);
@@ -303,11 +359,11 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 taskEndActual = max([taskEndActual, addDays(dragState.originalStartDate, (MIN_TASK_DURATION_DAYS-1) )]);
             }
         }
-        
+
         const taskStartInView = max([taskStartActual, chartStartDate]);
         const taskEndInView = min([taskEndActual, chartEndDate]);
-        
-        const isRenderMilestone = task.task_type === "VALIDATION_PROJECT" && task.isMilestone;
+
+        const isRenderMilestone = task.isValidationProject && task.isMilestone;
 
         if (taskStartInView > taskEndInView && !isRenderMilestone) return;
 
@@ -322,7 +378,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         if (isRenderMilestone) {
             barLeftPosition += (dayCellWidth / 2) - (MILESTONE_SIZE / 2);
         }
-        
+
         const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2;
         const taskBarTop = TASK_BAR_VERTICAL_PADDING;
         const milestoneTop = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
@@ -333,7 +389,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             barStartX: barLeftPosition,
             barEndX: barLeftPosition + barW,
             barWidth: barW,
-            barCenterY: (index * ROW_HEIGHT) + 
+            barCenterY: (index * ROW_HEIGHT) +
                         (isRenderMilestone ? milestoneTop + MILESTONE_SIZE / 2 : taskBarTop + taskBarHeight / 2),
             isMilestoneRender: isRenderMilestone,
             effectiveStartDate: taskStartActual,
@@ -346,20 +402,20 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   const dependencyLines = useMemo(() => {
     const lines: { id: string, d: string }[] = [];
     tasksToDisplay.forEach((dependentTask) => {
-        if (dependentTask.task_type !== "VALIDATION_PROJECT" || !dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
+        if (!dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
         const dependentDetails = taskRenderDetailsMap.get(dependentTask.id);
         if (!dependentDetails) return;
 
         dependentTask.dependencies.forEach((predecessorId, depIndex) => {
             const predecessorDetails = taskRenderDetailsMap.get(predecessorId);
-            if (!predecessorDetails || predecessorDetails.task.task_type !== "VALIDATION_PROJECT") return; 
-            
+            if (!predecessorDetails) return;
+
             const fromX = predecessorDetails.isMilestoneRender ? predecessorDetails.barStartX + MILESTONE_SIZE / 2 : predecessorDetails.barEndX;
             const fromY = predecessorDetails.barCenterY;
             const toX = dependentDetails.isMilestoneRender ? dependentDetails.barStartX + MILESTONE_SIZE / 2 : dependentDetails.barStartX;
             const toY = dependentDetails.barCenterY;
 
-            if (fromX >= toX && fromY === toY) return;
+            if (fromX >= toX && fromY === toY) return; 
 
             const turnX = fromX + DEPENDENCY_LINE_OFFSET;
             const pathD = `M ${fromX} ${fromY} L ${turnX} ${fromY} L ${turnX} ${toY} L ${toX} ${toY}`;
@@ -370,8 +426,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   }, [tasksToDisplay, taskRenderDetailsMap]);
 
     const handleTaskUpdate = useCallback(async (
-        taskId: string, 
-        updates: Partial<Pick<Task, 'startDate' | 'dueDate' | 'dependencies' | 'title' | 'status' | 'progress' | 'instrument_subtype' | 'isMilestone' | 'task_type' | 'steps'>>
+        taskId: string,
+        updates: Partial<Pick<Task, 'startDate' | 'dueDate' | 'dependencies' | 'title' | 'status' | 'progress' | 'instrument_subtype' | 'isMilestone' | 'task_type'>>
     ) => {
         if (!pbClient) return;
         const taskToUpdate = allTasks.find(t => t.id === taskId);
@@ -380,39 +436,42 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         const payload: Partial<Task> = { ...updates };
         if (updates.startDate) payload.startDate = new Date(updates.startDate).toISOString();
         if (updates.dueDate) payload.dueDate = new Date(updates.dueDate).toISOString();
-        
-        
+
+
         if (taskToUpdate.task_type === "VALIDATION_PROJECT") {
             if (updates.hasOwnProperty('isMilestone')) {
                 payload.isMilestone = !!updates.isMilestone;
-            }
-            if (updates.steps) {
-                payload.steps = Array.isArray(updates.steps) ? updates.steps : [];
+                if (payload.isMilestone && payload.startDate && !payload.dueDate) {
+                    payload.dueDate = payload.startDate; 
+                }
             }
         } else { 
-            payload.isMilestone = false;
-            payload.dependencies = [];
-            payload.steps = [];
+            payload.isMilestone = false; 
+            if (!updates.hasOwnProperty('dependencies')) { 
+                delete payload.dependencies;
+            } else if (updates.dependencies === null || updates.dependencies === undefined) {
+                payload.dependencies = [];
+            }
         }
+
 
         try {
             await updateTaskService(pbClient, taskId, payload);
-            toast({ title: "Task Updated", description: `Task "${taskToUpdate.title}" was successfully updated.` });
-            fetchTimelineTasks(pbClient); 
+            toast({ title: "Task Updated", description: `Task "${updates.title || taskToUpdate.title}" was successfully updated.` });
+            if (pbClient) fetchTimelineTasks(pbClient); 
         } catch (err) {
-            toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${taskToUpdate.title}"`), variant: "destructive" });
-            fetchTimelineTasks(pbClient);
+            toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${updates.title || taskToUpdate.title}"`), variant: "destructive" });
+            if (pbClient) fetchTimelineTasks(pbClient); 
         }
     }, [pbClient, allTasks, toast, fetchTimelineTasks]);
 
 
-    const handleMouseDownOnTaskBar = (e: React.MouseEvent, task: Task) => {
+    const handleMouseDownOnTaskBar = useCallback((e: React.MouseEvent, task: Task) => {
         if (e.button !== 0) return; 
-        if (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) return; 
 
         const taskDetails = taskRenderDetailsMap.get(task.id);
         if (!taskDetails) return;
-        
+
         e.preventDefault();
         e.stopPropagation();
 
@@ -420,21 +479,21 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             type: 'drag',
             taskId: task.id,
             initialMouseX: e.clientX,
-            originalStartDate: taskDetails.effectiveStartDate,
+            originalStartDate: taskDetails.effectiveStartDate, 
             originalDueDate: taskDetails.effectiveDueDate,
         });
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'grabbing';
-        document.body.style.userSelect = 'none';
-    };
-    
-    const handleMouseDownOnResizeHandle = (e: React.MouseEvent, task: Task, handleType: 'start' | 'end') => {
+        document.body.style.userSelect = 'none'; 
+    }, [taskRenderDetailsMap]);
+
+    const handleMouseDownOnResizeHandle = useCallback((e: React.MouseEvent, task: Task, handleType: 'start' | 'end') => {
         if (e.button !== 0) return;
         const taskDetails = taskRenderDetailsMap.get(task.id);
         if (!taskDetails) return;
 
         e.preventDefault();
         e.stopPropagation();
-        
+
         setDragState({
             type: handleType === 'start' ? 'resize-start' : 'resize-end',
             taskId: task.id,
@@ -444,13 +503,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         });
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'ew-resize';
         document.body.style.userSelect = 'none';
-    };
+    }, [taskRenderDetailsMap]);
 
-    const handleMouseDownOnDependencyConnector = (e: React.MouseEvent, task: Task) => {
+    const handleMouseDownOnDependencyConnector = useCallback((e: React.MouseEvent, task: Task) => {
         if (e.button !== 0 || task.task_type !== "VALIDATION_PROJECT") return; 
         const taskDetails = taskRenderDetailsMap.get(task.id);
         if (!taskDetails || taskDetails.isMilestoneRender) return; 
-        
+
         e.preventDefault();
         e.stopPropagation();
 
@@ -458,96 +517,33 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         const timelineScroll = timelineScrollContainerRef.current;
         if (!ganttRect || !timelineScroll) return;
 
+        
         const initialMouseXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
-        const initialMouseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60;
+        const initialMouseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; 
 
         setDependencyDrawState({
             sourceTaskId: task.id,
-            sourceTaskBarEndX: taskDetails.barEndX,
+            sourceTaskBarEndX: taskDetails.barEndX, 
             sourceTaskBarCenterY: taskDetails.barCenterY,
             currentMouseX: initialMouseXInGrid,
             currentMouseY: initialMouseYInGrid,
         });
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'crosshair';
-    };
-
-    const openQuickEditPopover = (task: Task) => {
-      setQuickEditPopoverState({
-        taskId: task.id,
-        currentTitle: task.title,
-        currentTaskType: task.task_type,
-        currentInstrumentSubtype: task.instrument_subtype,
-        currentStatus: task.status,
-        currentProgress: task.progress || 0,
-        currentSteps: task.task_type === "VALIDATION_PROJECT" ? (task.steps || []) : [],
-        newStepText: "",
-      });
-      setIsQuickEditPopoverOpen(true);
-    };
+    }, [taskRenderDetailsMap]);
     
-    const handleTaskBarClick = (e: React.MouseEvent, task: Task) => {
-        if (e.detail !== 1 || Math.abs(e.movementX) > 2 || Math.abs(e.movementY) > 2) { 
-          return;
+    const handleConfirmDeleteTask = useCallback(async () => {
+        if (!taskToDelete || !pbClient) return;
+        try {
+            await deleteTaskService(pbClient, taskToDelete.id);
+            toast({ title: "Task Deleted", description: `Task "${taskToDelete.title}" has been deleted.` });
+            fetchTimelineTasks(pbClient); 
+        } catch (err) {
+            toast({ title: "Delete Failed", description: getDetailedErrorMessage(err, "deleting task"), variant: "destructive" });
+        } finally {
+            setIsDeleteDialogOpen(false);
+            setTaskToDelete(null);
         }
-        const targetElement = e.target as HTMLElement;
-        if (targetElement.classList.contains('resize-handle') || 
-            targetElement.classList.contains('dependency-connector') || 
-            targetElement.closest('.dependency-connector')) {
-          return;
-        }
-        openQuickEditPopover(task);
-      };
-    
-    const handleLeftPanelItemClick = (e: React.MouseEvent, task: Task) => {
-      if (task.task_type === "VALIDATION_PROJECT") {
-        e.stopPropagation();
-        openQuickEditPopover(task);
-      }
-      // For other task types, clicking the name in the left panel does nothing currently.
-    };
-    
-    const handleAddStepInQuickEdit = () => {
-        if (quickEditPopoverState.newStepText.trim() === "") return;
-        setQuickEditPopoverState(prev => ({
-            ...prev,
-            currentSteps: [...prev.currentSteps, prev.newStepText.trim()],
-            newStepText: ""
-        }));
-    };
-
-    const handleDeleteStepInQuickEdit = (indexToDelete: number) => {
-        setQuickEditPopoverState(prev => ({
-            ...prev,
-            currentSteps: prev.currentSteps.filter((_, index) => index !== indexToDelete)
-        }));
-    };
-
-
-    const handleSaveQuickEdit = () => {
-        if (!quickEditPopoverState.taskId) return;
-        
-        const updates: Partial<Pick<Task, 'title' | 'status' | 'progress' | 'instrument_subtype' | 'task_type' | 'steps'>> = {
-            title: quickEditPopoverState.currentTitle,
-            status: quickEditPopoverState.currentStatus,
-            progress: quickEditPopoverState.currentProgress,
-        };
-
-        if (quickEditPopoverState.currentTaskType === "MDL" || quickEditPopoverState.currentTaskType === "SOP") {
-            updates.instrument_subtype = quickEditPopoverState.currentInstrumentSubtype;
-        } else {
-            updates.instrument_subtype = undefined;
-        }
-
-        if (quickEditPopoverState.currentTaskType === "VALIDATION_PROJECT") {
-            updates.steps = quickEditPopoverState.currentSteps;
-        } else {
-            updates.steps = []; 
-        }
-        
-        handleTaskUpdate(quickEditPopoverState.taskId, updates);
-        setIsQuickEditPopoverOpen(false);
-        setQuickEditPopoverState({taskId: null, currentTitle: "", currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0, currentSteps: [], newStepText: ""});
-    };
+    }, [taskToDelete, pbClient, toast, fetchTimelineTasks]);
 
 
     useEffect(() => {
@@ -558,7 +554,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                  const ganttRect = ganttBodyRef.current.getBoundingClientRect();
                  const timelineScroll = timelineScrollContainerRef.current;
                  if (!timelineScroll) return;
-                
+
                  const currentXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
                  const currentYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; 
                  setDependencyDrawState(prev => prev ? { ...prev, currentMouseX: currentXInGrid, currentMouseY: currentYInGrid } : null);
@@ -576,7 +572,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 }
                 setDragState(null);
                 if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'default';
-                document.body.style.userSelect = '';
+                document.body.style.userSelect = ''; 
             } else if (dependencyDrawState) {
                 const ganttRect = ganttBodyRef.current?.getBoundingClientRect();
                 const timelineScroll = timelineScrollContainerRef.current;
@@ -584,16 +580,18 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 if (ganttRect && timelineScroll) {
                     const releaseXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
                     const releaseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60;
-                    
+
                     let targetDropTaskId: string | null = null;
+                    
                     for (const [taskId, details] of taskRenderDetailsMap.entries()) {
                         if (taskId === dependencyDrawState.sourceTaskId || details.task.task_type !== "VALIDATION_PROJECT") continue; 
 
+                        
                         const taskRowTop = details.index * ROW_HEIGHT;
                         const taskRowBottom = taskRowTop + ROW_HEIGHT;
                         
                         if (releaseYInGrid >= taskRowTop && releaseYInGrid <= taskRowBottom &&
-                            releaseXInGrid >= details.barStartX - dayCellWidth / 2 && releaseXInGrid <= details.barStartX + dayCellWidth / 2) {
+                            releaseXInGrid >= details.barStartX - dayCellWidth/2 && releaseXInGrid <= details.barStartX + dayCellWidth/2) { 
                              targetDropTaskId = taskId;
                              break;
                         }
@@ -602,11 +600,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                     if (targetDropTaskId) {
                         const sourceTask = allTasks.find(t => t.id === dependencyDrawState.sourceTaskId);
                         const targetTask = allTasks.find(t => t.id === targetDropTaskId);
+                        
                         if (sourceTask && targetTask && sourceTask.task_type === "VALIDATION_PROJECT" && targetTask.task_type === "VALIDATION_PROJECT") {
                             const currentTargetDeps = targetTask.dependencies || [];
-                            const currentSourceDeps = sourceTask.dependencies || [];
+                            const currentSourceDeps = sourceTask.dependencies || []; 
 
-                            if (!currentTargetDeps.includes(sourceTask.id) && !currentSourceDeps.includes(targetTask.id)) { 
+                            
+                            if (!currentTargetDeps.includes(sourceTask.id) && !currentSourceDeps.includes(targetTask.id)) {
                                 handleTaskUpdate(targetTask.id, { dependencies: [...currentTargetDeps, sourceTask.id] });
                             } else {
                                 toast({ title: "Invalid Dependency", description: "Cannot create duplicate or circular dependency.", variant: "destructive"});
@@ -618,7 +618,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'default';
             }
         };
-        
+
         if (dragState || dependencyDrawState) {
             window.addEventListener('mousemove', handleWindowMouseMove);
             window.addEventListener('mouseup', handleWindowMouseUp);
@@ -630,6 +630,14 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         };
     }, [dragState, dependencyDrawState, dayCellWidth, taskRenderDetailsMap, handleTaskUpdate, allTasks, toast]);
 
+  const handlePopoverOpenChange = (isOpen: boolean, task: Task) => {
+    setIsQuickEditPopoverOpen(isOpen);
+    if (isOpen) {
+      setQuickEditTask(task);
+    } else {
+      setQuickEditTask(null);
+    }
+  };
 
   const handlePrevMonth = () => setViewStartDate(prev => subMonths(prev, 1));
   const handleNextMonth = () => setViewStartDate(prev => addMonths(prev, 1));
@@ -663,7 +671,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
       }
        requestAnimationFrame(() => primaryScroller = null);
     };
-    
+
     const leftEl = leftPanelScrollContainerRef.current;
     const rightInnerEl = timelineScrollContainerRef.current?.querySelector('.timeline-inner-content-scrollable-body');
 
@@ -695,7 +703,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
       </div>
     );
   }
-  
+
   const today = startOfDay(new Date());
   const showTodayLine = isWithinInterval(today, { start: chartStartDate, end: chartEndDate });
   const todayLineLeftPosition = showTodayLine && totalDaysInView > 0
@@ -708,7 +716,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   const renderNoTasksMessage = () => (
     <div className="flex flex-col items-center justify-center h-full p-4 text-center text-sm">
         <p className="text-muted-foreground">
-          {filterTaskType ? `No ${filterTaskType.replace(/_/g, ' ')} tasks found for current view.` : "No tasks found for current view."}
+          {filterTaskType === "VALIDATION_PROJECT" ? `No Validation Projects or their steps found for current view.` :
+           filterTaskType === "ALL_EXCEPT_VALIDATION" ? `No standard tasks found for current view.` :
+           "No tasks found for current view."}
         </p>
         <p className="text-xs mt-1 text-muted-foreground">
             {allTasks.length === 0 ? "Ensure tasks have valid start/due dates." : "Try adjusting date range or zoom."}
@@ -739,51 +749,112 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <div 
-            style={{ width: `${LEFT_PANEL_WIDTH}px` }} 
+        <div
+            style={{ width: `${LEFT_PANEL_WIDTH}px` }}
             className="flex-shrink-0 bg-card border-r border-border flex flex-col"
         >
           <div className="h-[60px] flex items-center p-2 font-semibold text-xs border-b border-border flex-shrink-0 sticky top-0 bg-card z-20">
-            <div className="grid grid-cols-[40px_1fr_70px_70px_60px] w-full items-center gap-2">
+            <div className="grid grid-cols-[40px_1fr_70px_70px_60px_60px] w-full items-center gap-2">
                 <span className="text-center text-muted-foreground uppercase">WBS</span>
                 <span className="text-muted-foreground uppercase">Task Name</span>
                 <span className="text-center text-muted-foreground uppercase">Start</span>
                 <span className="text-center text-muted-foreground uppercase">End</span>
                 <span className="text-center text-muted-foreground uppercase">Prog.</span>
+                <span className="text-center text-muted-foreground uppercase">Actions</span> 
             </div>
           </div>
           <div ref={leftPanelScrollContainerRef} className="overflow-y-auto flex-1">
             {tasksToDisplay.length === 0 && !isLoading && renderNoTasksMessage()}
-            {tasksToDisplay.map((task, taskIndex) => (
-              <div 
-                key={task.id} 
-                className={cn(
-                  "grid grid-cols-[40px_1fr_70px_70px_60px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150",
-                  task.id === hoveredTaskId ? 'bg-primary/10 dark:bg-primary/20' : '',
-                  (dragState && dragState.taskId !== task.id && dragState.type !== 'draw-dependency') || 
-                  (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) || 
-                  (hoveredTaskId && task.id !== hoveredTaskId) ? 'opacity-60' : 'opacity-100'
-                )}
-                style={{ height: `${ROW_HEIGHT}px` }}
-                onMouseEnter={() => setHoveredTaskId(task.id)}
-                onMouseLeave={() => setHoveredTaskId(null)}
-              >
-                <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
-                <span 
-                  className={cn(
-                    "font-medium truncate",
-                    task.task_type === "VALIDATION_PROJECT" ? "cursor-pointer hover:text-primary" : "cursor-default"
-                  )}
-                  title={task.title} 
-                  onClick={(e) => handleLeftPanelItemClick(e, task)}
-                >
-                   {task.title}
+            {tasksToDisplay.map((task, taskIndex) => {
+              const isStep = task.isValidationStep && task.parentProjectId && tasksToDisplay.some(t => t.id === task.parentProjectId);
+              const canQuickEdit = task.isValidationProject || task.isValidationStep;
+             
+              const TaskTitleDisplay = (
+                <span
+                    className={cn(
+                        "font-medium truncate",
+                        isStep ? "pl-4" : "",
+                        canQuickEdit ? "cursor-pointer hover:underline" : ""
+                    )}
+                    title={task.title}
+                    >
+                    {isStep && <CornerDownRight className="inline-block h-3 w-3 mr-1 text-muted-foreground" />}
+                    {task.title}
                 </span>
-                <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
-                <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
-                <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
-              </div>
-            ))}
+              );
+
+              return (
+                <div
+                  key={`${task.id}-leftpanel`}
+                  className={cn(
+                    "grid grid-cols-[40px_1fr_70px_70px_60px_60px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150",
+                     !canQuickEdit && "cursor-default",
+                    task.id === hoveredTaskId ? 'bg-primary/10 dark:bg-primary/20' : '',
+                    (dragState && dragState.taskId !== task.id && dragState.type !== 'draw-dependency') ||
+                    (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) ||
+                    (hoveredTaskId && task.id !== hoveredTaskId) ? 'opacity-60' : 'opacity-100'
+                  )}
+                  style={{ height: `${ROW_HEIGHT}px` }}
+                  onMouseEnter={() => setHoveredTaskId(task.id)}
+                  onMouseLeave={() => setHoveredTaskId(null)}
+                >
+                  <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
+                  
+                  {canQuickEdit ? (
+                    <Popover open={isQuickEditPopoverOpen && quickEditTask?.id === task.id} onOpenChange={(isOpen) => handlePopoverOpenChange(isOpen, task)}>
+                        <PopoverTrigger asChild>{TaskTitleDisplay}</PopoverTrigger>
+                        <PopoverContent className="w-96 p-4" side="bottom" align="start">
+                           {quickEditTask && <QuickEditForm task={quickEditTask} onSave={handleTaskUpdate} onClose={() => setIsQuickEditPopoverOpen(false)} />}
+                        </PopoverContent>
+                    </Popover>
+                  ) : (
+                    TaskTitleDisplay
+                  )}
+
+                  <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
+                  <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
+                  <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
+                  <div className="flex justify-center items-center gap-1 w-full h-full">
+                      <div className="w-6 h-6 flex items-center justify-center">
+                        {task.isValidationProject && (
+                          <ShadcnButton
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            title={`Add New Step Task for ${task.title}`}
+                            onClick={(e) => {
+                              e.stopPropagation(); 
+                              const queryParams = new URLSearchParams();
+                              queryParams.set('defaultType', 'VALIDATION_STEP');
+                              queryParams.set('dependsOnValidationProject', task.id);
+                              queryParams.set('defaultTitle', `Step for: ${task.title}`);
+                              router.push(`/tasks/new?${queryParams.toString()}`);
+                            }}
+                          >
+                            <PlusCircle className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                          </ShadcnButton>
+                        )}
+                      </div>
+                      <div className="w-6 h-6 flex items-center justify-center"> 
+                        {(task.isValidationProject || task.isValidationStep) && (
+                          <ShadcnButton
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            title={`Delete Task: ${task.title}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTaskToDelete(task);
+                              setIsDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive/70 hover:text-destructive" />
+                          </ShadcnButton>
+                        )}
+                      </div>
+                    </div>
+                </div>
+            )})}
           </div>
         </div>
 
@@ -815,7 +886,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 {tasksToDisplay.map((_, taskIndex) => (
                     <div key={`row-line-${taskIndex}`} className="absolute left-0 right-0 border-b border-border/30" style={{ top: `${(taskIndex + 1) * ROW_HEIGHT -1}px`, height: '1px', zIndex: 1 }}></div>
                 ))}
-                
+
                 {showTodayLine && totalDaysInView > 0 && (
                   <div className="absolute top-0 bottom-0 w-[2px] bg-destructive/70 z-[5]" style={{ left: `${todayLineLeftPosition}px` }} title={`Today: ${format(today, 'PPP')}`}>
                     <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 bg-destructive text-white text-[8px] px-0.5 rounded-sm">TODAY</div>
@@ -826,247 +897,117 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                   const taskDetails = taskRenderDetailsMap.get(task.id);
                   if (!taskDetails) return null;
                   const { barStartX, barWidth, isMilestoneRender } = taskDetails;
-                  
+
                   const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2;
                   const taskBarTopOffset = TASK_BAR_VERTICAL_PADDING;
                   const milestoneTopOffset = (ROW_HEIGHT - MILESTONE_SIZE) / 2;
                   const isBeingDragged = dragState?.taskId === task.id;
                   const isBeingDepDrawnFrom = dependencyDrawState?.sourceTaskId === task.id;
-
-
+                  
                   return (
-                    <Popover key={`${task.id}-popover`} open={isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id} onOpenChange={(open) => {
-                      if (!open) {
-                        setIsQuickEditPopoverOpen(false);
-                        setQuickEditPopoverState({taskId: null, currentTitle: "", currentTaskType: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT") || TASK_TYPES[0], currentInstrumentSubtype: undefined, currentStatus: 'To Do', currentProgress: 0, currentSteps: [], newStepText: ""});
-                      } else if (task.id !== quickEditPopoverState.taskId) { // Should not happen if open is managed correctly
-                         openQuickEditPopover(task);
-                      }
-                    }}>
-                    <Tooltip delayDuration={isBeingDragged || isBeingDepDrawnFrom || (isQuickEditPopoverOpen && quickEditPopoverState.taskId === task.id) ? 999999 : 100}>
-                      <TooltipTrigger asChild>
-                        <PopoverTrigger asChild>
-                        <div
-                          onMouseDown={(e) => handleMouseDownOnTaskBar(e, task)}
-                          onClick={(e) => handleTaskBarClick(e, task)}
-                          onMouseEnter={() => setHoveredTaskId(task.id)}
-                          onMouseLeave={() => setHoveredTaskId(null)}
-                          className={cn(
-                            "absolute transition-opacity duration-150 ease-in-out group cursor-grab z-10 flex items-center justify-center", 
-                            getTaskBarColor(task.status, isMilestoneRender, task.task_type),
-                            !isMilestoneRender && "rounded-sm",
-                            (isBeingDragged || isBeingDepDrawnFrom) ? 'ring-2 ring-ring ring-offset-background ring-offset-1 shadow-lg' : 
-                            (task.id === hoveredTaskId ? 'ring-1 ring-primary/70' : ''),
-                            ( (dragState && dragState.taskId !== task.id) || 
-                              (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) || 
-                              (hoveredTaskId && task.id !== hoveredTaskId) ) ? 'opacity-50' : 'opacity-100'
-                          )}
-                          style={{
-                            left: `${barStartX}px`,
-                            width: `${barWidth < 0 ? 0 : barWidth}px`,
-                            top: `${(taskIndex * ROW_HEIGHT) + (isMilestoneRender ? milestoneTopOffset : taskBarTopOffset)}px`,
-                            height: isMilestoneRender ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
-                          }}
-                        >
-                          {!isMilestoneRender && (
-                            <>
-                            <div 
-                                className="resize-handle absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
-                                onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'start')}
-                                title="Resize start date"
-                            >
-                                <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
-                            </div>
-                            <div 
-                                className="resize-handle absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
-                                onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'end')}
-                                title="Resize end date"
-                            >
-                                <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
-                            </div>
-                            {task.task_type === "VALIDATION_PROJECT" && (
+                      <Tooltip key={`${task.id}-timeline`} delayDuration={isBeingDragged || isBeingDepDrawnFrom ? 999999 : 100}>
+                        <TooltipTrigger asChild>
+                          <div
+                            onMouseDown={(e) => handleMouseDownOnTaskBar(e, task)}
+                            onMouseEnter={() => setHoveredTaskId(task.id)}
+                            onMouseLeave={() => setHoveredTaskId(null)}
+                            className={cn(
+                              "absolute transition-opacity duration-150 ease-in-out group z-10 flex items-center justify-center cursor-grab",
+                              getTaskBarColor(task.status, isMilestoneRender, task.task_type),
+                              !isMilestoneRender && "rounded-sm",
+                              (isBeingDragged || isBeingDepDrawnFrom) ? 'ring-2 ring-ring ring-offset-background ring-offset-1 shadow-lg' :
+                              (task.id === hoveredTaskId ? 'ring-1 ring-primary/70' : ''),
+                              ( (dragState && dragState.taskId !== task.id) ||
+                                (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) ||
+                                (hoveredTaskId && task.id !== hoveredTaskId) ) ? 'opacity-50' : 'opacity-100'
+                            )}
+                            style={{
+                              left: `${barStartX}px`,
+                              width: `${barWidth < 0 ? 0 : barWidth}px`,
+                              top: `${(taskIndex * ROW_HEIGHT) + (isMilestoneRender ? milestoneTopOffset : taskBarTopOffset)}px`,
+                              height: isMilestoneRender ? `${MILESTONE_SIZE}px` : `${taskBarHeight}px`,
+                            }}
+                          >
+                            {!isMilestoneRender && (
+                              <>
                               <div
-                                className="dependency-connector absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity"
-                                onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)}
-                                title="Draw dependency"
-                              />
-                            )}
-                            </>
-                          )}
-                          {!isMilestoneRender && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && barWidth > 0 && (
-                            <div className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" style={{ width: `${task.progress}%`}} />
-                          )}
-                          {isMilestoneRender && (
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <svg viewBox="0 0 100 100" className="w-full h-full fill-current text-white/80" preserveAspectRatio="none">
-                                <polygon points="50,0 100,50 50,100 0,50" />
-                              </svg>
-                            </div>
-                          )}
-                          {!isMilestoneRender && barWidth > (dayCellWidth * 0.75) && (
-                             <div className="absolute inset-0 flex items-center px-1.5 overflow-hidden">
-                                <span className="text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden text-ellipsis">
-                                  {task.title}
-                                </span>
-                            </div>
-                          )}
-                        </div>
-                        </PopoverTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent className="p-2 shadow-lg bg-popover text-popover-foreground rounded-md border max-w-xs w-auto z-50">
-                        <div className="space-y-1">
-                          <p className="font-semibold text-sm">
-                             {task.title}
-                             {task.task_type === "VALIDATION_PROJECT" && task.isMilestone ? " (Milestone)" : ""}
-                          </p>
-                          <p className="text-xs text-muted-foreground">Type: <span className="font-medium text-foreground">{task.task_type.replace(/_/g, ' ')}</span></p>
-                          {(task.task_type === "MDL" || task.task_type === "SOP") && task.instrument_subtype && (
-                             <p className="text-xs text-muted-foreground">Subtype: <span className="font-medium text-foreground">{task.instrument_subtype}</span></p>
-                          )}
-                          <p className="text-xs text-muted-foreground">Status: <span className="font-medium text-foreground">{task.status}</span></p>
-                          <p className="text-xs text-muted-foreground">Priority: <span className="font-medium text-foreground">{task.priority}</span></p>
-                          <p className="text-xs text-muted-foreground">Progress: <span className="font-medium text-foreground">{task.progress || 0}%</span></p>
-                          <p className="text-xs text-muted-foreground">
-                            Dates: {format(task.startDate, 'MMM d, yy')} - {format(task.dueDate, 'MMM d, yy')}
-                          </p>
-                          {task.assignedTo_text && (
-                            <p className="text-xs text-muted-foreground">Assigned to: <span className="font-medium text-foreground">{task.assignedTo_text}</span></p>
-                          )}
-                          {task.task_type === "VALIDATION_PROJECT" && task.dependencies && task.dependencies.length > 0 && (
-                            <div>
-                              <p className="text-xs text-muted-foreground mt-1">Depends on:</p>
-                              <ul className="list-disc list-inside pl-2 space-y-0.5">
-                                {task.dependencies.map(depId => {
-                                  const depTaskDetails = allTasks.find(t => t.id === depId);
-                                  return <li key={depId} className="text-xs font-medium text-foreground truncate" title={depTaskDetails?.title}>{depTaskDetails?.title || 'Unknown Task'}</li>;
-                                })}
-                              </ul>
-                            </div>
-                          )}
-                           {task.task_type === "VALIDATION_PROJECT" && (!task.dependencies || task.dependencies.length === 0) && (
-                             <p className="text-xs text-muted-foreground">Dependencies: None</p>
-                           )}
-                           {task.task_type === "VALIDATION_PROJECT" && task.steps && task.steps.length > 0 && (
-                                <div>
-                                <p className="text-xs text-muted-foreground mt-1">Steps:</p>
-                                <ScrollArea className="max-h-20">
-                                  <ul className="list-decimal list-inside pl-2 space-y-0.5">
-                                      {task.steps.map((step, idx) => (
-                                      <li key={idx} className="text-xs font-medium text-foreground truncate" title={step}>{step}</li>
-                                      ))}
-                                  </ul>
-                                </ScrollArea>
-                                </div>
-                            )}
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                    <PopoverContent className="w-96 z-50" side="bottom" align="start">
-                        <div className="grid gap-4">
-                        <div className="space-y-2">
-                            <h4 className="font-medium leading-none">Quick Edit: {quickEditPopoverState.currentTitle}</h4>
-                            <p className="text-sm text-muted-foreground">
-                            Modify task details.
-                            </p>
-                        </div>
-                        <div className="grid gap-2">
-                            <div className="grid grid-cols-3 items-center gap-4">
-                                <Label htmlFor={`qe-title-${task.id}`}>Name</Label>
-                                <Input 
-                                  id={`qe-title-${task.id}`} 
-                                  value={quickEditPopoverState.currentTitle}
-                                  onChange={(e) => setQuickEditPopoverState(prev => ({...prev, currentTitle: e.target.value}))}
-                                  className="col-span-2 h-8"
+                                  className="resize-handle absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
+                                  onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'start')}
+                                  title="Resize start date"
+                              >
+                                  <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
+                              </div>
+                              <div
+                                  className="resize-handle absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-20"
+                                  onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'end')}
+                                  title="Resize end date"
+                              >
+                                  <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
+                              </div>
+                              {task.isValidationProject && ( 
+                                <div
+                                  className="dependency-connector absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)}
+                                  title="Draw dependency"
                                 />
-                            </div>
-                            {quickEditPopoverState.currentTaskType !== "VALIDATION_PROJECT" && (quickEditPopoverState.currentTaskType === "MDL" || quickEditPopoverState.currentTaskType === "SOP") && (
-                                <div className="grid grid-cols-3 items-center gap-4">
-                                <Label htmlFor={`qe-instrument-${task.id}`}>Subtype</Label>
-                                <Select
-                                    value={quickEditPopoverState.currentInstrumentSubtype || ""}
-                                    onValueChange={(value) => setQuickEditPopoverState(prev => ({...prev, currentInstrumentSubtype: value}))}
-                                >
-                                    <SelectTrigger id={`qe-instrument-${task.id}`} className="col-span-2 h-8">
-                                        <SelectValue placeholder="Select subtype" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {(quickEditPopoverState.currentTaskType === "MDL" ? INSTRUMENT_SUBTYPES : SOP_SUBTYPES).map(subtype => (
-                                            <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                </div>
+                              )}
+                              </>
                             )}
-                            <div className="grid grid-cols-3 items-center gap-4">
-                            <Label htmlFor={`qe-status-${task.id}`}>Status</Label>
-                            <Select 
-                                value={quickEditPopoverState.currentStatus} 
-                                onValueChange={(value: TaskStatus) => setQuickEditPopoverState(prev => ({...prev, currentStatus: value}))}
-                            >
-                                <SelectTrigger id={`qe-status-${task.id}`} className="col-span-2 h-8">
-                                <SelectValue placeholder="Select status" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                {TASK_STATUSES.map(status => (
-                                    <SelectItem key={status} value={status}>{status}</SelectItem>
-                                ))}
-                                </SelectContent>
-                            </Select>
-                            </div>
-                            <div className="grid grid-cols-3 items-center gap-4">
-                            <Label htmlFor={`qe-progress-${task.id}`}>Progress (%)</Label>
-                            <Input
-                                id={`qe-progress-${task.id}`}
-                                type="number"
-                                min="0"
-                                max="100"
-                                value={quickEditPopoverState.currentProgress}
-                                onChange={(e) => setQuickEditPopoverState(prev => ({...prev, currentProgress: parseInt(e.target.value, 10) || 0}))}
-                                className="col-span-2 h-8"
-                            />
-                            </div>
-                            {quickEditPopoverState.currentTaskType === "VALIDATION_PROJECT" && (
-                              <div className="space-y-2">
-                                <Label>Steps</Label>
-                                {quickEditPopoverState.currentSteps.length > 0 && (
-                                  <ScrollArea className="h-24 rounded-md border p-2">
-                                    {quickEditPopoverState.currentSteps.map((step, index) => (
-                                      <div key={index} className="flex items-center justify-between gap-2 py-1">
-                                        <span className="text-sm flex-1 truncate" title={step}>{index+1}. {step}</span>
-                                        <ShadcnButton 
-                                          type="button" 
-                                          variant="ghost" 
-                                          size="icon" 
-                                          className="h-6 w-6 shrink-0"
-                                          onClick={() => handleDeleteStepInQuickEdit(index)}
-                                        >
-                                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                                        </ShadcnButton>
-                                      </div>
-                                    ))}
-                                  </ScrollArea>
-                                )}
-                                <div className="flex items-center gap-2">
-                                  <Input 
-                                    placeholder="New step description" 
-                                    value={quickEditPopoverState.newStepText}
-                                    onChange={(e) => setQuickEditPopoverState(prev => ({...prev, newStepText: e.target.value}))}
-                                    className="h-8 flex-1"
-                                  />
-                                  <ShadcnButton type="button" size="sm" onClick={handleAddStepInQuickEdit} className="h-8">
-                                    <ListPlus className="mr-1 h-4 w-4" /> Add
-                                  </ShadcnButton>
-                                </div>
+                            {!isMilestoneRender && task.status?.toLowerCase() !== 'done' && task.progress !== undefined && task.progress > 0 && barWidth > 0 && (
+                              <div className="absolute top-0 left-0 h-full bg-black/40 rounded-sm" style={{ width: `${task.progress}%`}} />
+                            )}
+                            {isMilestoneRender && ( 
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <svg viewBox="0 0 100 100" className="w-full h-full fill-current text-white/80" preserveAspectRatio="none">
+                                  <polygon points="50,0 100,50 50,100 0,50" />
+                                </svg>
                               </div>
                             )}
-                        </div>
-                        <div className="flex justify-end gap-2 pt-2">
-                            <ShadcnButton variant="ghost" size="sm" onClick={() => setIsQuickEditPopoverOpen(false)}>Cancel</ShadcnButton>
-                            <ShadcnButton size="sm" onClick={handleSaveQuickEdit}><Save className="mr-1 h-4 w-4" />Save</ShadcnButton>
-                        </div>
-                        </div>
-                    </PopoverContent>
-                  </Popover>
+                            {!isMilestoneRender && barWidth > (dayCellWidth * 0.75) && ( 
+                               <div className="absolute inset-0 flex items-center px-1.5 overflow-hidden">
+                                  <span className="text-[10px] text-white/90 font-medium whitespace-nowrap overflow-hidden text-ellipsis">
+                                    {task.title}
+                                  </span>
+                              </div>
+                            )}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent className="p-2 shadow-lg bg-popover text-popover-foreground rounded-md border max-w-xs w-auto z-50">
+                          <div className="space-y-1">
+                            <p className="font-semibold text-sm">
+                               {task.title}
+                               {task.isValidationProject && task.isMilestone ? " (Milestone)" : ""}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Type: <span className="font-medium text-foreground">{task.task_type.replace(/_/g, ' ')}</span></p>
+                            {(task.task_type === "MDL" || task.task_type === "SOP") && task.instrument_subtype && (
+                               <p className="text-xs text-muted-foreground">Subtype: <span className="font-medium text-foreground">{task.instrument_subtype}</span></p>
+                            )}
+                            <p className="text-xs text-muted-foreground">Status: <span className="font-medium text-foreground">{task.status}</span></p>
+                            <p className="text-xs text-muted-foreground">Priority: <span className="font-medium text-foreground">{task.priority}</span></p>
+                            <p className="text-xs text-muted-foreground">Progress: <span className="font-medium text-foreground">{task.progress || 0}%</span></p>
+                            <p className="text-xs text-muted-foreground">
+                              Dates: {format(task.startDate, 'MMM d, yy')} - {format(task.dueDate, 'MMM d, yy')}
+                            </p>
+                            {task.assignedTo_text && (
+                              <p className="text-xs text-muted-foreground">Assigned to: <span className="font-medium text-foreground">{task.assignedTo_text}</span></p>
+                            )}
+                            {task.dependencies && task.dependencies.length > 0 && (
+                              <div>
+                                <p className="text-xs text-muted-foreground mt-1">Depends on:</p>
+                                <ul className="list-disc list-inside pl-2 space-y-0.5">
+                                  {task.dependencies.map(depId => {
+                                    const depTaskDetails = allTasks.find(t => t.id === depId); 
+                                    return <li key={depId} className="text-xs font-medium text-foreground truncate" title={depTaskDetails?.title}>{depTaskDetails?.title || 'Unknown Task'}</li>;
+                                  })}
+                                </ul>
+                              </div>
+                            )}
+                             {(!task.dependencies || task.dependencies.length === 0) && (
+                               <p className="text-xs text-muted-foreground">Dependencies: None</p>
+                             )}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
                   );
                 })}
 
@@ -1104,7 +1045,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                 )}
               </>
             )}
-            {tasksToDisplay.length === 0 && !isLoading && (
+            {tasksToDisplay.length === 0 && !isLoading && ( 
                 <div style={{height: ROW_HEIGHT*3}} className="flex items-center justify-center">
                  {renderNoTasksMessage()}
                 </div>
@@ -1113,10 +1054,226 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
           </div>
         </div>
       </div>
-    </div> 
+    </div>
+    {taskToDelete && (
+        <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Are you sure you want to delete the task "{taskToDelete.title}"?
+                        {taskToDelete.task_type === "VALIDATION_PROJECT" && " Associated step tasks will NOT be automatically deleted and will need to be managed separately."}
+                        This action cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setTaskToDelete(null)}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleConfirmDeleteTask} className={cn(buttonVariants({variant: "destructive"}))}>
+                        Delete Task
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    )}
     </TooltipProvider>
   );
 };
 
+interface QuickEditFormProps {
+  task: Task;
+  onSave: (taskId: string, updates: Partial<Task>) => Promise<void>;
+  onClose: () => void;
+}
+
+const QuickEditForm: React.FC<QuickEditFormProps> = ({ task, onSave, onClose }) => {
+  const form = useForm<QuickEditFormData>({
+    resolver: zodResolver(quickEditFormSchema),
+    defaultValues: {
+      title: task.title,
+      startDate: task.startDate ? new Date(task.startDate) : undefined,
+      dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+      isMilestone: task.task_type === "VALIDATION_PROJECT" ? !!task.isMilestone : false,
+    },
+  });
+
+  const { toast } = useToast();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [startDatePickerOpen, setStartDatePickerOpen] = useState(false);
+  const [dueDatePickerOpen, setDueDatePickerOpen] = useState(false);
+
+  const watchedIsMilestone = form.watch("isMilestone");
+  const watchedStartDate = form.watch("startDate");
+
+  useEffect(() => {
+    if (task.task_type === "VALIDATION_PROJECT" && watchedIsMilestone && watchedStartDate) {
+      if (!form.getValues("dueDate") || form.getValues("dueDate")?.getTime() !== watchedStartDate.getTime()) {
+        form.setValue("dueDate", watchedStartDate, { shouldValidate: true });
+      }
+    }
+  }, [watchedIsMilestone, watchedStartDate, task.task_type, form]);
+
+
+  const onSubmit = async (data: QuickEditFormData) => {
+    setIsSubmitting(true);
+    const updates: Partial<Task> = {
+      title: data.title,
+      startDate: data.startDate,
+      dueDate: data.dueDate,
+    };
+    if (task.task_type === "VALIDATION_PROJECT") {
+      updates.isMilestone = data.isMilestone;
+       if (data.isMilestone && data.startDate) {
+         updates.dueDate = data.startDate; // Milestone due date is same as start date
+       }
+    }
+    
+    try {
+      await onSave(task.id, updates);
+      onClose();
+    } catch (e) {
+      // Error is handled by onSave's caller (handleTaskUpdate)
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      <h4 className="font-medium text-sm leading-none">Edit: {task.title}</h4>
+      <div>
+        <Label htmlFor="quickEditTitle">Title</Label>
+        <Input id="quickEditTitle" {...form.register("title")} className="mt-1" />
+        {form.formState.errors.title && <p className="text-xs text-destructive mt-1">{form.formState.errors.title.message}</p>}
+      </div>
+
+      {task.task_type === "VALIDATION_PROJECT" && (
+        <div className="flex items-center space-x-2">
+          <Controller
+            name="isMilestone"
+            control={form.control}
+            render={({ field }) => (
+              <Checkbox
+                id="quickEditIsMilestone"
+                checked={field.value}
+                onCheckedChange={field.onChange}
+              />
+            )}
+          />
+          <Label htmlFor="quickEditIsMilestone" className="text-sm font-normal">
+            Is Milestone
+          </Label>
+        </div>
+      )}
+
+      <div>
+        <Label htmlFor="quickEditStartDate">Start Date</Label>
+        <Popover open={startDatePickerOpen} onOpenChange={setStartDatePickerOpen}>
+            <PopoverTrigger asChild>
+                <ShadcnButton
+                variant={"outline"}
+                className={cn(
+                    "w-full justify-start text-left font-normal mt-1",
+                    !form.watch("startDate") && "text-muted-foreground"
+                )}
+                >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {form.watch("startDate") ? format(form.watch("startDate")!, "PPP") : <span>Pick a date</span>}
+                </ShadcnButton>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0">
+                <Calendar
+                mode="single"
+                selected={form.watch("startDate")}
+                onSelect={(date) => {
+                  form.setValue("startDate", date, { shouldValidate: true });
+                  setStartDatePickerOpen(false);
+                }}
+                initialFocus
+                />
+            </PopoverContent>
+        </Popover>
+        {form.formState.errors.startDate && <p className="text-xs text-destructive mt-1">{form.formState.errors.startDate.message}</p>}
+      </div>
+
+      {!(task.task_type === "VALIDATION_PROJECT" && watchedIsMilestone) && (
+        <div>
+          <Label htmlFor="quickEditDueDate">Due Date</Label>
+            <Popover open={dueDatePickerOpen} onOpenChange={setDueDatePickerOpen}>
+                <PopoverTrigger asChild>
+                    <ShadcnButton
+                    variant={"outline"}
+                    className={cn(
+                        "w-full justify-start text-left font-normal mt-1",
+                        !form.watch("dueDate") && "text-muted-foreground"
+                    )}
+                    >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {form.watch("dueDate") ? format(form.watch("dueDate")!, "PPP") : <span>Pick a date</span>}
+                    </ShadcnButton>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                    <Calendar
+                    mode="single"
+                    selected={form.watch("dueDate")}
+                    onSelect={(date) => {
+                      form.setValue("dueDate", date, { shouldValidate: true });
+                      setDueDatePickerOpen(false);
+                    }}
+                    disabled={(date) =>
+                        form.watch("startDate") ? date < form.watch("startDate")! : false
+                    }
+                    initialFocus
+                    />
+                </PopoverContent>
+            </Popover>
+          {form.formState.errors.dueDate && <p className="text-xs text-destructive mt-1">{form.formState.errors.dueDate.message}</p>}
+        </div>
+      )}
+      {form.formState.errors.root && <p className="text-xs text-destructive mt-1">{form.formState.errors.root.message}</p>}
+
+      <div className="flex justify-end space-x-2 pt-2">
+        <ShadcnButton type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
+          <XCircle className="mr-2 h-4 w-4" /> Cancel
+        </ShadcnButton>
+        <ShadcnButton type="submit" disabled={isSubmitting}>
+          {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+          Save
+        </ShadcnButton>
+      </div>
+    </form>
+  );
+};
+
+
 export default GanttChart;
+
+// cn helper from ShadCN UI
+const buttonVariants = cva(
+  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        outline:
+          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default: "h-10 px-4 py-2",
+        sm: "h-9 rounded-md px-3",
+        lg: "h-11 rounded-md px-8",
+        icon: "h-10 w-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+);
 
