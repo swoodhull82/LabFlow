@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { Task, TaskStatus, TaskType } from '@/lib/types';
+import type { Task, TaskStatus, TaskType, Employee } from '@/lib/types'; // Added Employee
 import {
   addDays,
   differenceInDays,
@@ -20,12 +20,20 @@ import {
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
-import { getTasks, updateTask as updateTaskService, deleteTask as deleteTaskService } from "@/services/taskService";
+import { getTasks, updateTask as updateTaskService, deleteTask as deleteTaskService, getEmployees as getEmployeesService } from "@/services/taskService"; // Assuming getEmployees is in taskService or a new service
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, PlusCircle, CornerDownRight, Trash2 } from "lucide-react";
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, PlusCircle, CornerDownRight, Trash2, Save, CalendarIcon, XCircle } from "lucide-react";
 import { Button as ShadcnButton } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Popover, PopoverContent, PopoverTrigger, PopoverAnchor } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 import type PocketBase from "pocketbase";
 import Link from "next/link";
 import { useRouter } from 'next/navigation';
@@ -110,6 +118,26 @@ interface GanttChartProps {
   displayHeaderControls?: 'defaultTitle' | 'addValidationButton';
 }
 
+const quickEditFormSchema = z.object({
+  title: z.string().min(1, "Title is required."),
+  startDate: z.date().optional(),
+  dueDate: z.date().optional(),
+  isMilestone: z.boolean().optional(),
+}).refine(data => {
+    if (data.isMilestone && !data.startDate) {
+      return false; // Milestone requires a start date
+    }
+    if (data.startDate && data.dueDate && !data.isMilestone && data.startDate > data.dueDate) {
+        return false; // Start date must be before or same as due date for non-milestones
+    }
+    return true;
+}, {
+    message: "Start date must be valid. For milestones, date is required. For ranges, start must be <= due.",
+    path: ["startDate"], // Generic path, specific error handling can be done in UI if needed
+});
+type QuickEditFormData = z.infer<typeof quickEditFormSchema>;
+
+
 const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderControls = 'defaultTitle' }) => {
   const { pbClient } = useAuth();
   const { toast } = useToast();
@@ -129,6 +157,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+
+  const [quickEditTask, setQuickEditTask] = useState<Task | null>(null);
+  const [isQuickEditPopoverOpen, setIsQuickEditPopoverOpen] = useState(false);
 
 
   const fetchTimelineTasks = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
@@ -410,6 +441,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         if (taskToUpdate.task_type === "VALIDATION_PROJECT") {
             if (updates.hasOwnProperty('isMilestone')) {
                 payload.isMilestone = !!updates.isMilestone;
+                if (payload.isMilestone && payload.startDate && !payload.dueDate) {
+                    payload.dueDate = payload.startDate; 
+                }
             }
         } else { 
             payload.isMilestone = false; 
@@ -423,10 +457,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
         try {
             await updateTaskService(pbClient, taskId, payload);
-            toast({ title: "Task Updated", description: `Task "${taskToUpdate.title}" was successfully updated.` });
+            toast({ title: "Task Updated", description: `Task "${updates.title || taskToUpdate.title}" was successfully updated.` });
             if (pbClient) fetchTimelineTasks(pbClient); 
         } catch (err) {
-            toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${taskToUpdate.title}"`), variant: "destructive" });
+            toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${updates.title || taskToUpdate.title}"`), variant: "destructive" });
             if (pbClient) fetchTimelineTasks(pbClient); 
         }
     }, [pbClient, allTasks, toast, fetchTimelineTasks]);
@@ -497,10 +531,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'crosshair';
     }, [taskRenderDetailsMap]);
     
-    const handleTaskBarClick = useCallback((e: React.MouseEvent, task: Task) => {
-        // No action on click if quick edit is removed
-    }, []);
-
     const handleConfirmDeleteTask = useCallback(async () => {
         if (!taskToDelete || !pbClient) return;
         try {
@@ -600,6 +630,14 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         };
     }, [dragState, dependencyDrawState, dayCellWidth, taskRenderDetailsMap, handleTaskUpdate, allTasks, toast]);
 
+  const handlePopoverOpenChange = (isOpen: boolean, task: Task) => {
+    setIsQuickEditPopoverOpen(isOpen);
+    if (isOpen) {
+      setQuickEditTask(task);
+    } else {
+      setQuickEditTask(null);
+    }
+  };
 
   const handlePrevMonth = () => setViewStartDate(prev => subMonths(prev, 1));
   const handleNextMonth = () => setViewStartDate(prev => addMonths(prev, 1));
@@ -729,12 +767,28 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             {tasksToDisplay.length === 0 && !isLoading && renderNoTasksMessage()}
             {tasksToDisplay.map((task, taskIndex) => {
               const isStep = task.isValidationStep && task.parentProjectId && tasksToDisplay.some(t => t.id === task.parentProjectId);
+              const canQuickEdit = task.isValidationProject || task.isValidationStep;
              
+              const TaskTitleDisplay = (
+                <span
+                    className={cn(
+                        "font-medium truncate",
+                        isStep ? "pl-4" : "",
+                        canQuickEdit ? "cursor-pointer hover:underline" : ""
+                    )}
+                    title={task.title}
+                    >
+                    {isStep && <CornerDownRight className="inline-block h-3 w-3 mr-1 text-muted-foreground" />}
+                    {task.title}
+                </span>
+              );
+
               return (
                 <div
                   key={`${task.id}-leftpanel`}
                   className={cn(
-                    "grid grid-cols-[40px_1fr_70px_70px_60px_60px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150 cursor-default",
+                    "grid grid-cols-[40px_1fr_70px_70px_60px_60px] items-center gap-2 p-2 border-b border-border text-xs transition-opacity duration-150",
+                     !canQuickEdit && "cursor-default",
                     task.id === hoveredTaskId ? 'bg-primary/10 dark:bg-primary/20' : '',
                     (dragState && dragState.taskId !== task.id && dragState.type !== 'draw-dependency') ||
                     (dependencyDrawState && dependencyDrawState.sourceTaskId !== task.id) ||
@@ -745,16 +799,18 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                   onMouseLeave={() => setHoveredTaskId(null)}
                 >
                   <span className="text-center text-muted-foreground">{taskIndex + 1}</span>
-                  <span
-                        className={cn(
-                            "font-medium truncate",
-                            isStep ? "pl-4" : ""
-                        )}
-                        title={task.title}
-                        >
-                        {isStep && <CornerDownRight className="inline-block h-3 w-3 mr-1 text-muted-foreground" />}
-                        {task.title}
-                    </span>
+                  
+                  {canQuickEdit ? (
+                    <Popover open={isQuickEditPopoverOpen && quickEditTask?.id === task.id} onOpenChange={(isOpen) => handlePopoverOpenChange(isOpen, task)}>
+                        <PopoverTrigger asChild>{TaskTitleDisplay}</PopoverTrigger>
+                        <PopoverContent className="w-96 p-4" side="bottom" align="start">
+                           {quickEditTask && <QuickEditForm task={quickEditTask} onSave={handleTaskUpdate} onClose={() => setIsQuickEditPopoverOpen(false)} />}
+                        </PopoverContent>
+                    </Popover>
+                  ) : (
+                    TaskTitleDisplay
+                  )}
+
                   <span className="text-center text-[10px]">{format(task.startDate, 'ddMMMyy')}</span>
                   <span className="text-center text-[10px]">{format(task.dueDate, 'ddMMMyy')}</span>
                   <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
@@ -853,7 +909,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                         <TooltipTrigger asChild>
                           <div
                             onMouseDown={(e) => handleMouseDownOnTaskBar(e, task)}
-                            onClick={(e) => handleTaskBarClick(e, task)}
                             onMouseEnter={() => setHoveredTaskId(task.id)}
                             onMouseLeave={() => setHoveredTaskId(null)}
                             className={cn(
@@ -1024,6 +1079,172 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   );
 };
 
+interface QuickEditFormProps {
+  task: Task;
+  onSave: (taskId: string, updates: Partial<Task>) => Promise<void>;
+  onClose: () => void;
+}
+
+const QuickEditForm: React.FC<QuickEditFormProps> = ({ task, onSave, onClose }) => {
+  const form = useForm<QuickEditFormData>({
+    resolver: zodResolver(quickEditFormSchema),
+    defaultValues: {
+      title: task.title,
+      startDate: task.startDate ? new Date(task.startDate) : undefined,
+      dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+      isMilestone: task.task_type === "VALIDATION_PROJECT" ? !!task.isMilestone : false,
+    },
+  });
+
+  const { toast } = useToast();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [startDatePickerOpen, setStartDatePickerOpen] = useState(false);
+  const [dueDatePickerOpen, setDueDatePickerOpen] = useState(false);
+
+  const watchedIsMilestone = form.watch("isMilestone");
+  const watchedStartDate = form.watch("startDate");
+
+  useEffect(() => {
+    if (task.task_type === "VALIDATION_PROJECT" && watchedIsMilestone && watchedStartDate) {
+      if (!form.getValues("dueDate") || form.getValues("dueDate")?.getTime() !== watchedStartDate.getTime()) {
+        form.setValue("dueDate", watchedStartDate, { shouldValidate: true });
+      }
+    }
+  }, [watchedIsMilestone, watchedStartDate, task.task_type, form]);
+
+
+  const onSubmit = async (data: QuickEditFormData) => {
+    setIsSubmitting(true);
+    const updates: Partial<Task> = {
+      title: data.title,
+      startDate: data.startDate,
+      dueDate: data.dueDate,
+    };
+    if (task.task_type === "VALIDATION_PROJECT") {
+      updates.isMilestone = data.isMilestone;
+       if (data.isMilestone && data.startDate) {
+         updates.dueDate = data.startDate; // Milestone due date is same as start date
+       }
+    }
+    
+    try {
+      await onSave(task.id, updates);
+      onClose();
+    } catch (e) {
+      // Error is handled by onSave's caller (handleTaskUpdate)
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      <h4 className="font-medium text-sm leading-none">Edit: {task.title}</h4>
+      <div>
+        <Label htmlFor="quickEditTitle">Title</Label>
+        <Input id="quickEditTitle" {...form.register("title")} className="mt-1" />
+        {form.formState.errors.title && <p className="text-xs text-destructive mt-1">{form.formState.errors.title.message}</p>}
+      </div>
+
+      {task.task_type === "VALIDATION_PROJECT" && (
+        <div className="flex items-center space-x-2">
+          <Controller
+            name="isMilestone"
+            control={form.control}
+            render={({ field }) => (
+              <Checkbox
+                id="quickEditIsMilestone"
+                checked={field.value}
+                onCheckedChange={field.onChange}
+              />
+            )}
+          />
+          <Label htmlFor="quickEditIsMilestone" className="text-sm font-normal">
+            Is Milestone
+          </Label>
+        </div>
+      )}
+
+      <div>
+        <Label htmlFor="quickEditStartDate">Start Date</Label>
+        <Popover open={startDatePickerOpen} onOpenChange={setStartDatePickerOpen}>
+            <PopoverTrigger asChild>
+                <ShadcnButton
+                variant={"outline"}
+                className={cn(
+                    "w-full justify-start text-left font-normal mt-1",
+                    !form.watch("startDate") && "text-muted-foreground"
+                )}
+                >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {form.watch("startDate") ? format(form.watch("startDate")!, "PPP") : <span>Pick a date</span>}
+                </ShadcnButton>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0">
+                <Calendar
+                mode="single"
+                selected={form.watch("startDate")}
+                onSelect={(date) => {
+                  form.setValue("startDate", date, { shouldValidate: true });
+                  setStartDatePickerOpen(false);
+                }}
+                initialFocus
+                />
+            </PopoverContent>
+        </Popover>
+        {form.formState.errors.startDate && <p className="text-xs text-destructive mt-1">{form.formState.errors.startDate.message}</p>}
+      </div>
+
+      {!(task.task_type === "VALIDATION_PROJECT" && watchedIsMilestone) && (
+        <div>
+          <Label htmlFor="quickEditDueDate">Due Date</Label>
+            <Popover open={dueDatePickerOpen} onOpenChange={setDueDatePickerOpen}>
+                <PopoverTrigger asChild>
+                    <ShadcnButton
+                    variant={"outline"}
+                    className={cn(
+                        "w-full justify-start text-left font-normal mt-1",
+                        !form.watch("dueDate") && "text-muted-foreground"
+                    )}
+                    >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {form.watch("dueDate") ? format(form.watch("dueDate")!, "PPP") : <span>Pick a date</span>}
+                    </ShadcnButton>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                    <Calendar
+                    mode="single"
+                    selected={form.watch("dueDate")}
+                    onSelect={(date) => {
+                      form.setValue("dueDate", date, { shouldValidate: true });
+                      setDueDatePickerOpen(false);
+                    }}
+                    disabled={(date) =>
+                        form.watch("startDate") ? date < form.watch("startDate")! : false
+                    }
+                    initialFocus
+                    />
+                </PopoverContent>
+            </Popover>
+          {form.formState.errors.dueDate && <p className="text-xs text-destructive mt-1">{form.formState.errors.dueDate.message}</p>}
+        </div>
+      )}
+      {form.formState.errors.root && <p className="text-xs text-destructive mt-1">{form.formState.errors.root.message}</p>}
+
+      <div className="flex justify-end space-x-2 pt-2">
+        <ShadcnButton type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
+          <XCircle className="mr-2 h-4 w-4" /> Cancel
+        </ShadcnButton>
+        <ShadcnButton type="submit" disabled={isSubmitting}>
+          {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+          Save
+        </ShadcnButton>
+      </div>
+    </form>
+  );
+};
+
+
 export default GanttChart;
 
 // cn helper from ShadCN UI
@@ -1055,3 +1276,4 @@ const buttonVariants = cva(
     },
   }
 );
+
