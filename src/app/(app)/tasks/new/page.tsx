@@ -92,14 +92,10 @@ export default function NewTaskPage() {
 
   const availableTaskTypesToDisplay = useMemo(() => {
     if (defaultTypeFromQuery === "VALIDATION_PROJECT") {
-      // If defaultType is VALIDATION_PROJECT (e.g., from Validation page "Add Project" button)
       return TASK_TYPES.filter(t => t === "VALIDATION_PROJECT");
     } else if (defaultTypeFromQuery === "VALIDATION_STEP" && dependsOnValidationProjectQuery) {
-      // If defaultType is VALIDATION_STEP and it depends on a project (e.g., from Gantt "Add Step" button)
       return TASK_TYPES.filter(t => t === "VALIDATION_STEP");
     } else {
-      // For all other cases (general new task from /tasks/new, or other non-validation query params)
-      // Exclude validation-specific types
       return TASK_TYPES.filter(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP");
     }
   }, [defaultTypeFromQuery, dependsOnValidationProjectQuery]);
@@ -189,10 +185,10 @@ export default function NewTaskPage() {
     const controller = new AbortController();
     if (pbClient) {
       fetchAndSetEmployees(pbClient, controller.signal);
-      if (taskType !== "VALIDATION_STEP") { // Only fetch for general dependencies if not a VALIDATION_STEP
+      if (taskType !== "VALIDATION_STEP") { 
         fetchAllTasksForDependencySelection(pbClient, controller.signal);
       } else {
-        setIsLoadingTasksForSelection(false); // Not needed for VALIDATION_STEP
+        setIsLoadingTasksForSelection(false); 
         setAllTasksForSelection([]);
       }
     } else {
@@ -215,11 +211,10 @@ export default function NewTaskPage() {
       } else {
         setAvailableMethods([]);
       }
-      // Keep method if instrument subtype changes but current method is still valid for new subtype
       if (instrumentSubtype && MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype] && !MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype].includes(method || '')) {
         setMethod(undefined);
       }
-    } else { // SOP
+    } else { 
         setMethod(undefined);
         setAvailableMethods([]);
     }
@@ -239,13 +234,12 @@ export default function NewTaskPage() {
       }
     }
 
-
     if (taskType === "VALIDATION_PROJECT" && isMilestone && startDate) {
       setDueDate(startDate);
     } else if (taskType === "VALIDATION_PROJECT" && isMilestone && !startDate) {
       setDueDate(undefined);
     }
-  }, [taskType, instrumentSubtype, isMilestone, startDate, recurrence, defaultTypeFromQuery, dependsOnValidationProjectQuery, method]);
+  }, [taskType, instrumentSubtype, isMilestone, startDate, defaultTypeFromQuery, dependsOnValidationProjectQuery, method]);
 
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -309,7 +303,6 @@ export default function NewTaskPage() {
       return;
     }
 
-
     setIsSubmitting(true);
 
     const formData = new FormData();
@@ -342,14 +335,12 @@ export default function NewTaskPage() {
         formData.append("dependencies", JSON.stringify(selectedDependencies));
     }
 
-
     if (startDate) {
       formData.append("startDate", startDate.toISOString());
     }
     if (dueDate) {
         formData.append("dueDate", dueDate.toISOString());
     }
-
 
     if (assignedToText) {
       formData.append("assignedTo_text", assignedToText);
@@ -451,7 +442,6 @@ export default function NewTaskPage() {
     }
   }
 
-
   if (!pbClient && !isLoadingPrerequisites) {
     return (
       <div className="space-y-6 max-w-2xl mx-auto">
@@ -544,7 +534,6 @@ export default function NewTaskPage() {
                     value={instrumentSubtype} 
                     onValueChange={(value: string) => {
                       setInstrumentSubtype(value);
-                      // Reset method if new instrument doesn't have the old method
                       if (value && MDL_INSTRUMENTS_WITH_METHODS[value] && !MDL_INSTRUMENTS_WITH_METHODS[value].includes(method || '')) {
                         setMethod(undefined);
                       } else if (!value) {
@@ -665,7 +654,6 @@ export default function NewTaskPage() {
                 </PopoverContent>
               </Popover>
             </div>
-
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
              {taskType !== "VALIDATION_PROJECT" && taskType !== "VALIDATION_STEP" && (
