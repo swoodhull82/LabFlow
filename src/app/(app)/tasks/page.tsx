@@ -741,10 +741,10 @@ export default function TasksPage() {
                     <TableCell>
                       {task.task_type.replace(/_/g, ' ')}
                       {(task.task_type === "MDL" || task.task_type === "SOP") && task.instrument_subtype && (
-                        <span className="block text-xs text-muted-foreground">Subtype: {task.instrument_subtype}</span>
+                        <span className="block text-xs text-muted-foreground">{task.instrument_subtype}</span>
                       )}
                       {task.task_type === "MDL" && task.method && (
-                        <span className="block text-xs text-muted-foreground">Method: {task.method}</span>
+                        <span className="block text-xs text-muted-foreground">{task.method}</span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -1178,3 +1178,4 @@ export default function TasksPage() {
     </div>
   );
 }
+
