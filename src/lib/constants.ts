@@ -12,10 +12,10 @@ export const TASK_TYPES: readonly TaskType[] = ["MDL", "SOP", "IA", "iDOC", "oDO
 export const MDL_INSTRUMENTS_WITH_METHODS: Record<string, readonly string[]> = {
   "Leeman Hydra AA": ["Mercury by EPA 245.1", "Mercury by EPA 7471B & 7470A"],
   "Hydra II": ["Mercury by EPA 245.1", "Mercury by EPA 7471B & 7470A"],
-  "PE Optima 5300V": [],
-  "PE Optima 8300": [],
-  "iCAP 7400 DUO": [],
-  "PE Optima 7300V": [],
+  "PE Optima 5300V": ["Metals by EPA 200.7"],
+  "PE Optima 8300": ["Metals by EPA 200.7"],
+  "iCAP 7400 DUO": ["Metals by EPA 200.7"],
+  "PE Optima 7300V": ["Metals by EPA 200.7"],
   "PE Elan 9000": [],
   "Agilent 7900": [],
   "PE NexION 300X": [],
@@ -47,3 +47,4 @@ const generateSopSubtypes = (): string[] => {
 };
 
 export const SOP_SUBTYPES: readonly string[] = generateSopSubtypes();
+
