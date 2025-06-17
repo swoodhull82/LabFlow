@@ -25,11 +25,12 @@ const pbRecordToTask = (record: any): Task => {
     dependencies: Array.isArray(record.dependencies) ? record.dependencies : (typeof record.dependencies === 'string' && record.dependencies.startsWith('[') ? JSON.parse(record.dependencies) : []), 
     isMilestone: typeof record.isMilestone === 'boolean' ? record.isMilestone : false,
     instrument_subtype: record.instrument_subtype || undefined,
+    method: record.method || undefined, // Added method mapping
   } as Task;
 };
 
-const DEFAULT_TASK_LIST_FIELDS = 'id,title,task_type,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies,instrument_subtype';
-const DEFAULT_TASK_DETAIL_FIELDS = 'id,title,task_type,description,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies,attachments,instrument_subtype';
+const DEFAULT_TASK_LIST_FIELDS = 'id,title,task_type,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies,instrument_subtype,method';
+const DEFAULT_TASK_DETAIL_FIELDS = 'id,title,task_type,description,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies,attachments,instrument_subtype,method';
 
 
 export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<Task[]> => {

@@ -38,6 +38,7 @@ export interface Task {
   isMilestone?: boolean; 
   dependencies?: string[]; 
   instrument_subtype?: string; 
+  method?: string; // Added new method field
 }
 
 export interface CalendarEvent {

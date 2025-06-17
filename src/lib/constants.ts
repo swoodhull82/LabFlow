@@ -8,7 +8,22 @@ export const TASK_RECURRENCES: TaskRecurrence[] = ["None", "Daily", "Weekly", "M
 export const APP_NAME = "LabFlow";
 
 export const TASK_TYPES: readonly TaskType[] = ["MDL", "SOP", "IA", "iDOC", "oDOC", "VALIDATION_PROJECT", "VALIDATION_STEP"];
-export const INSTRUMENT_SUBTYPES: readonly string[] = ["nexiON", "agilent 7900", "DMA-80 Mercury Analyzer"];
+
+export const MDL_INSTRUMENTS_WITH_METHODS: Record<string, readonly string[]> = {
+  "Hydra AA": ["Mercury by EPA 245.1", "Mercury by EPA 7471B & 7470A"],
+  "Hydra II": ["Mercury by EPA 245.1", "Mercury by EPA 7471B & 7470A"],
+  "PE Optima 5300V": ["Metals by EPA 200.7"],
+  "PE Optima 8300": ["Metals by EPA 200.7"],
+  "iCAP 7400 DUO": ["Metals by EPA 200.7"],
+  "PE Optima 7300V": ["Metals by EPA 200.7"],
+  "PE Elan 9000": ["Metals by EPA 200.8"],
+  "Agilent 7900": ["Metals by EPA 200.8"],
+  "PE NexION 300X": [],
+  "PE NexION 300D": [],
+};
+
+export const INSTRUMENT_SUBTYPES: readonly string[] = Object.keys(MDL_INSTRUMENTS_WITH_METHODS);
+
 
 const generateSopSubtypes = (): string[] => {
   const subtypes: string[] = [];
@@ -32,3 +47,4 @@ const generateSopSubtypes = (): string[] => {
 };
 
 export const SOP_SUBTYPES: readonly string[] = generateSopSubtypes();
+
