@@ -401,6 +401,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
   const dependencyLines = useMemo(() => {
     const lines: { id: string, d: string }[] = [];
+    const yBarOffset = (ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2) / 4; // 1/4 of bar height
+
     tasksToDisplay.forEach((dependentTask) => {
         if (!dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
         const dependentDetails = taskRenderDetailsMap.get(dependentTask.id);
@@ -411,19 +413,42 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             if (!predecessorDetails) return;
 
             const fromX = predecessorDetails.isMilestoneRender ? predecessorDetails.barStartX + MILESTONE_SIZE / 2 : predecessorDetails.barEndX;
-            const fromY = predecessorDetails.barCenterY;
             const toX = dependentDetails.isMilestoneRender ? dependentDetails.barStartX + MILESTONE_SIZE / 2 : dependentDetails.barStartX;
-            const toY = dependentDetails.barCenterY;
+            
+            let pathFromY = predecessorDetails.barCenterY;
+            if (!predecessorDetails.isMilestoneRender) {
+              pathFromY += yBarOffset; // Exit from bottom-half of bar
+            }
 
-            if (fromX >= toX && fromY === toY) return; 
+            let pathToY = dependentDetails.barCenterY;
+            if (!dependentDetails.isMilestoneRender) {
+              pathToY -= yBarOffset; // Enter top-half of bar
+            }
 
+            // If both are non-milestones and on the same row, ensure vertical segment has distinct Ys
+            if (!predecessorDetails.isMilestoneRender && 
+                !dependentDetails.isMilestoneRender && 
+                predecessorDetails.barCenterY === dependentDetails.barCenterY) {
+                  pathFromY = predecessorDetails.barCenterY + yBarOffset;
+                  pathToY = dependentDetails.barCenterY - yBarOffset;
+            }
+
+
+            if (fromX >= toX && pathFromY === pathToY && predecessorDetails.barCenterY === dependentDetails.barCenterY) { 
+              // Avoid straight backward line on same visual level if not handled by turnX
+              // This case should largely be handled by turnX, but as a fallback:
+              if (!predecessorDetails.isMilestoneRender) pathFromY = predecessorDetails.barCenterY + yBarOffset;
+              if (!dependentDetails.isMilestoneRender) pathToY = dependentDetails.barCenterY - yBarOffset;
+            }
+            
             const turnX = Math.max(fromX, toX) + DEPENDENCY_LINE_OFFSET;
-            const pathD = `M ${fromX} ${fromY} L ${turnX} ${fromY} L ${turnX} ${toY} L ${toX} ${toY}`;
+            const pathD = `M ${fromX} ${pathFromY} L ${turnX} ${pathFromY} L ${turnX} ${pathToY} L ${toX} ${pathToY}`;
             lines.push({ id: `dep-${predecessorId}-to-${dependentTask.id}-${depIndex}`, d: pathD });
         });
     });
     return lines;
   }, [tasksToDisplay, taskRenderDetailsMap]);
+
 
     const handleTaskUpdate = useCallback(async (
         taskId: string,
@@ -1276,5 +1301,6 @@ const buttonVariants = cva(
     },
   }
 );
+
 
 
