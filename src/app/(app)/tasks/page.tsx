@@ -198,7 +198,7 @@ const taskEditFormSchema = z.object({
         path: ["isMilestone"],
       });
     }
-     if (!data.recurrence) {
+     if (!data.recurrence) { // Recurrence is mandatory for non-validation tasks
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Recurrence is required for this task type.",
@@ -723,8 +723,7 @@ export default function TasksPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Task Name / Type</TableHead>
-                  <TableHead>Details</TableHead>
+                  <TableHead>Name / Details</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Priority</TableHead>
                   <TableHead>Due Date</TableHead>
@@ -735,20 +734,20 @@ export default function TasksPage() {
               <TableBody>
                 {tasks.map((task) => (
                   <TableRow key={task.id} className="hover:bg-muted/50 transition-colors">
-                    <TableCell className="font-medium flex items-center">
-                       {task.title.replace(/_/g, ' ')}
-                    </TableCell>
                     <TableCell>
+                      <div className="font-medium">{task.title.replace(/_/g, ' ')}</div>
                       {(task.task_type === "MDL" || task.task_type === "SOP") && task.instrument_subtype && (
-                        <span className="block text-xs">{task.instrument_subtype}</span>
+                        <div className="text-xs text-muted-foreground">{task.instrument_subtype}</div>
                       )}
                       {task.task_type === "MDL" && task.method && (
-                        <span className="block text-xs text-muted-foreground">{task.method}</span>
+                        <div className="text-xs text-muted-foreground">{task.method}</div>
                       )}
                       {task.description && task.task_type !== "MDL" && task.task_type !== "SOP" && (
-                        <span className="block text-xs text-muted-foreground truncate max-w-xs" title={task.description}>{task.description}</span>
+                        <div className="text-xs text-muted-foreground truncate max-w-xs" title={task.description}>{task.description}</div>
                       )}
-                       {(!(task.task_type === "MDL" || task.task_type === "SOP") || !task.instrument_subtype) && !task.description && "-"}
+                       {(!(task.task_type === "MDL" || task.task_type === "SOP") || !task.instrument_subtype) && !task.description && !task.method && (
+                         <div className="text-xs text-muted-foreground">-</div>
+                       )}
                     </TableCell>
                     <TableCell>
                       <Badge variant={getStatusBadgeVariant(task.status)}>{task.status}</Badge>
@@ -806,7 +805,7 @@ export default function TasksPage() {
         <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleEditDialogClose(); else setIsEditDialogOpen(true); }}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle className="font-headline">Edit Task: {editingTask.task_type.replace(/_/g, ' ')}</DialogTitle>
+              <DialogTitle className="font-headline">Edit Task: {editingTask.title.replace(/_/g, ' ')}</DialogTitle>
               <DialogDescription>Make changes to the task details below.</DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -1173,4 +1172,3 @@ export default function TasksPage() {
     </div>
   );
 }
-
