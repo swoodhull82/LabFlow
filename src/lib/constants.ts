@@ -10,7 +10,7 @@ export const APP_NAME = "LabFlow";
 export const TASK_TYPES: readonly TaskType[] = ["MDL", "SOP", "IA", "iDOC", "oDOC", "VALIDATION_PROJECT", "VALIDATION_STEP"];
 
 export const MDL_INSTRUMENTS_WITH_METHODS: Record<string, readonly string[]> = {
-  "Leeman Hydra AA": ["Mercury by EPA 245.1", "Mercury by EPA 7471B & 7470A"],
+  "Hydra AA": ["Mercury by EPA 245.1", "Mercury by EPA 7471B & 7470A"],
   "Hydra II": ["Mercury by EPA 245.1", "Mercury by EPA 7471B & 7470A"],
   "PE Optima 5300V": ["Metals by EPA 200.7"],
   "PE Optima 8300": ["Metals by EPA 200.7"],
