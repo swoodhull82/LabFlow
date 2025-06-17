@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle, Link as LinkIcon, Milestone } from "lucide-react";
 import { format } from "date-fns";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -89,6 +89,21 @@ export default function NewTaskPage() {
   const [isDependenciesPopoverOpen, setIsDependenciesPopoverOpen] = useState(false);
   
   const [availableMethods, setAvailableMethods] = useState<readonly string[]>([]);
+
+  const availableTaskTypesToDisplay = useMemo(() => {
+    if (defaultTypeFromQuery === "VALIDATION_PROJECT") {
+      // If defaultType is VALIDATION_PROJECT (e.g., from Validation page "Add Project" button)
+      return TASK_TYPES.filter(t => t === "VALIDATION_PROJECT");
+    } else if (defaultTypeFromQuery === "VALIDATION_STEP" && dependsOnValidationProjectQuery) {
+      // If defaultType is VALIDATION_STEP and it depends on a project (e.g., from Gantt "Add Step" button)
+      return TASK_TYPES.filter(t => t === "VALIDATION_STEP");
+    } else {
+      // For all other cases (general new task from /tasks/new, or other non-validation query params)
+      // Exclude validation-specific types
+      return TASK_TYPES.filter(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP");
+    }
+  }, [defaultTypeFromQuery, dependsOnValidationProjectQuery]);
+
 
   useEffect(() => {
     if (defaultTypeFromQuery) {
@@ -404,12 +419,6 @@ export default function NewTaskPage() {
   
   const isLoadingPrerequisites = isLoadingEmployees || (isLoadingTasksForSelection && taskType !== "VALIDATION_STEP");
   
-  const availableTaskTypes = (defaultTypeFromQuery && (defaultTypeFromQuery === "VALIDATION_PROJECT" || defaultTypeFromQuery === "VALIDATION_STEP") && dependsOnValidationProjectQuery) 
-    ? TASK_TYPES.filter(t => t === defaultTypeFromQuery) 
-    : defaultTypeFromQuery === "VALIDATION_PROJECT" 
-      ? TASK_TYPES.filter(t => t === "VALIDATION_PROJECT") 
-      : TASK_TYPES;
-
 
   const handleDateSelect = (selected: Date | DateRange | undefined) => {
     if (taskType === "VALIDATION_PROJECT" && isMilestone) {
@@ -498,13 +507,13 @@ export default function NewTaskPage() {
                     setRecurrence("None");
                   }
                 }}
-                disabled={!!(defaultTypeFromQuery && (defaultTypeFromQuery === "VALIDATION_PROJECT" || defaultTypeFromQuery === "VALIDATION_STEP") && dependsOnValidationProjectQuery)}
+                disabled={defaultTypeFromQuery === "VALIDATION_PROJECT" || (defaultTypeFromQuery === "VALIDATION_STEP" && !!dependsOnValidationProjectQuery)}
               >
                 <SelectTrigger id="task_type">
                   <SelectValue placeholder="Select task type" />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableTaskTypes.map(tt => (
+                  {availableTaskTypesToDisplay.map(tt => (
                     <SelectItem key={tt} value={tt}>{tt.replace(/_/g, ' ')}</SelectItem>
                   ))}
                 </SelectContent>
@@ -791,3 +800,4 @@ export default function NewTaskPage() {
     </div>
   );
 }
+
