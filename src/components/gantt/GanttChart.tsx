@@ -417,7 +417,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
             if (fromX >= toX && fromY === toY) return; 
 
-            const turnX = fromX + DEPENDENCY_LINE_OFFSET;
+            const turnX = Math.max(fromX, toX) + DEPENDENCY_LINE_OFFSET;
             const pathD = `M ${fromX} ${fromY} L ${turnX} ${fromY} L ${turnX} ${toY} L ${toX} ${toY}`;
             lines.push({ id: `dep-${predecessorId}-to-${dependentTask.id}-${depIndex}`, d: pathD });
         });
@@ -1276,4 +1276,5 @@ const buttonVariants = cva(
     },
   }
 );
+
 
