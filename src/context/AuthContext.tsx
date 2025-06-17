@@ -150,26 +150,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       let errorMessage = "An unexpected error occurred during login. Please try again.";
       
       if (error && typeof error === 'object') {
-        if ('status' in error && error.status === 0) {
+        const status = 'status' in error ? error.status : undefined;
+
+        if (status === 0) {
           errorMessage = "Failed to connect to the LabFlow server. Please check your internet connection or try again later if the server is temporarily unavailable.";
-        } else if ('status' in error && (error.status === 400 || error.status === 401 || error.status === 403)) {
-          if (error.data?.data && Object.keys(error.data.data).length > 0) {
-            const fieldErrors = Object.values(error.data.data).map((err: any) => err.message).join(" ");
-            errorMessage = `Login failed: ${fieldErrors}`;
-          } else if (error.data?.message) {
-            errorMessage = error.data.message;
-          } else {
-            errorMessage = "Invalid email or password. Please try again.";
-          }
+        } else if (status === 400 || status === 401 || status === 403) {
+            // This block handles authentication failures or authorization issues
+            if (error.data?.data && Object.keys(error.data.data).length > 0) {
+                // This typically means validation errors from PocketBase, e.g., "email: is not a valid email address."
+                const fieldErrors = Object.values(error.data.data).map((err: any) => err.message).join(" ");
+                errorMessage = `Login failed: ${fieldErrors} (Status: ${status})`;
+            } else if (error.data?.message && typeof error.data.message === 'string' && error.data.message.trim() !== "") {
+                // This is the most common path for "Failed to authenticate." or other specific PB messages
+                errorMessage = `${error.data.message.trim()} (Status: ${status})`;
+            } else {
+                // Fallback for 400/401/403 if no specific message from PB, or if message is empty
+                errorMessage = `Authentication error. Please check your credentials and try again. (Status: ${status})`;
+            }
         } else if (error.data?.data && Object.keys(error.data.data).length > 0) {
            const fieldErrors = Object.values(error.data.data).map((err: any) => err.message).join(" ");
-           errorMessage = `Login error: ${fieldErrors}`;
+           errorMessage = `Login error: ${fieldErrors}${status ? ` (Status: ${status})` : ''}`;
         } else if (error.message && typeof error.message === 'string' && !error.message.startsWith("PocketBase_ClientResponseError")) {
           errorMessage = error.message;
         } else if (error.originalError?.message && typeof error.originalError.message === 'string') {
           errorMessage = error.originalError.message;
         } else if (error.message && typeof error.message === 'string') {
-             errorMessage = `Login failed: ${error.message}. Please ensure the server is reachable.`;
+             errorMessage = `Login failed: ${error.message}${status ? ` (Status: ${status})` : ''}. Please ensure the server is reachable.`;
         }
       } else if (typeof error === 'string') {
         errorMessage = error;
