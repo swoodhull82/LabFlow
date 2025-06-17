@@ -32,7 +32,7 @@ import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { deleteTask, getTasks, updateTask } from "@/services/taskService";
-import { getEmployees } from "@/services/employeeService"; // Removed unused import
+import { getEmployees } from "@/services/employeeService"; 
 import { useToast } from "@/hooks/use-toast";
 import type PocketBase from "pocketbase";
 import { useForm } from "react-hook-form";
@@ -724,7 +724,7 @@ export default function TasksPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Task Name</TableHead>
-                  <TableHead>Type / Subtype / Method</TableHead>
+                  <TableHead>Type / Details</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Priority</TableHead>
                   <TableHead>Due Date</TableHead>
@@ -753,7 +753,12 @@ export default function TasksPage() {
                     <TableCell>
                       <Badge variant={getPriorityBadgeVariant(task.priority)}>{task.priority}</Badge>
                     </TableCell>
-                    <TableCell>{task.dueDate ? format(new Date(task.dueDate), "MMM dd, yyyy") : "-"}</TableCell>
+                    <TableCell>
+                      {task.dueDate ? format(new Date(task.dueDate), "MMM dd, yyyy") : "-"}
+                      {task.recurrence && task.recurrence !== "None" && (
+                        <span className="block text-xs text-muted-foreground">Repeats: {task.recurrence}</span>
+                      )}
+                    </TableCell>
                     <TableCell>{task.assignedTo_text || "-"}</TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
