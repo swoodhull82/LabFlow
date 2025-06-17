@@ -125,7 +125,6 @@ const getDetailedErrorMessage = (error: any, context: string = "tasks"): string 
 };
 
 const taskEditFormSchema = z.object({
-  // title: z.string().min(1, { message: "Task Name is required."}), // Title removed as it's derived from task_type
   task_type: z.enum(TASK_TYPES as [TaskType, ...TaskType[]], { errorMap: () => ({ message: "Please select a valid task type."}) }),
   instrument_subtype: z.string().optional(),
   method: z.string().optional(),
@@ -197,6 +196,13 @@ const taskEditFormSchema = z.object({
         code: z.ZodIssueCode.custom,
         message: "Milestones are only applicable to 'VALIDATION_PROJECT' tasks.",
         path: ["isMilestone"],
+      });
+    }
+     if (!data.recurrence) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Recurrence is required for this task type.",
+        path: ["recurrence"],
       });
     }
   }
@@ -482,7 +488,6 @@ export default function TasksPage() {
   useEffect(() => {
     if (editingTask) {
       form.reset({
-        // title: editingTask.title, // Title removed
         task_type: editingTask.task_type,
         instrument_subtype: editingTask.instrument_subtype || undefined,
         method: editingTask.method || undefined,
@@ -565,7 +570,7 @@ export default function TasksPage() {
     setIsSubmittingEdit(true);
 
     const payload: Partial<Task> & { userId: string } = {
-      title: data.task_type, // Title is now the task_type
+      title: data.task_type, 
       task_type: data.task_type, 
       instrument_subtype: (data.task_type === "MDL" || data.task_type === "SOP") ? data.instrument_subtype : undefined,
       method: (data.task_type === "MDL" && data.instrument_subtype && MDL_INSTRUMENTS_WITH_METHODS[data.instrument_subtype]?.length > 0) ? data.method : undefined,
@@ -591,8 +596,6 @@ export default function TasksPage() {
       let detailedMessage = getDetailedErrorMessage(err);
       if (err.data?.data?.instrument_subtype?.message) {
         detailedMessage = `Instrument Subtype: ${err.data.data.instrument_subtype.message}`;
-      } else if (err.data?.data?.title?.message) {
-         detailedMessage = `Title: ${err.data.data.title.message}`;
       } else if (err.data?.data?.method?.message) {
         detailedMessage = `Method: ${err.data.data.method.message}`;
       }
@@ -740,7 +743,7 @@ export default function TasksPage() {
                         <span className="block text-xs">{task.instrument_subtype}</span>
                       )}
                       {task.task_type === "MDL" && task.method && (
-                        <span className="block text-xs">{task.method}</span>
+                        <span className="block text-xs text-muted-foreground">{task.method}</span>
                       )}
                       {task.description && task.task_type !== "MDL" && task.task_type !== "SOP" && (
                         <span className="block text-xs text-muted-foreground truncate max-w-xs" title={task.description}>{task.description}</span>
@@ -803,7 +806,7 @@ export default function TasksPage() {
         <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleEditDialogClose(); else setIsEditDialogOpen(true); }}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle className="font-headline">Edit Task: {editingTask.title.replace(/_/g, ' ')}</DialogTitle>
+              <DialogTitle className="font-headline">Edit Task: {editingTask.task_type.replace(/_/g, ' ')}</DialogTitle>
               <DialogDescription>Make changes to the task details below.</DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -825,7 +828,7 @@ export default function TasksPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {TASK_TYPES.map(tt => (
+                          {TASK_TYPES.filter(t => t !== "VALIDATION_PROJECT" && t!== "VALIDATION_STEP").map(tt => (
                             <SelectItem key={tt} value={tt}>
                               {tt.replace(/_/g, ' ')}
                             </SelectItem>
@@ -836,7 +839,6 @@ export default function TasksPage() {
                     </FormItem>
                   )}
                 />
-                {/* Removed Task Name Input field from here */}
 
                 {watchedTaskType === "MDL" && (
                    <>
