@@ -270,7 +270,6 @@ export default function TasksPage() {
           form.setValue("instrument_subtype", undefined, { shouldValidate: true });
           form.setValue("method", undefined, {shouldValidate: true});
         } else if (value.task_type === "MDL") {
-           // If instrument_subtype is already set, check if its methods include the current method
            const currentInstrument = form.getValues("instrument_subtype");
            const currentMethod = form.getValues("method");
            if (currentInstrument && MDL_INSTRUMENTS_WITH_METHODS[currentInstrument] && !MDL_INSTRUMENTS_WITH_METHODS[currentInstrument].includes(currentMethod || '')) {
@@ -311,7 +310,7 @@ export default function TasksPage() {
       }
     });
     return () => subscription.unsubscribe();
-  }, [form]);
+  }, [form, editingTask]);
 
 
   const fetchTasksCallback = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
@@ -340,7 +339,6 @@ export default function TasksPage() {
     } else if (filterStatus === 'complete') {
       pbFilter += ' && status = "Done"';
     }
-    // For 'all', no additional status filter is needed beyond the task_type filter.
 
     try {
       const fetchedTasks = await getTasks(pb, { 
@@ -536,7 +534,7 @@ export default function TasksPage() {
     try {
       await deleteTask(pbClient, taskId);
       toast({ title: "Success", description: "Task deleted successfully." });
-      if (pbClient) fetchTasksCallback(pbClient); // Refetch to apply current filters
+      if (pbClient) fetchTasksCallback(pbClient); 
     } catch (err) {
       console.warn("Error deleting task:", err); 
       setTasks(originalTasks);
@@ -567,6 +565,17 @@ export default function TasksPage() {
     }
     setIsSubmittingEdit(true);
 
+    let recurrenceForPayload: TaskRecurrence = "None";
+    if (data.task_type !== "VALIDATION_PROJECT" && data.task_type !== "VALIDATION_STEP") {
+        if (data.recurrence && TASK_RECURRENCES.includes(data.recurrence as TaskRecurrence)) {
+            recurrenceForPayload = data.recurrence as TaskRecurrence;
+        } else {
+            console.warn(`Invalid or missing recurrence value '${data.recurrence}' for non-validation task ID ${editingTask.id}. Defaulting to 'None'. Zod validation should have caught this.`);
+            recurrenceForPayload = "None"; // Fallback, though Zod should prevent this state
+        }
+    }
+    // For VALIDATION_PROJECT and VALIDATION_STEP, recurrence is always "None", handled by schema or initial value.
+
     const payload: Partial<Task> & { userId: string } = {
       title: data.title,
       task_type: data.task_type, 
@@ -577,7 +586,7 @@ export default function TasksPage() {
       priority: data.priority,
       startDate: data.startDate,
       dueDate: (data.task_type === "VALIDATION_PROJECT" && data.isMilestone && data.startDate) ? data.startDate : data.dueDate,
-      recurrence: (data.task_type === "VALIDATION_PROJECT" || data.task_type === "VALIDATION_STEP") ? "None" : data.recurrence!,
+      recurrence: recurrenceForPayload,
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
       isMilestone: data.task_type === "VALIDATION_PROJECT" ? data.isMilestone : false, 
       dependencies: data.task_type === "VALIDATION_STEP" ? editingTask.dependencies : (data.dependencies || []), 
