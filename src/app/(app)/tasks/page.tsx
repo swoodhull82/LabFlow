@@ -134,7 +134,7 @@ const taskEditFormSchema = z.object({
   priority: z.string().min(1, "Priority is required.") as z.ZodType<TaskPriority>,
   startDate: z.date().optional(),
   dueDate: z.date().optional(),
-  recurrence: z.enum(TASK_RECURRENCES as [TaskRecurrence, ...TaskRecurrence[]]).optional(),
+  recurrence: z.enum(TASK_RECURRENCES as [TaskRecurrence, ...TaskRecurrence[]]), // No longer optional
   assignedTo_text: z.string().optional(),
   dependencies: z.array(z.string()).optional(),
   isMilestone: z.boolean().optional(),
@@ -169,6 +169,13 @@ const taskEditFormSchema = z.object({
         path: ["startDate"],
       });
     }
+     if (data.recurrence !== "None") {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Recurrence must be 'None' for Validation Projects.",
+            path: ["recurrence"],
+        });
+    }
   } else if (data.task_type === "VALIDATION_STEP") {
     if (data.isMilestone === true) {
          ctx.addIssue({
@@ -180,11 +187,11 @@ const taskEditFormSchema = z.object({
     if (data.recurrence && data.recurrence !== "None") {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "Recurrence is not applicable to Validation Step tasks.",
+            message: "Recurrence must be 'None' for Validation Step tasks.",
             path: ["recurrence"],
         });
     }
-  } else {
+  } else { // For non-validation tasks
     if (data.isMilestone) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -192,13 +199,8 @@ const taskEditFormSchema = z.object({
         path: ["isMilestone"],
       });
     }
-    if (!data.recurrence) { // Recurrence is now optional in base, so check if it's defined for non-validation
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Recurrence is required and must be a valid option for this task type.",
-        path: ["recurrence"],
-      });
-    }
+    // Recurrence is now always present due to z.enum, so no need to check for its existence here for non-validation tasks.
+    // z.enum itself validates it's one of TASK_RECURRENCES.
   }
 
   if (!(data.task_type === "VALIDATION_PROJECT" && data.isMilestone)) {
@@ -279,17 +281,23 @@ export default function TasksPage() {
             form.setValue("method", undefined, {shouldValidate: true});
         }
 
-        if (value.task_type === "VALIDATION_PROJECT") {
-           form.setValue("recurrence", "None", { shouldValidate: true });
-        } else if (value.task_type === "VALIDATION_STEP") {
-           form.setValue("isMilestone", false, { shouldValidate: true });
+        if (value.task_type === "VALIDATION_PROJECT" || value.task_type === "VALIDATION_STEP") {
            form.setValue("recurrence", "None", { shouldValidate: true });
         } else {
-           form.setValue("isMilestone", false, { shouldValidate: true });
-           if (!form.getValues("recurrence")) {
-            form.setValue("recurrence", "None", { shouldValidate: true });
-          }
+           // Ensure recurrence is not "None" if previously "None" from a validation type
+           // Only set if current value is "None" and it shouldn't be (e.g. switching from validation to non-validation)
+           // This might need careful handling if task type changes are allowed for existing tasks.
+           // For now, task_type is disabled in edit, so this branch is less critical for edit.
+           if (form.getValues("recurrence") === "None" && !(editingTask && editingTask.recurrence === "None" && editingTask.task_type !== "VALIDATION_PROJECT" && editingTask.task_type !== "VALIDATION_STEP" )) {
+             // form.setValue("recurrence", TASK_RECURRENCES.find(r => r !== "None") || "Daily", { shouldValidate: true });
+           }
         }
+         if (value.task_type === "VALIDATION_STEP") {
+           form.setValue("isMilestone", false, { shouldValidate: true });
+        } else if (value.task_type !== "VALIDATION_PROJECT") {
+            form.setValue("isMilestone", false, { shouldValidate: true });
+        }
+
       }
       if (name === "instrument_subtype" && form.getValues("task_type") === "MDL") {
         const currentMethod = form.getValues("method");
@@ -310,7 +318,7 @@ export default function TasksPage() {
       }
     });
     return () => subscription.unsubscribe();
-  }, [form]);
+  }, [form, editingTask]);
 
 
   const fetchTasksCallback = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
@@ -514,15 +522,16 @@ export default function TasksPage() {
     setTasks(optimisticUpdatedTasks);
 
     try {
-      await updateTask(pbClient, taskId, { status: newStatus });
-      if (pbClient) fetchTasksCallback(pbClient);
+      const updatedTaskRecord = await updateTask(pbClient, taskId, { status: newStatus });
+      setTasks(prevTasks => prevTasks.map(t => t.id === updatedTaskRecord.id ? updatedTaskRecord : t));
+      // if (pbClient) fetchTasksCallback(pbClient); // Replaced with optimistic update then specific record update
       toast({ title: "Success", description: `Task marked as ${newStatus}.` });
     } catch (err) {
       console.warn("Error updating task status:", err);
       setTasks(currentTasks);
       toast({ title: "Error", description: `Failed to update task status: ${getDetailedErrorMessage(err as any)}`, variant: "destructive" });
     }
-  }, [pbClient, toast, tasks, fetchTasksCallback]);
+  }, [pbClient, toast, tasks]); // Removed fetchTasksCallback from deps here
 
   const handleDeleteTask = useCallback(async (taskId: string) => {
     if (!pbClient) {
@@ -534,13 +543,14 @@ export default function TasksPage() {
     try {
       await deleteTask(pbClient, taskId);
       toast({ title: "Success", description: "Task deleted successfully." });
-      if (pbClient) fetchTasksCallback(pbClient);
+      // No explicit re-fetch here, relying on the optimistic removal.
+      // If a full list refresh is desired after delete, add: if (pbClient) fetchTasksCallback(pbClient);
     } catch (err) {
       console.warn("Error deleting task:", err);
       setTasks(originalTasks);
       toast({ title: "Error", description: getDetailedErrorMessage(err as any), variant: "destructive" });
     }
-  }, [pbClient, toast, tasks, fetchTasksCallback]);
+  }, [pbClient, toast, tasks]); // Removed fetchTasksCallback
 
   const handleEditClick = useCallback((task: Task) => {
     setEditingTask(task);
@@ -567,7 +577,7 @@ export default function TasksPage() {
 
     const payload: Partial<Task> & { userId: string } = {
       title: data.title,
-      task_type: data.task_type,
+      task_type: data.task_type, // This is disabled in the form, so it uses the original task's type
       instrument_subtype: (data.task_type === "MDL" || data.task_type === "SOP") ? data.instrument_subtype : undefined,
       method: (data.task_type === "MDL" && data.instrument_subtype && MDL_INSTRUMENTS_WITH_METHODS[data.instrument_subtype]?.length > 0) ? data.method : undefined,
       description: data.description,
@@ -575,9 +585,7 @@ export default function TasksPage() {
       priority: data.priority,
       startDate: data.startDate,
       dueDate: (data.task_type === "VALIDATION_PROJECT" && data.isMilestone && data.startDate) ? data.startDate : data.dueDate,
-      recurrence: (data.task_type === "VALIDATION_PROJECT" || data.task_type === "VALIDATION_STEP")
-                    ? "None"
-                    : data.recurrence!, // Zod's refine ensures data.recurrence is a valid TaskRecurrence for non-validation
+      recurrence: data.recurrence, // Zod schema ensures this is a valid TaskRecurrence. superRefine handles "None" for validation types.
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
       isMilestone: data.task_type === "VALIDATION_PROJECT" ? data.isMilestone : false,
       dependencies: data.task_type === "VALIDATION_STEP" ? editingTask.dependencies : (data.dependencies || []),
@@ -585,8 +593,8 @@ export default function TasksPage() {
     };
 
     try {
-      await updateTask(pbClient, editingTask.id, payload);
-      if (pbClient) fetchTasksCallback(pbClient);
+      const updatedTaskRecord = await updateTask(pbClient, editingTask.id, payload);
+      setTasks(prevTasks => prevTasks.map(t => t.id === updatedTaskRecord.id ? updatedTaskRecord : t));
       toast({ title: "Success", description: "Task updated successfully." });
       handleEditDialogClose();
     } catch (err: any) {
@@ -817,7 +825,7 @@ export default function TasksPage() {
                        <Select
                           onValueChange={field.onChange}
                           value={field.value}
-                          disabled
+                          disabled // Task type should not be changed during edit in this simplified dialog
                         >
                         <FormControl>
                           <SelectTrigger>
@@ -1042,7 +1050,7 @@ export default function TasksPage() {
                           render={({ field }) => (
                           <FormItem>
                               <FormLabel>Recurrence</FormLabel>
-                              <Select onValueChange={field.onChange} value={field.value || "None"}>
+                              <Select onValueChange={field.onChange} value={field.value}>
                               <FormControl>
                                   <SelectTrigger>
                                   <SelectValue placeholder="Select recurrence" />
@@ -1183,3 +1191,4 @@ export default function TasksPage() {
     </div>
   );
 }
+
