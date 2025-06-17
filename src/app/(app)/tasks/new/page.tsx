@@ -57,11 +57,10 @@ export default function NewTaskPage() {
   const searchParams = useSearchParams();
   const defaultTypeFromQuery = searchParams.get("defaultType") as TaskType | null;
   const dependsOnValidationProjectQuery = searchParams.get("dependsOnValidationProject");
-  const defaultTitleFromQuery = searchParams.get("defaultTitle");
+  // const defaultTitleFromQuery = searchParams.get("defaultTitle"); // No longer used
 
 
   const [taskType, setTaskType] = useState<TaskType>(defaultTypeFromQuery || TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP") || TASK_TYPES[0]);
-  const [title, setTitle] = useState<string>(defaultTitleFromQuery || "");
   const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
   const [method, setMethod] = useState<string | undefined>();
   const [description, setDescription] = useState("");
@@ -111,10 +110,7 @@ export default function NewTaskPage() {
     if (dependsOnValidationProjectQuery) {
         setSelectedDependencies([dependsOnValidationProjectQuery]);
     }
-    if (defaultTitleFromQuery) {
-        setTitle(defaultTitleFromQuery);
-    }
-  }, [defaultTypeFromQuery, dependsOnValidationProjectQuery, defaultTitleFromQuery]);
+  }, [defaultTypeFromQuery, dependsOnValidationProjectQuery]);
 
   const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -261,11 +257,7 @@ export default function NewTaskPage() {
       return;
     }
     if (!taskType) {
-      toast({ title: "Validation Error", description: "Task Type is required.", variant: "destructive" });
-      return;
-    }
-    if (!title.trim()) {
-      toast({ title: "Validation Error", description: "Task Name is required.", variant: "destructive" });
+      toast({ title: "Validation Error", description: "Task Name (Type) is required.", variant: "destructive" });
       return;
     }
     if (taskType === "MDL" && !instrumentSubtype) {
@@ -307,7 +299,7 @@ export default function NewTaskPage() {
 
     const formData = new FormData();
     formData.append("task_type", taskType);
-    formData.append("title", title);
+    formData.append("title", taskType); // Title is now the same as taskType
 
     if (taskType === "MDL" && instrumentSubtype) {
         formData.append("instrument_subtype", instrumentSubtype);
@@ -482,7 +474,7 @@ export default function NewTaskPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <Label htmlFor="task_type">Task Type</Label>
+              <Label htmlFor="task_name_select">Task Name</Label>
               <Select 
                 value={taskType} 
                 onValueChange={(value: TaskType) => {
@@ -499,8 +491,8 @@ export default function NewTaskPage() {
                 }}
                 disabled={defaultTypeFromQuery === "VALIDATION_PROJECT" || (defaultTypeFromQuery === "VALIDATION_STEP" && !!dependsOnValidationProjectQuery)}
               >
-                <SelectTrigger id="task_type">
-                  <SelectValue placeholder="Select task type" />
+                <SelectTrigger id="task_name_select">
+                  <SelectValue placeholder="Select task name" />
                 </SelectTrigger>
                 <SelectContent>
                   {availableTaskTypesToDisplay.map(tt => (
@@ -510,21 +502,7 @@ export default function NewTaskPage() {
               </Select>
             </div>
 
-            <div>
-              <Label htmlFor="title">
-                {taskType === "VALIDATION_PROJECT" ? "Validation Project Name" : 
-                 (isCreatingStepTask ? "Step Name" : "Task Name")}
-              </Label>
-              <Input 
-                id="title" 
-                placeholder={
-                  taskType === "VALIDATION_PROJECT" ? "e.g., New HPLC Method Validation" : 
-                  (isCreatingStepTask ? "e.g., Protocol Definition" : "e.g., Daily Balances Check")
-                } 
-                value={title} 
-                onChange={(e) => setTitle(e.target.value)} 
-              />
-            </div>
+            {/* Removed Task Name Input field */}
 
             {(taskType === "MDL") && (
               <>

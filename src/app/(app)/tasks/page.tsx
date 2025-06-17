@@ -32,7 +32,7 @@ import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { deleteTask, getTasks, updateTask } from "@/services/taskService";
-import { getEmployees } from "@/services/employeeService";
+import { getEmployees } from "@/services/employeeService"; // Assuming this service exists
 import { useToast } from "@/hooks/use-toast";
 import type PocketBase from "pocketbase";
 import { useForm } from "react-hook-form";
@@ -125,7 +125,7 @@ const getDetailedErrorMessage = (error: any, context: string = "tasks"): string 
 };
 
 const taskEditFormSchema = z.object({
-  title: z.string().min(1, { message: "Task Name is required."}),
+  // title: z.string().min(1, { message: "Task Name is required."}), // Title removed as it's derived from task_type
   task_type: z.enum(TASK_TYPES as [TaskType, ...TaskType[]], { errorMap: () => ({ message: "Please select a valid task type."}) }),
   instrument_subtype: z.string().optional(),
   method: z.string().optional(),
@@ -134,7 +134,7 @@ const taskEditFormSchema = z.object({
   priority: z.string().min(1, "Priority is required.") as z.ZodType<TaskPriority>,
   startDate: z.date().optional(),
   dueDate: z.date().optional(),
-  recurrence: z.enum(TASK_RECURRENCES as [TaskRecurrence, ...TaskRecurrence[]]), // No longer optional
+  recurrence: z.enum(TASK_RECURRENCES as [TaskRecurrence, ...TaskRecurrence[]]),
   assignedTo_text: z.string().optional(),
   dependencies: z.array(z.string()).optional(),
   isMilestone: z.boolean().optional(),
@@ -191,7 +191,7 @@ const taskEditFormSchema = z.object({
             path: ["recurrence"],
         });
     }
-  } else { // For non-validation tasks
+  } else { 
     if (data.isMilestone) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -199,8 +199,6 @@ const taskEditFormSchema = z.object({
         path: ["isMilestone"],
       });
     }
-    // Recurrence is now always present due to z.enum, so no need to check for its existence here for non-validation tasks.
-    // z.enum itself validates it's one of TASK_RECURRENCES.
   }
 
   if (!(data.task_type === "VALIDATION_PROJECT" && data.isMilestone)) {
@@ -248,7 +246,6 @@ export default function TasksPage() {
   const form = useForm<TaskEditFormData>({
     resolver: zodResolver(taskEditFormSchema),
     defaultValues: {
-      title: "",
       task_type: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t!== "VALIDATION_STEP") || TASK_TYPES[0],
       instrument_subtype: undefined,
       method: undefined,
@@ -284,12 +281,7 @@ export default function TasksPage() {
         if (value.task_type === "VALIDATION_PROJECT" || value.task_type === "VALIDATION_STEP") {
            form.setValue("recurrence", "None", { shouldValidate: true });
         } else {
-           // Ensure recurrence is not "None" if previously "None" from a validation type
-           // Only set if current value is "None" and it shouldn't be (e.g. switching from validation to non-validation)
-           // This might need careful handling if task type changes are allowed for existing tasks.
-           // For now, task_type is disabled in edit, so this branch is less critical for edit.
            if (form.getValues("recurrence") === "None" && !(editingTask && editingTask.recurrence === "None" && editingTask.task_type !== "VALIDATION_PROJECT" && editingTask.task_type !== "VALIDATION_STEP" )) {
-             // form.setValue("recurrence", TASK_RECURRENCES.find(r => r !== "None") || "Daily", { shouldValidate: true });
            }
         }
          if (value.task_type === "VALIDATION_STEP") {
@@ -490,7 +482,7 @@ export default function TasksPage() {
   useEffect(() => {
     if (editingTask) {
       form.reset({
-        title: editingTask.title,
+        // title: editingTask.title, // Title removed
         task_type: editingTask.task_type,
         instrument_subtype: editingTask.instrument_subtype || undefined,
         method: editingTask.method || undefined,
@@ -524,14 +516,13 @@ export default function TasksPage() {
     try {
       const updatedTaskRecord = await updateTask(pbClient, taskId, { status: newStatus });
       setTasks(prevTasks => prevTasks.map(t => t.id === updatedTaskRecord.id ? updatedTaskRecord : t));
-      // if (pbClient) fetchTasksCallback(pbClient); // Replaced with optimistic update then specific record update
       toast({ title: "Success", description: `Task marked as ${newStatus}.` });
     } catch (err) {
       console.warn("Error updating task status:", err);
       setTasks(currentTasks);
       toast({ title: "Error", description: `Failed to update task status: ${getDetailedErrorMessage(err as any)}`, variant: "destructive" });
     }
-  }, [pbClient, toast, tasks]); // Removed fetchTasksCallback from deps here
+  }, [pbClient, toast, tasks]); 
 
   const handleDeleteTask = useCallback(async (taskId: string) => {
     if (!pbClient) {
@@ -543,14 +534,12 @@ export default function TasksPage() {
     try {
       await deleteTask(pbClient, taskId);
       toast({ title: "Success", description: "Task deleted successfully." });
-      // No explicit re-fetch here, relying on the optimistic removal.
-      // If a full list refresh is desired after delete, add: if (pbClient) fetchTasksCallback(pbClient);
     } catch (err) {
       console.warn("Error deleting task:", err);
       setTasks(originalTasks);
       toast({ title: "Error", description: getDetailedErrorMessage(err as any), variant: "destructive" });
     }
-  }, [pbClient, toast, tasks]); // Removed fetchTasksCallback
+  }, [pbClient, toast, tasks]); 
 
   const handleEditClick = useCallback((task: Task) => {
     setEditingTask(task);
@@ -576,8 +565,8 @@ export default function TasksPage() {
     setIsSubmittingEdit(true);
 
     const payload: Partial<Task> & { userId: string } = {
-      title: data.title,
-      task_type: data.task_type, // This is disabled in the form, so it uses the original task's type
+      title: data.task_type, // Title is now the task_type
+      task_type: data.task_type, 
       instrument_subtype: (data.task_type === "MDL" || data.task_type === "SOP") ? data.instrument_subtype : undefined,
       method: (data.task_type === "MDL" && data.instrument_subtype && MDL_INSTRUMENTS_WITH_METHODS[data.instrument_subtype]?.length > 0) ? data.method : undefined,
       description: data.description,
@@ -585,7 +574,7 @@ export default function TasksPage() {
       priority: data.priority,
       startDate: data.startDate,
       dueDate: (data.task_type === "VALIDATION_PROJECT" && data.isMilestone && data.startDate) ? data.startDate : data.dueDate,
-      recurrence: data.recurrence, // Zod schema ensures this is a valid TaskRecurrence. superRefine handles "None" for validation types.
+      recurrence: data.recurrence, 
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
       isMilestone: data.task_type === "VALIDATION_PROJECT" ? data.isMilestone : false,
       dependencies: data.task_type === "VALIDATION_STEP" ? editingTask.dependencies : (data.dependencies || []),
@@ -731,8 +720,8 @@ export default function TasksPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Task Name</TableHead>
-                  <TableHead>Type / Details</TableHead>
+                  <TableHead>Task Name / Type</TableHead>
+                  <TableHead>Details</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Priority</TableHead>
                   <TableHead>Due Date</TableHead>
@@ -744,16 +733,19 @@ export default function TasksPage() {
                 {tasks.map((task) => (
                   <TableRow key={task.id} className="hover:bg-muted/50 transition-colors">
                     <TableCell className="font-medium flex items-center">
-                       {task.title}
+                       {task.title.replace(/_/g, ' ')}
                     </TableCell>
                     <TableCell>
-                      {task.task_type.replace(/_/g, ' ')}
                       {(task.task_type === "MDL" || task.task_type === "SOP") && task.instrument_subtype && (
-                        <span className="block text-xs text-muted-foreground">{task.instrument_subtype}</span>
+                        <span className="block text-xs">{task.instrument_subtype}</span>
                       )}
                       {task.task_type === "MDL" && task.method && (
-                        <span className="block text-xs text-muted-foreground">{task.method}</span>
+                        <span className="block text-xs">{task.method}</span>
                       )}
+                      {task.description && task.task_type !== "MDL" && task.task_type !== "SOP" && (
+                        <span className="block text-xs text-muted-foreground truncate max-w-xs" title={task.description}>{task.description}</span>
+                      )}
+                       {(!(task.task_type === "MDL" || task.task_type === "SOP") || !task.instrument_subtype) && !task.description && "-"}
                     </TableCell>
                     <TableCell>
                       <Badge variant={getStatusBadgeVariant(task.status)}>{task.status}</Badge>
@@ -811,7 +803,7 @@ export default function TasksPage() {
         <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleEditDialogClose(); else setIsEditDialogOpen(true); }}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle className="font-headline">Edit Task: {editingTask.title}</DialogTitle>
+              <DialogTitle className="font-headline">Edit Task: {editingTask.title.replace(/_/g, ' ')}</DialogTitle>
               <DialogDescription>Make changes to the task details below.</DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -821,15 +813,15 @@ export default function TasksPage() {
                   name="task_type"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Task Type</FormLabel>
+                      <FormLabel>Task Name</FormLabel>
                        <Select
                           onValueChange={field.onChange}
                           value={field.value}
-                          disabled // Task type should not be changed during edit in this simplified dialog
+                          disabled 
                         >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select task type" />
+                            <SelectValue placeholder="Select task name" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -844,19 +836,7 @@ export default function TasksPage() {
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="title"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{watchedTaskType === "VALIDATION_PROJECT" ? "Validation Project Name" : "Task Name"}</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder={watchedTaskType === "VALIDATION_PROJECT" ? "e.g., New HPLC Method Validation" : "e.g., Daily Balances Check"} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {/* Removed Task Name Input field from here */}
 
                 {watchedTaskType === "MDL" && (
                    <>
