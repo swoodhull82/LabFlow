@@ -8,7 +8,18 @@ export const TASK_RECURRENCES: TaskRecurrence[] = ["None", "Daily", "Weekly", "M
 export const APP_NAME = "LabFlow";
 
 export const TASK_TYPES: readonly TaskType[] = ["MDL", "SOP", "IA", "iDOC", "oDOC", "VALIDATION_PROJECT", "VALIDATION_STEP"];
-export const INSTRUMENT_SUBTYPES: readonly string[] = ["nexiON", "agilent 7900", "DMA-80 Mercury Analyzer"];
+export const INSTRUMENT_SUBTYPES: readonly string[] = [
+  "Leeman Hydra AA", 
+  "Hydra II", 
+  "PE Optima 5300V", 
+  "PE Optima 8300", 
+  "iCAP 7400 DUO", 
+  "PE Optima 7300V", 
+  "PE Elan 9000", 
+  "Agilent 7900", 
+  "PE NexION 300X", 
+  "PE NexION 300D"
+];
 
 const generateSopSubtypes = (): string[] => {
   const subtypes: string[] = [];
@@ -32,3 +43,4 @@ const generateSopSubtypes = (): string[] => {
 };
 
 export const SOP_SUBTYPES: readonly string[] = generateSopSubtypes();
+
