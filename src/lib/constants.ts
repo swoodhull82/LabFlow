@@ -16,8 +16,8 @@ export const MDL_INSTRUMENTS_WITH_METHODS: Record<string, readonly string[]> = {
   "PE Optima 8300": ["Metals by EPA 200.7"],
   "iCAP 7400 DUO": ["Metals by EPA 200.7"],
   "PE Optima 7300V": ["Metals by EPA 200.7"],
-  "PE Elan 9000": [],
-  "Agilent 7900": [],
+  "PE Elan 9000": ["Metals by EPA 200.8"],
+  "Agilent 7900": ["Metals by EPA 200.8"],
   "PE NexION 300X": [],
   "PE NexION 300D": [],
 };
