@@ -21,7 +21,7 @@ import { createTask, getTasks } from "@/services/taskService";
 import { getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee, TaskStatus, TaskPriority, TaskRecurrence, Task, TaskType } from "@/lib/types";
-import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, TASK_TYPES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
+import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, TASK_TYPES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES, MDL_INSTRUMENTS_WITH_METHODS } from "@/lib/constants";
 import type PocketBase from "pocketbase";
 import type { DateRange } from "react-day-picker";
 
@@ -63,6 +63,7 @@ export default function NewTaskPage() {
   const [taskType, setTaskType] = useState<TaskType>(defaultTypeFromQuery || TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP") || TASK_TYPES[0]);
   const [title, setTitle] = useState<string>(defaultTitleFromQuery || "");
   const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
+  const [method, setMethod] = useState<string | undefined>();
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<TaskStatus>(TASK_STATUSES[0] || "To Do");
   const [priority, setPriority] = useState<TaskPriority>(TASK_PRIORITIES.find(p => p.toLowerCase() === 'medium') || TASK_PRIORITIES[0] || "Medium");
@@ -86,6 +87,8 @@ export default function NewTaskPage() {
   const [fetchTasksError, setFetchTasksError] = useState<string | null>(null);
   const [selectedDependencies, setSelectedDependencies] = useState<string[]>(dependsOnValidationProjectQuery ? [dependsOnValidationProjectQuery] : []);
   const [isDependenciesPopoverOpen, setIsDependenciesPopoverOpen] = useState(false);
+  
+  const [availableMethods, setAvailableMethods] = useState<readonly string[]>([]);
 
   useEffect(() => {
     if (defaultTypeFromQuery) {
@@ -189,16 +192,32 @@ export default function NewTaskPage() {
   useEffect(() => {
     if (taskType !== "MDL" && taskType !== "SOP") {
       setInstrumentSubtype(undefined);
+      setMethod(undefined);
+      setAvailableMethods([]);
+    } else if (taskType === "MDL") {
+      if (instrumentSubtype && MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype]) {
+        setAvailableMethods(MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype]);
+      } else {
+        setAvailableMethods([]);
+      }
+      // Keep method if instrument subtype changes but current method is still valid for new subtype
+      if (instrumentSubtype && MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype] && !MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype].includes(method || '')) {
+        setMethod(undefined);
+      }
+    } else { // SOP
+        setMethod(undefined);
+        setAvailableMethods([]);
     }
+
     if (taskType === "VALIDATION_PROJECT") {
       setRecurrence("None"); 
     } else if (taskType === "VALIDATION_STEP") {
       setIsMilestone(false);
       setRecurrence("None");
-       if (!dependsOnValidationProjectQuery) { // Only clear general dependencies if not pre-filled
+       if (!dependsOnValidationProjectQuery) { 
           setSelectedDependencies([]);
       }
-    } else { // For other task types
+    } else { 
       setIsMilestone(false);
       if (!dependsOnValidationProjectQuery) {
         setSelectedDependencies([]);
@@ -211,7 +230,7 @@ export default function NewTaskPage() {
     } else if (taskType === "VALIDATION_PROJECT" && isMilestone && !startDate) {
       setDueDate(undefined);
     }
-  }, [taskType, isMilestone, startDate, recurrence, defaultTypeFromQuery, dependsOnValidationProjectQuery]);
+  }, [taskType, instrumentSubtype, isMilestone, startDate, recurrence, defaultTypeFromQuery, dependsOnValidationProjectQuery, method]);
 
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -240,7 +259,15 @@ export default function NewTaskPage() {
       toast({ title: "Validation Error", description: "Task Name is required.", variant: "destructive" });
       return;
     }
-    if ((taskType === "MDL" || taskType === "SOP") && !instrumentSubtype) {
+    if (taskType === "MDL" && !instrumentSubtype) {
+      toast({ title: "Validation Error", description: `Instrument Subtype is required for ${taskType} tasks.`, variant: "destructive" });
+      return;
+    }
+    if (taskType === "MDL" && instrumentSubtype && MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype]?.length > 0 && !method) {
+      toast({ title: "Validation Error", description: `Method is required for the selected ${instrumentSubtype}.`, variant: "destructive" });
+      return;
+    }
+    if (taskType === "SOP" && !instrumentSubtype) {
       toast({ title: "Validation Error", description: `Subtype is required for ${taskType} tasks.`, variant: "destructive" });
       return;
     }
@@ -274,9 +301,15 @@ export default function NewTaskPage() {
     formData.append("task_type", taskType);
     formData.append("title", title);
 
-    if ((taskType === "MDL" || taskType === "SOP") && instrumentSubtype) {
+    if (taskType === "MDL" && instrumentSubtype) {
+        formData.append("instrument_subtype", instrumentSubtype);
+        if (method) {
+            formData.append("method", method);
+        }
+    } else if (taskType === "SOP" && instrumentSubtype) {
       formData.append("instrument_subtype", instrumentSubtype);
     }
+
     if (description.trim()) {
       formData.append("description", description);
     }
@@ -287,7 +320,7 @@ export default function NewTaskPage() {
     if (taskType === "VALIDATION_PROJECT") {
         formData.append("isMilestone", isMilestone.toString());
     } else {
-        formData.append("isMilestone", "false"); // also for VALIDATION_STEP
+        formData.append("isMilestone", "false"); 
     }
     
     if (selectedDependencies.length > 0) {
@@ -456,6 +489,7 @@ export default function NewTaskPage() {
                 onValueChange={(value: TaskType) => {
                   setTaskType(value);
                   setInstrumentSubtype(undefined); 
+                  setMethod(undefined);
                   setIsMilestone(false);
                   if (!dependsOnValidationProjectQuery) { 
                       setSelectedDependencies([]);
@@ -494,19 +528,48 @@ export default function NewTaskPage() {
             </div>
 
             {(taskType === "MDL") && (
-              <div>
-                <Label htmlFor="instrumentSubtypeMDL">Instrument Subtype</Label>
-                <Select value={instrumentSubtype} onValueChange={(value: string) => setInstrumentSubtype(value)}>
-                  <SelectTrigger id="instrumentSubtypeMDL">
-                    <SelectValue placeholder="Select instrument for MDL" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {INSTRUMENT_SUBTYPES.map(subtype => (
-                      <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <>
+                <div>
+                  <Label htmlFor="instrumentSubtypeMDL">Instrument Subtype</Label>
+                  <Select 
+                    value={instrumentSubtype} 
+                    onValueChange={(value: string) => {
+                      setInstrumentSubtype(value);
+                      // Reset method if new instrument doesn't have the old method
+                      if (value && MDL_INSTRUMENTS_WITH_METHODS[value] && !MDL_INSTRUMENTS_WITH_METHODS[value].includes(method || '')) {
+                        setMethod(undefined);
+                      } else if (!value) {
+                        setMethod(undefined);
+                      }
+                      setAvailableMethods(value ? MDL_INSTRUMENTS_WITH_METHODS[value] || [] : []);
+                    }}
+                  >
+                    <SelectTrigger id="instrumentSubtypeMDL">
+                      <SelectValue placeholder="Select instrument for MDL" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INSTRUMENT_SUBTYPES.map(subtype => (
+                        <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {instrumentSubtype && availableMethods.length > 0 && (
+                  <div>
+                    <Label htmlFor="methodMDL">Method</Label>
+                    <Select value={method} onValueChange={(value: string) => setMethod(value)}>
+                      <SelectTrigger id="methodMDL">
+                        <SelectValue placeholder="Select method" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableMethods.map(m => (
+                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
             )}
 
             {(taskType === "SOP") && (
@@ -611,7 +674,7 @@ export default function NewTaskPage() {
                   </Select>
                 </div>
               )}
-              <div className={(taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") ? "md:col-span-2" : ""}>
+              <div className={(taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP" || (taskType === "MDL" && availableMethods.length > 0) ) ? "md:col-span-2" : ""}>
                 <Label htmlFor="assignedTo">Assigned To</Label>
                 <Select 
                   onValueChange={(value: string) => setAssignedToText(value === "__NONE__" ? undefined : value)} 
@@ -728,4 +791,3 @@ export default function NewTaskPage() {
     </div>
   );
 }
-

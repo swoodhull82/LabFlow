@@ -32,13 +32,13 @@ import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { deleteTask, getTasks, updateTask } from "@/services/taskService";
-import { getEmployees } from "@/services/employeeService";
+import { getEmployees } from "@/services/employeeService"; // Removed unused import
 import { useToast } from "@/hooks/use-toast";
 import type PocketBase from "pocketbase";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, TASK_TYPES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES } from "@/lib/constants";
+import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, TASK_TYPES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES, MDL_INSTRUMENTS_WITH_METHODS } from "@/lib/constants";
 import type { DateRange } from "react-day-picker";
 
 const getPriorityBadgeVariant = (priority?: string) => {
@@ -128,6 +128,7 @@ const taskEditFormSchema = z.object({
   title: z.string().min(1, { message: "Task Name is required."}),
   task_type: z.enum(TASK_TYPES as [TaskType, ...TaskType[]], { errorMap: () => ({ message: "Please select a valid task type."}) }),
   instrument_subtype: z.string().optional(),
+  method: z.string().optional(),
   description: z.string().optional(),
   status: z.string().min(1, "Status is required.") as z.ZodType<TaskStatus>,
   priority: z.string().min(1, "Priority is required.") as z.ZodType<TaskPriority>,
@@ -143,6 +144,13 @@ const taskEditFormSchema = z.object({
       code: z.ZodIssueCode.custom,
       message: "Instrument Subtype is required for MDL tasks.",
       path: ["instrument_subtype"],
+    });
+  }
+  if (data.task_type === "MDL" && data.instrument_subtype && MDL_INSTRUMENTS_WITH_METHODS[data.instrument_subtype]?.length > 0 && !data.method) {
+    ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Method is required for the selected instrument subtype: ${data.instrument_subtype}.`,
+        path: ["method"],
     });
   }
   if (data.task_type === "SOP" && !data.instrument_subtype) {
@@ -241,6 +249,7 @@ export default function TasksPage() {
       title: "",
       task_type: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t!== "VALIDATION_STEP") || TASK_TYPES[0],
       instrument_subtype: undefined,
+      method: undefined,
       dependencies: [],
       isMilestone: false,
       recurrence: "None",
@@ -248,6 +257,7 @@ export default function TasksPage() {
   });
 
   const watchedTaskType = form.watch("task_type");
+  const watchedInstrumentSubtype = form.watch("instrument_subtype");
   const watchedIsMilestone = form.watch("isMilestone");
   const watchedFormStartDate = form.watch("startDate");
   const watchedFormDueDate = form.watch("dueDate");
@@ -258,7 +268,18 @@ export default function TasksPage() {
       if (name === "task_type") { 
         if (value.task_type !== "MDL" && value.task_type !== "SOP") {
           form.setValue("instrument_subtype", undefined, { shouldValidate: true });
+          form.setValue("method", undefined, {shouldValidate: true});
+        } else if (value.task_type === "MDL") {
+           // If instrument_subtype is already set, check if its methods include the current method
+           const currentInstrument = form.getValues("instrument_subtype");
+           const currentMethod = form.getValues("method");
+           if (currentInstrument && MDL_INSTRUMENTS_WITH_METHODS[currentInstrument] && !MDL_INSTRUMENTS_WITH_METHODS[currentInstrument].includes(currentMethod || '')) {
+                form.setValue("method", undefined, { shouldValidate: true });
+           }
+        } else if (value.task_type === "SOP") {
+            form.setValue("method", undefined, {shouldValidate: true});
         }
+
         if (value.task_type === "VALIDATION_PROJECT") {
            form.setValue("recurrence", "None", { shouldValidate: true });
         } else if (value.task_type === "VALIDATION_STEP") {
@@ -269,6 +290,15 @@ export default function TasksPage() {
            if (!form.getValues("recurrence")) { 
             form.setValue("recurrence", "None", { shouldValidate: true });
           }
+        }
+      }
+      if (name === "instrument_subtype" && form.getValues("task_type") === "MDL") {
+        const currentMethod = form.getValues("method");
+        const newInstrument = value.instrument_subtype;
+        if (newInstrument && MDL_INSTRUMENTS_WITH_METHODS[newInstrument] && !MDL_INSTRUMENTS_WITH_METHODS[newInstrument].includes(currentMethod || '')) {
+            form.setValue("method", undefined, { shouldValidate: true });
+        } else if (!newInstrument) {
+            form.setValue("method", undefined, { shouldValidate: true });
         }
       }
       if (name === "isMilestone" || name === "startDate") {
@@ -457,6 +487,7 @@ export default function TasksPage() {
         title: editingTask.title,
         task_type: editingTask.task_type,
         instrument_subtype: editingTask.instrument_subtype || undefined,
+        method: editingTask.method || undefined,
         description: editingTask.description || "",
         status: editingTask.status,
         priority: editingTask.priority,
@@ -540,6 +571,7 @@ export default function TasksPage() {
       title: data.title,
       task_type: data.task_type, 
       instrument_subtype: (data.task_type === "MDL" || data.task_type === "SOP") ? data.instrument_subtype : undefined,
+      method: (data.task_type === "MDL" && data.instrument_subtype && MDL_INSTRUMENTS_WITH_METHODS[data.instrument_subtype]?.length > 0) ? data.method : undefined,
       description: data.description,
       status: data.status,
       priority: data.priority,
@@ -560,10 +592,12 @@ export default function TasksPage() {
     } catch (err: any) {
       console.warn("Failed to update task:", err);
       let detailedMessage = getDetailedErrorMessage(err);
-      if (err.data && err.data.data && err.data.data.instrument_subtype?.message) {
+      if (err.data?.data?.instrument_subtype?.message) {
         detailedMessage = `Instrument Subtype: ${err.data.data.instrument_subtype.message}`;
-      } else if (err.data && err.data.data && err.data.data.title?.message) {
+      } else if (err.data?.data?.title?.message) {
          detailedMessage = `Title: ${err.data.data.title.message}`;
+      } else if (err.data?.data?.method?.message) {
+        detailedMessage = `Method: ${err.data.data.method.message}`;
       }
       toast({ title: "Error Updating Task", description: detailedMessage, variant: "destructive" });
     } finally {
@@ -616,6 +650,13 @@ export default function TasksPage() {
 
   const isLoadingInitialData = isLoading || isLoadingEmployees;
   const filterStatusDisplay = filterStatus.charAt(0).toUpperCase() + filterStatus.slice(1);
+  const availableMethodsForEdit = useMemo(() => {
+    if (watchedTaskType === "MDL" && watchedInstrumentSubtype && MDL_INSTRUMENTS_WITH_METHODS[watchedInstrumentSubtype]) {
+        return MDL_INSTRUMENTS_WITH_METHODS[watchedInstrumentSubtype];
+    }
+    return [];
+  }, [watchedTaskType, watchedInstrumentSubtype]);
+
 
   return (
     <div className="space-y-6">
@@ -683,7 +724,7 @@ export default function TasksPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Task Name</TableHead>
-                  <TableHead>Type</TableHead>
+                  <TableHead>Type / Subtype / Method</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Priority</TableHead>
                   <TableHead>Due Date</TableHead>
@@ -700,7 +741,10 @@ export default function TasksPage() {
                     <TableCell>
                       {task.task_type.replace(/_/g, ' ')}
                       {(task.task_type === "MDL" || task.task_type === "SOP") && task.instrument_subtype && (
-                        <span className="text-xs text-muted-foreground ml-1">({task.instrument_subtype})</span>
+                        <span className="block text-xs text-muted-foreground">Subtype: {task.instrument_subtype}</span>
+                      )}
+                      {task.task_type === "MDL" && task.method && (
+                        <span className="block text-xs text-muted-foreground">Method: {task.method}</span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -802,28 +846,54 @@ export default function TasksPage() {
                 />
 
                 {watchedTaskType === "MDL" && (
-                   <FormField
-                    control={form.control}
-                    name="instrument_subtype"
-                    render={({ field }) => (
-                        <FormItem>
-                        <FormLabel>Instrument Subtype</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value || ""}>
-                            <FormControl>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select instrument for MDL" />
-                            </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                            {INSTRUMENT_SUBTYPES.map(subtype => (
-                                <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
-                            ))}
-                            </SelectContent>
-                        </Select>
-                        <FormMessage />
-                        </FormItem>
+                   <>
+                    <FormField
+                        control={form.control}
+                        name="instrument_subtype"
+                        render={({ field }) => (
+                            <FormItem>
+                            <FormLabel>Instrument Subtype</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value || ""}>
+                                <FormControl>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select instrument for MDL" />
+                                </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                {INSTRUMENT_SUBTYPES.map(subtype => (
+                                    <SelectItem key={subtype} value={subtype}>{subtype}</SelectItem>
+                                ))}
+                                </SelectContent>
+                            </Select>
+                            <FormMessage />
+                            </FormItem>
+                        )}
+                        />
+                    {watchedInstrumentSubtype && availableMethodsForEdit.length > 0 && (
+                        <FormField
+                            control={form.control}
+                            name="method"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Method</FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select method" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            {availableMethodsForEdit.map(m => (
+                                                <SelectItem key={m} value={m}>{m}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
                     )}
-                    />
+                   </>
                 )}
                 {watchedTaskType === "SOP" && (
                    <FormField
@@ -988,7 +1058,7 @@ export default function TasksPage() {
                         control={form.control}
                         name="assignedTo_text"
                         render={({ field }) => (
-                        <FormItem className={(watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP") ? "md:col-span-2" : ""}>
+                        <FormItem className={(watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP" || (watchedTaskType === "MDL" && availableMethodsForEdit.length > 0)) ? "md:col-span-2" : ""}>
                             <FormLabel>Assigned To (Optional)</FormLabel>
                             <Select 
                               onValueChange={field.onChange} 

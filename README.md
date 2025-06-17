@@ -29,15 +29,16 @@ Based on the application's frontend code, the 'tasks' collection in PocketBase i
 
 *   **`id`**: (Text, System Field) - Unique identifier.
 *   **`title`**: (Text, Required) - The custom name or main description of the task/project.
-*   **`task_type`**: (Select, Required) - The specific type of task. Options: "MDL", "SOP", "IA", "iDOC", "oDOC", "VALIDATION_PROJECT".
+*   **`task_type`**: (Select, Required) - The specific type of task. Options: "MDL", "SOP", "IA", "iDOC", "oDOC", "VALIDATION_PROJECT", "VALIDATION_STEP".
 *   **`instrument_subtype`**: (Text, Optional) - Specific instrument for "MDL" tasks (e.g., "nexiON", "agilent 7900") or SOP code for "SOP" tasks.
+*   **`method`**: (Text, Optional) - The analytical method associated with the task, particularly for MDL tasks.
 *   **`description`**: (Text, Optional) - A longer description of the task.
 *   **`status`**: (Text or Select, Required) - Current status (e.g., "To Do", "In Progress", "Done", "Overdue", "Blocked").
 *   **`priority`**: (Text or Select, Required) - Priority level (e.g., "Low", "Medium", "High", "Urgent").
 *   **`startDate`**: (Date, Optional) - The start date of the task.
 *   **`dueDate`**: (Date, Optional) - The due date for the task.
 *   **`assignedTo_text`**: (Text, Optional) - Name of the employee the task is assigned to. *(Note: Consider using a Relation field to 'employees' collection for better data integrity).*
-*   **`recurrence`**: (Text or Select, Required for non-VALIDATION_PROJECT types) - Recurrence pattern (e.g., "None", "Daily", "Weekly"). "None" for "VALIDATION_PROJECT".
+*   **`recurrence`**: (Text or Select, Required for non-VALIDATION_PROJECT/VALIDATION_STEP types) - Recurrence pattern (e.g., "None", "Daily", "Weekly"). "None" for "VALIDATION_PROJECT" and "VALIDATION_STEP".
 *   **`attachments`**: (File, Optional, Multiple files allowed) - Files attached to the task.
 *   **`userId`**: (Relation to 'users', Required) - The ID of the user who created or is primarily associated with the task.
 *   **`progress`**: (Number, Optional) - Task completion progress (0-100).
