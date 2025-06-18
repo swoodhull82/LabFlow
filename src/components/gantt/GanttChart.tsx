@@ -57,6 +57,7 @@ const MIN_TASK_DURATION_DAYS = 1;
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean, taskType?: TaskType): string => {
   if (taskType === "VALIDATION_PROJECT" && isMilestone) return 'bg-purple-500 hover:bg-purple-600';
+  if (taskType === "VALIDATION_STEP" && isMilestone) return 'bg-indigo-500 hover:bg-indigo-600'; // Different color for step milestones
   if (taskType === "VALIDATION_STEP") return 'bg-teal-500 hover:bg-teal-600';
   if (!status) return 'bg-primary hover:bg-primary/90';
   switch (status.toLowerCase()) {
@@ -124,16 +125,16 @@ const quickEditFormSchema = z.object({
   dueDate: z.date().optional(),
   isMilestone: z.boolean().optional(),
 }).refine(data => {
-    if (data.isMilestone && !data.startDate) {
-      return false; // Milestone requires a start date
-    }
-    if (data.startDate && data.dueDate && !data.isMilestone && data.startDate > data.dueDate) {
-        return false; // Start date must be before or same as due date for non-milestones
+    if (data.isMilestone === true) {
+      if (!data.startDate) return false; // Milestone needs a date
+      if (data.dueDate && data.startDate.getTime() !== data.dueDate.getTime()) return false; // Milestone dates must match
+    } else {
+      if (data.startDate && data.dueDate && data.startDate > data.dueDate) return false; // Range validation
     }
     return true;
 }, {
-    message: "Start date must be valid. For milestones, date is required. For ranges, start must be <= due.",
-    path: ["startDate"], // Generic path, specific error handling can be done in UI if needed
+    message: "Date configuration invalid. Milestones require a single date (set via Start Date). For ranges, start date must be before or same as due date.",
+    path: ["startDate"],
 });
 type QuickEditFormData = z.infer<typeof quickEditFormSchema>;
 
@@ -234,15 +235,19 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         }
       }
 
+      const taskIsMilestone = (isValidationProject || isValidationStep) && 
+                              (task.isMilestone === true || 
+                               (task.isMilestone !== false && // If not explicitly false, check dates
+                                isValid(taskStartDateObj) && isValid(taskDueDateObj) &&
+                                isSameDay(taskStartDateObj, taskDueDateObj)));
+
+
       return {
         ...task,
         startDate: taskStartDateObj,
         dueDate: taskDueDateObj,
         progress: typeof task.progress === 'number' && task.progress >= 0 && task.progress <= 100 ? task.progress : 0,
-        isMilestone: isValidationProject && (task.isMilestone === true ||
-                     (task.isMilestone !== false &&
-                      isValid(taskStartDateObj) && isValid(taskDueDateObj) &&
-                      isSameDay(taskStartDateObj, taskDueDateObj))),
+        isMilestone: taskIsMilestone,
         dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
         isValidationProject,
         isValidationStep,
@@ -363,7 +368,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         const taskStartInView = max([taskStartActual, chartStartDate]);
         const taskEndInView = min([taskEndActual, chartEndDate]);
 
-        const isRenderMilestone = task.isValidationProject && task.isMilestone;
+        const isRenderMilestone = task.isMilestone; // Use the pre-calculated isMilestone
 
         if (taskStartInView > taskEndInView && !isRenderMilestone) return;
 
@@ -455,20 +460,22 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         if (updates.dueDate) payload.dueDate = new Date(updates.dueDate).toISOString();
 
 
-        if (taskToUpdate.task_type === "VALIDATION_PROJECT") {
+        if (taskToUpdate.task_type === "VALIDATION_PROJECT" || taskToUpdate.task_type === "VALIDATION_STEP") {
             if (updates.hasOwnProperty('isMilestone')) {
                 payload.isMilestone = !!updates.isMilestone;
-                if (payload.isMilestone && payload.startDate && !payload.dueDate) {
+                 if (payload.isMilestone && payload.startDate && (!payload.dueDate || new Date(payload.dueDate as string).getTime() !== new Date(payload.startDate as string).getTime())) {
                     payload.dueDate = payload.startDate; 
                 }
             }
         } else { 
             payload.isMilestone = false; 
-            if (!updates.hasOwnProperty('dependencies')) { 
-                delete payload.dependencies;
-            } else if (updates.dependencies === null || updates.dependencies === undefined) {
-                payload.dependencies = [];
-            }
+        }
+        
+        if (!updates.hasOwnProperty('dependencies') && (taskToUpdate.task_type === "VALIDATION_PROJECT" || taskToUpdate.task_type === "VALIDATION_STEP")) {
+            // Keep existing dependencies if not explicitly provided in updates for VP/VS
+            // For other task types, or if dependencies is explicitly null/undefined, clear them
+        } else if (updates.dependencies === null || updates.dependencies === undefined) {
+            payload.dependencies = [];
         }
 
 
@@ -523,7 +530,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
     }, [taskRenderDetailsMap]);
 
     const handleMouseDownOnDependencyConnector = useCallback((e: React.MouseEvent, task: Task) => {
-        if (e.button !== 0 || task.task_type !== "VALIDATION_PROJECT") return; 
+        if (e.button !== 0 || (task.task_type !== "VALIDATION_PROJECT" && task.task_type !== "VALIDATION_STEP")) return;
         const taskDetails = taskRenderDetailsMap.get(task.id);
         if (!taskDetails || taskDetails.isMilestoneRender) return; 
 
@@ -601,7 +608,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                     let targetDropTaskId: string | null = null;
                     
                     for (const [taskId, details] of taskRenderDetailsMap.entries()) {
-                        if (taskId === dependencyDrawState.sourceTaskId || details.task.task_type !== "VALIDATION_PROJECT") continue; 
+                         if (taskId === dependencyDrawState.sourceTaskId || 
+                            (details.task.task_type !== "VALIDATION_PROJECT" && details.task.task_type !== "VALIDATION_STEP")
+                           ) continue; 
+
 
                         
                         const taskRowTop = details.index * ROW_HEIGHT;
@@ -618,7 +628,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                         const sourceTask = allTasks.find(t => t.id === dependencyDrawState.sourceTaskId);
                         const targetTask = allTasks.find(t => t.id === targetDropTaskId);
                         
-                        if (sourceTask && targetTask && sourceTask.task_type === "VALIDATION_PROJECT" && targetTask.task_type === "VALIDATION_PROJECT") {
+                        if (sourceTask && targetTask && 
+                            (sourceTask.task_type === "VALIDATION_PROJECT" || sourceTask.task_type === "VALIDATION_STEP") &&
+                            (targetTask.task_type === "VALIDATION_PROJECT" || targetTask.task_type === "VALIDATION_STEP")
+                           ) {
                             const currentTargetDeps = targetTask.dependencies || [];
                             const currentSourceDeps = sourceTask.dependencies || []; 
 
@@ -833,7 +846,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                   <span className="text-center text-[10px] font-semibold">{task.progress}%</span>
                   <div className="flex justify-center items-center gap-1 w-full h-full">
                       <div className="w-6 h-6 flex items-center justify-center">
-                        {task.isValidationProject && (
+                        {(task.isValidationProject || task.isValidationStep) && (
                           <ShadcnButton
                             variant="ghost"
                             size="icon"
@@ -847,6 +860,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                               queryParams.set('defaultTitle', `Step for: ${task.title}`);
                               router.push(`/tasks/new?${queryParams.toString()}`);
                             }}
+                            disabled={!task.isValidationProject} // Only enabled for VP to add steps
                           >
                             <PlusCircle className="h-4 w-4 text-muted-foreground hover:text-primary" />
                           </ShadcnButton>
@@ -961,7 +975,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                               >
                                   <GripVertical className="h-full w-2 text-white/30 hover:text-white/70" />
                               </div>
-                              {task.isValidationProject && ( 
+                              {(task.isValidationProject || task.isValidationStep) && ( 
                                 <div
                                   className="dependency-connector absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity"
                                   onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)}
@@ -993,7 +1007,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                           <div className="space-y-1">
                             <p className="font-semibold text-sm">
                                {task.title}
-                               {task.isValidationProject && task.isMilestone ? " (Milestone)" : ""}
+                               {task.isMilestone ? ` (${task.task_type === "VALIDATION_STEP" ? "Step " : ""}Milestone)` : ""}
                             </p>
                             <p className="text-xs text-muted-foreground">Type: <span className="font-medium text-foreground">{task.task_type.replace(/_/g, ' ')}</span></p>
                             {(task.task_type === "MDL" || task.task_type === "SOP") && task.instrument_subtype && (
@@ -1079,7 +1093,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                     <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
                     <AlertDialogDescription>
                         Are you sure you want to delete the task "{taskToDelete.title}"?
-                        {taskToDelete.task_type === "VALIDATION_PROJECT" && " Associated step tasks will NOT be automatically deleted and will need to be managed separately."}
+                        {(taskToDelete.task_type === "VALIDATION_PROJECT" || taskToDelete.task_type === "VALIDATION_STEP") && " Associated step tasks or dependencies will NOT be automatically deleted and will need to be managed separately."}
                         This action cannot be undone.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
@@ -1097,7 +1111,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 };
 
 interface QuickEditFormProps {
-  task: Task;
+  task: Task & { isMilestone?: boolean }; // Ensure task type here has isMilestone
   onSave: (taskId: string, updates: Partial<Task>) => Promise<void>;
   onClose: () => void;
 }
@@ -1109,7 +1123,7 @@ const QuickEditForm: React.FC<QuickEditFormProps> = ({ task, onSave, onClose }) 
       title: task.title,
       startDate: task.startDate ? new Date(task.startDate) : undefined,
       dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
-      isMilestone: task.task_type === "VALIDATION_PROJECT" ? !!task.isMilestone : false,
+      isMilestone: (task.task_type === "VALIDATION_PROJECT" || task.task_type === "VALIDATION_STEP") ? !!task.isMilestone : false,
     },
   });
 
@@ -1122,7 +1136,7 @@ const QuickEditForm: React.FC<QuickEditFormProps> = ({ task, onSave, onClose }) 
   const watchedStartDate = form.watch("startDate");
 
   useEffect(() => {
-    if (task.task_type === "VALIDATION_PROJECT" && watchedIsMilestone && watchedStartDate) {
+    if ((task.task_type === "VALIDATION_PROJECT" || task.task_type === "VALIDATION_STEP") && watchedIsMilestone && watchedStartDate) {
       if (!form.getValues("dueDate") || form.getValues("dueDate")?.getTime() !== watchedStartDate.getTime()) {
         form.setValue("dueDate", watchedStartDate, { shouldValidate: true });
       }
@@ -1137,10 +1151,10 @@ const QuickEditForm: React.FC<QuickEditFormProps> = ({ task, onSave, onClose }) 
       startDate: data.startDate,
       dueDate: data.dueDate,
     };
-    if (task.task_type === "VALIDATION_PROJECT") {
+    if (task.task_type === "VALIDATION_PROJECT" || task.task_type === "VALIDATION_STEP") {
       updates.isMilestone = data.isMilestone;
        if (data.isMilestone && data.startDate) {
-         updates.dueDate = data.startDate; // Milestone due date is same as start date
+         updates.dueDate = data.startDate; 
        }
     }
     
@@ -1163,7 +1177,7 @@ const QuickEditForm: React.FC<QuickEditFormProps> = ({ task, onSave, onClose }) 
         {form.formState.errors.title && <p className="text-xs text-destructive mt-1">{form.formState.errors.title.message}</p>}
       </div>
 
-      {task.task_type === "VALIDATION_PROJECT" && (
+      {(task.task_type === "VALIDATION_PROJECT" || task.task_type === "VALIDATION_STEP") && (
         <div className="flex items-center space-x-2">
           <Controller
             name="isMilestone"
@@ -1202,7 +1216,7 @@ const QuickEditForm: React.FC<QuickEditFormProps> = ({ task, onSave, onClose }) 
                 mode="single"
                 selected={form.watch("startDate")}
                 onSelect={(date) => {
-                  form.setValue("startDate", date, { shouldValidate: true });
+                  form.setValue("startDate", date || undefined, { shouldValidate: true });
                   setStartDatePickerOpen(false);
                 }}
                 initialFocus
@@ -1212,7 +1226,7 @@ const QuickEditForm: React.FC<QuickEditFormProps> = ({ task, onSave, onClose }) 
         {form.formState.errors.startDate && <p className="text-xs text-destructive mt-1">{form.formState.errors.startDate.message}</p>}
       </div>
 
-      {!(task.task_type === "VALIDATION_PROJECT" && watchedIsMilestone) && (
+      {!((task.task_type === "VALIDATION_PROJECT" || task.task_type === "VALIDATION_STEP") && watchedIsMilestone) && (
         <div>
           <Label htmlFor="quickEditDueDate">Due Date</Label>
             <Popover open={dueDatePickerOpen} onOpenChange={setDueDatePickerOpen}>
@@ -1233,7 +1247,7 @@ const QuickEditForm: React.FC<QuickEditFormProps> = ({ task, onSave, onClose }) 
                     mode="single"
                     selected={form.watch("dueDate")}
                     onSelect={(date) => {
-                      form.setValue("dueDate", date, { shouldValidate: true });
+                      form.setValue("dueDate", date || undefined, { shouldValidate: true });
                       setDueDatePickerOpen(false);
                     }}
                     disabled={(date) =>
@@ -1246,7 +1260,8 @@ const QuickEditForm: React.FC<QuickEditFormProps> = ({ task, onSave, onClose }) 
           {form.formState.errors.dueDate && <p className="text-xs text-destructive mt-1">{form.formState.errors.dueDate.message}</p>}
         </div>
       )}
-      {form.formState.errors.root && <p className="text-xs text-destructive mt-1">{form.formState.errors.root.message}</p>}
+      {form.formState.errors.root?.message && <p className="text-xs text-destructive mt-1">{form.formState.errors.root.message}</p>}
+
 
       <div className="flex justify-end space-x-2 pt-2">
         <ShadcnButton type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
@@ -1293,8 +1308,3 @@ const buttonVariants = cva(
     },
   }
 );
-
-
-
-
-
