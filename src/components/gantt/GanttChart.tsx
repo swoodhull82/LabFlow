@@ -50,8 +50,8 @@ const MIN_DAY_CELL_WIDTH = 15;
 const MAX_DAY_CELL_WIDTH = 60;
 const DEFAULT_DAY_CELL_WIDTH = 30;
 
-const DEPENDENCY_LINE_OFFSET = 15;
-const ARROW_SIZE = 5;
+const DEPENDENCY_LINE_OFFSET = 12; // Adjusted from 15
+const ARROW_SIZE = 4; // Adjusted from 5
 const RESIZE_HANDLE_WIDTH = 8;
 const MIN_TASK_DURATION_DAYS = 1;
 
@@ -401,7 +401,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
   const dependencyLines = useMemo(() => {
     const lines: { id: string, d: string }[] = [];
-    const yBarOffset = (ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2) / 4; // 1/4 of bar height
+    const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2;
+    const yBarOffset = taskBarHeight / 5; // Adjust for slightly more centered connection
 
     tasksToDisplay.forEach((dependentTask) => {
         if (!dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
@@ -417,28 +418,19 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             
             let pathFromY = predecessorDetails.barCenterY;
             if (!predecessorDetails.isMilestoneRender) {
-              pathFromY += yBarOffset; // Exit from bottom-half of bar
+              pathFromY += yBarOffset; 
             }
 
             let pathToY = dependentDetails.barCenterY;
             if (!dependentDetails.isMilestoneRender) {
-              pathToY -= yBarOffset; // Enter top-half of bar
+              pathToY -= yBarOffset; 
             }
-
-            // If both are non-milestones and on the same row, ensure vertical segment has distinct Ys
+            
             if (!predecessorDetails.isMilestoneRender && 
                 !dependentDetails.isMilestoneRender && 
-                predecessorDetails.barCenterY === dependentDetails.barCenterY) {
+                predecessorDetails.index === dependentDetails.index) { // Tasks on the same visual row
                   pathFromY = predecessorDetails.barCenterY + yBarOffset;
-                  pathToY = dependentDetails.barCenterY - yBarOffset;
-            }
-
-
-            if (fromX >= toX && pathFromY === pathToY && predecessorDetails.barCenterY === dependentDetails.barCenterY) { 
-              // Avoid straight backward line on same visual level if not handled by turnX
-              // This case should largely be handled by turnX, but as a fallback:
-              if (!predecessorDetails.isMilestoneRender) pathFromY = predecessorDetails.barCenterY + yBarOffset;
-              if (!dependentDetails.isMilestoneRender) pathToY = dependentDetails.barCenterY - yBarOffset;
+                  pathToY = dependentDetails.barCenterY - yBarOffset * 1.5; // Further offset for clarity
             }
             
             const turnX = Math.max(fromX, toX) + DEPENDENCY_LINE_OFFSET;
@@ -1060,11 +1052,11 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                   >
                     <defs>
                       <marker id="arrowhead" markerWidth={ARROW_SIZE*1.2} markerHeight={ARROW_SIZE*0.8} refX={ARROW_SIZE*1.1} refY={ARROW_SIZE*0.4} orient="auto-start-reverse">
-                        <polygon points={`0 0, ${ARROW_SIZE} ${ARROW_SIZE*0.4}, 0 ${ARROW_SIZE*0.8}`} fill="hsl(var(--foreground) / 0.6)" />
+                        <polygon points={`0 0, ${ARROW_SIZE} ${ARROW_SIZE*0.4}, 0 ${ARROW_SIZE*0.8}`} fill="hsl(var(--foreground) / 0.7)" />
                       </marker>
                     </defs>
                     {dependencyLines.map(line => (
-                      <path key={line.id} d={line.d} stroke="hsl(var(--foreground) / 0.6)" strokeWidth="1.5" fill="none" markerEnd="url(#arrowhead)" />
+                      <path key={line.id} d={line.d} stroke="hsl(var(--foreground) / 0.7)" strokeWidth="1.2" fill="none" markerEnd="url(#arrowhead)" />
                     ))}
                   </svg>
                 )}
@@ -1301,6 +1293,7 @@ const buttonVariants = cva(
     },
   }
 );
+
 
 
 
