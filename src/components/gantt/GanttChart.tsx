@@ -50,8 +50,8 @@ const MIN_DAY_CELL_WIDTH = 15;
 const MAX_DAY_CELL_WIDTH = 60;
 const DEFAULT_DAY_CELL_WIDTH = 30;
 
-const DEPENDENCY_LINE_OFFSET = 12; // Adjusted from 15
-const ARROW_SIZE = 4; // Adjusted from 5
+const DEPENDENCY_LINE_OFFSET = 12; 
+const ARROW_SIZE = 4; 
 const RESIZE_HANDLE_WIDTH = 8;
 const MIN_TASK_DURATION_DAYS = 1;
 
@@ -402,7 +402,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   const dependencyLines = useMemo(() => {
     const lines: { id: string, d: string }[] = [];
     const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2;
-    const yBarOffset = taskBarHeight / 5; // Adjust for slightly more centered connection
+    const yBarOffset = taskBarHeight / 4; 
 
     tasksToDisplay.forEach((dependentTask) => {
         if (!dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
@@ -428,13 +428,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             
             if (!predecessorDetails.isMilestoneRender && 
                 !dependentDetails.isMilestoneRender && 
-                predecessorDetails.index === dependentDetails.index) { // Tasks on the same visual row
+                predecessorDetails.index === dependentDetails.index) { 
                   pathFromY = predecessorDetails.barCenterY + yBarOffset;
-                  pathToY = dependentDetails.barCenterY - yBarOffset * 1.5; // Further offset for clarity
+                  pathToY = dependentDetails.barCenterY - yBarOffset * 1.5; 
             }
             
-            const turnX = Math.max(fromX, toX) + DEPENDENCY_LINE_OFFSET;
-            const pathD = `M ${fromX} ${pathFromY} L ${turnX} ${pathFromY} L ${turnX} ${pathToY} L ${toX} ${pathToY}`;
+            const verticalSegmentX = toX - DEPENDENCY_LINE_OFFSET;
+            const pathD = `M ${fromX} ${pathFromY} L ${verticalSegmentX} ${pathFromY} L ${verticalSegmentX} ${pathToY} L ${toX} ${pathToY}`;
             lines.push({ id: `dep-${predecessorId}-to-${dependentTask.id}-${depIndex}`, d: pathD });
         });
     });
@@ -1293,6 +1293,7 @@ const buttonVariants = cva(
     },
   }
 );
+
 
 
 
