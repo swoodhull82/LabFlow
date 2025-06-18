@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
@@ -35,18 +34,17 @@ interface LiveEmployeeTaskData {
   fill?: string;
 }
 
-const taskTypesForDashboardChart: Exclude<TaskType, "VALIDATION_PROJECT">[] = TASK_TYPES.filter(
-  (type): type is Exclude<TaskType, "VALIDATION_PROJECT"> => type !== "VALIDATION_PROJECT"
-);
+type AggregatedTaskTypeForChart = 'MDL' | 'SOP' | 'IA' | 'DOC';
+const displayTypesForChartPlotting: AggregatedTaskTypeForChart[] = ['MDL', 'SOP', 'IA', 'DOC'];
 
 
 interface QuarterlyCompletionDataPoint {
   quarter: string; // e.g., "Q1 24"
   rates: {
-    [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: number;
+    [key in AggregatedTaskTypeForChart]?: number;
   };
   totals: {
-    [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: { total: number; completed: number };
+    [key in AggregatedTaskTypeForChart]?: { total: number; completed: number };
   };
   goalRate: number;
 }
@@ -73,16 +71,19 @@ const employeeTasksChartConfig = {
 } satisfies ChartConfig;
 
 const quarterlyCompletionChartConfigInitial = {
-  goalRate: { label: "Goal Rate", color: "hsl(var(--muted-foreground))" }, 
+  goalRate: { label: "Goal Rate", color: "hsl(var(--muted-foreground))" },
 } as ChartConfig;
 
-const quarterlyCompletionChartConfig = taskTypesForDashboardChart.reduce((acc, type, index) => {
-  acc[type] = { label: `${type.replace(/_/g, ' ')} Rate`, color: `hsl(var(--chart-${(index % 5) + 1}))` };
-  acc[`${type}_total`] = { label: `${type.replace(/_/g, ' ')} Total` };
-  acc[`${type}_completed`] = { label: `${type.replace(/_/g, ' ')} Completed` };
+const quarterlyCompletionChartConfig = displayTypesForChartPlotting.reduce((acc, type, index) => {
+  let label = type.replace(/_/g, ' ');
+  if (type === 'IA') label = 'Internal Audit';
+  if (type === 'DOC') label = 'DOC';
+
+  acc[type] = { label: `${label} Rate`, color: `hsl(var(--chart-${(index % 5) + 1}))` };
+  acc[`${type}_total`] = { label: `${label} Total` }; // Not directly used by Line chart dataKey, but for tooltip consistency
+  acc[`${type}_completed`] = { label: `${label} Completed` }; // Not directly used, but for tooltip consistency
   return acc;
 }, quarterlyCompletionChartConfigInitial);
-
 
 
 const chartFills: Record<TaskStatus | string, string> = {
@@ -248,24 +249,39 @@ export default function DashboardPage() {
       .sort((a,b) => b.activeTasks - a.activeTasks);
     setActiveTasksByEmployeeData(employeeDataForChart);
 
-
-    const yearlyTotalTasksByType: { [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: number } = {};
+    // --- Quarterly Completion Rate Logic ---
+    const yearlyTotalTasksByType: { [key in AggregatedTaskTypeForChart]?: number } = {};
     const quarterlyCompletedRawCountByType: {
-      [quarterKey: string]: { [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: number };
+      [quarterKey: string]: { [key in AggregatedTaskTypeForChart]?: number };
     } = { Q1: {}, Q2: {}, Q3: {}, Q4: {} };
 
+    displayTypesForChartPlotting.forEach(type => {
+      yearlyTotalTasksByType[type] = 0;
+      ['Q1', 'Q2', 'Q3', 'Q4'].forEach(q => {
+        if (!quarterlyCompletedRawCountByType[q]) quarterlyCompletedRawCountByType[q] = {};
+        quarterlyCompletedRawCountByType[q][type] = 0;
+      });
+    });
+
     tasksToProcess.forEach(task => {
-      if (task.task_type === "VALIDATION_PROJECT" || !taskTypesForDashboardChart.includes(task.task_type as any)) return;
-      const taskType = task.task_type as Exclude<TaskType, "VALIDATION_PROJECT">;
-      
+      if (task.task_type === "VALIDATION_PROJECT" || task.task_type === "VALIDATION_STEP") return;
+
+      let effectiveChartType: AggregatedTaskTypeForChart | undefined = undefined;
+      if (task.task_type === "iDOC" || task.task_type === "oDOC") {
+        effectiveChartType = "DOC";
+      } else if (displayTypesForChartPlotting.includes(task.task_type as any)) {
+        effectiveChartType = task.task_type as AggregatedTaskTypeForChart;
+      }
+
+      if (!effectiveChartType) return;
+
       const taskDueDate = task.dueDate ? startOfDay(new Date(task.dueDate)) : null;
       if (taskDueDate && getYear(taskDueDate) === yearForQuarterlyChart) {
-        yearlyTotalTasksByType[taskType] = (yearlyTotalTasksByType[taskType] || 0) + 1;
-
+        yearlyTotalTasksByType[effectiveChartType] = (yearlyTotalTasksByType[effectiveChartType] || 0) + 1;
         if (task.status === "Done") {
           const quarterNum = getQuarter(taskDueDate);
           const quarterKey = `Q${quarterNum}`;
-          quarterlyCompletedRawCountByType[quarterKey][taskType] = (quarterlyCompletedRawCountByType[quarterKey][taskType] || 0) + 1;
+          quarterlyCompletedRawCountByType[quarterKey][effectiveChartType] = (quarterlyCompletedRawCountByType[quarterKey][effectiveChartType] || 0) + 1;
         }
       }
     });
@@ -273,15 +289,15 @@ export default function DashboardPage() {
     const quarterlyChartDataPoints: QuarterlyCompletionDataPoint[] = [];
     const yearShort = format(new Date(yearForQuarterlyChart, 0, 1), "yy");
     const goalRates = [25, 50, 75, 100]; 
-    const cumulativeCompletedByType: { [key in Exclude<TaskType, "VALIDATION_PROJECT">]?: number } = {};
-    taskTypesForDashboardChart.forEach(type => cumulativeCompletedByType[type] = 0);
+    const cumulativeCompletedByType: { [key in AggregatedTaskTypeForChart]?: number } = {};
+    displayTypesForChartPlotting.forEach(type => cumulativeCompletedByType[type] = 0);
 
     for (let i = 1; i <= 4; i++) {
         const quarterKey = `Q${i}`;
         const ratesForQuarter: QuarterlyCompletionDataPoint['rates'] = {};
         const totalsForQuarter: QuarterlyCompletionDataPoint['totals'] = {};
 
-        taskTypesForDashboardChart.forEach(type => {
+        displayTypesForChartPlotting.forEach(type => {
             const completedInThisQuarterForType = quarterlyCompletedRawCountByType[quarterKey]?.[type] || 0;
             cumulativeCompletedByType[type] = (cumulativeCompletedByType[type] || 0) + completedInThisQuarterForType;
             
@@ -541,7 +557,7 @@ export default function DashboardPage() {
                                   return (
                                       <div className="p-2 rounded-md border bg-background shadow-lg text-xs">
                                       <p className="font-medium text-sm mb-1">{label}</p>
-                                      {taskTypesForDashboardChart.map(type => {
+                                      {displayTypesForChartPlotting.map(type => {
                                           const rate = dataPoint.rates[type];
                                           const totals = dataPoint.totals[type];
                                           const configEntry = quarterlyCompletionChartConfig[type];
@@ -567,7 +583,7 @@ export default function DashboardPage() {
                               cursor={{fill: 'hsl(var(--muted))'}}
                             />
                             <Legend />
-                            {taskTypesForDashboardChart.map(type => (
+                            {displayTypesForChartPlotting.map(type => (
                               <Line 
                                   key={type}
                                   type="monotone" 
@@ -622,3 +638,6 @@ export default function DashboardPage() {
 
     
 
+
+
+    
