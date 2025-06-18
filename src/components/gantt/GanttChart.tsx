@@ -50,8 +50,8 @@ const MIN_DAY_CELL_WIDTH = 15;
 const MAX_DAY_CELL_WIDTH = 60;
 const DEFAULT_DAY_CELL_WIDTH = 30;
 
-const DEPENDENCY_LINE_OFFSET = 15;
-const ARROW_SIZE = 5;
+const DEPENDENCY_LINE_OFFSET = 12; 
+const ARROW_SIZE = 4; 
 const RESIZE_HANDLE_WIDTH = 8;
 const MIN_TASK_DURATION_DAYS = 1;
 
@@ -401,6 +401,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
   const dependencyLines = useMemo(() => {
     const lines: { id: string, d: string }[] = [];
+    const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2;
+    const yBarOffset = taskBarHeight / 4; 
+
     tasksToDisplay.forEach((dependentTask) => {
         if (!dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
         const dependentDetails = taskRenderDetailsMap.get(dependentTask.id);
@@ -411,19 +414,33 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             if (!predecessorDetails) return;
 
             const fromX = predecessorDetails.isMilestoneRender ? predecessorDetails.barStartX + MILESTONE_SIZE / 2 : predecessorDetails.barEndX;
-            const fromY = predecessorDetails.barCenterY;
             const toX = dependentDetails.isMilestoneRender ? dependentDetails.barStartX + MILESTONE_SIZE / 2 : dependentDetails.barStartX;
-            const toY = dependentDetails.barCenterY;
+            
+            let pathFromY = predecessorDetails.barCenterY;
+            if (!predecessorDetails.isMilestoneRender) {
+              pathFromY += yBarOffset; 
+            }
 
-            if (fromX >= toX && fromY === toY) return; 
-
-            const turnX = fromX + DEPENDENCY_LINE_OFFSET;
-            const pathD = `M ${fromX} ${fromY} L ${turnX} ${fromY} L ${turnX} ${toY} L ${toX} ${toY}`;
+            let pathToY = dependentDetails.barCenterY;
+            if (!dependentDetails.isMilestoneRender) {
+              pathToY -= yBarOffset; 
+            }
+            
+            if (!predecessorDetails.isMilestoneRender && 
+                !dependentDetails.isMilestoneRender && 
+                predecessorDetails.index === dependentDetails.index) { 
+                  pathFromY = predecessorDetails.barCenterY + yBarOffset;
+                  pathToY = dependentDetails.barCenterY - yBarOffset * 1.5; 
+            }
+            
+            const verticalSegmentX = toX - DEPENDENCY_LINE_OFFSET;
+            const pathD = `M ${fromX} ${pathFromY} L ${verticalSegmentX} ${pathFromY} L ${verticalSegmentX} ${pathToY} L ${toX} ${pathToY}`;
             lines.push({ id: `dep-${predecessorId}-to-${dependentTask.id}-${depIndex}`, d: pathD });
         });
     });
     return lines;
   }, [tasksToDisplay, taskRenderDetailsMap]);
+
 
     const handleTaskUpdate = useCallback(async (
         taskId: string,
@@ -1035,11 +1052,11 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                   >
                     <defs>
                       <marker id="arrowhead" markerWidth={ARROW_SIZE*1.2} markerHeight={ARROW_SIZE*0.8} refX={ARROW_SIZE*1.1} refY={ARROW_SIZE*0.4} orient="auto-start-reverse">
-                        <polygon points={`0 0, ${ARROW_SIZE} ${ARROW_SIZE*0.4}, 0 ${ARROW_SIZE*0.8}`} fill="hsl(var(--foreground) / 0.6)" />
+                        <polygon points={`0 0, ${ARROW_SIZE} ${ARROW_SIZE*0.4}, 0 ${ARROW_SIZE*0.8}`} fill="hsl(var(--foreground) / 0.7)" />
                       </marker>
                     </defs>
                     {dependencyLines.map(line => (
-                      <path key={line.id} d={line.d} stroke="hsl(var(--foreground) / 0.6)" strokeWidth="1.5" fill="none" markerEnd="url(#arrowhead)" />
+                      <path key={line.id} d={line.d} stroke="hsl(var(--foreground) / 0.7)" strokeWidth="1.2" fill="none" markerEnd="url(#arrowhead)" />
                     ))}
                   </svg>
                 )}
@@ -1276,4 +1293,8 @@ const buttonVariants = cva(
     },
   }
 );
+
+
+
+
 
