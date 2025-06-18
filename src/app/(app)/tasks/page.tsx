@@ -125,6 +125,7 @@ const getDetailedErrorMessage = (error: any, context: string = "tasks"): string 
 };
 
 const taskEditFormSchema = z.object({
+  title: z.string().optional(), // Optional overall, will be required for VALIDATION_PROJECT by superRefine
   task_type: z.enum(TASK_TYPES as [TaskType, ...TaskType[]], { errorMap: () => ({ message: "Please select a valid task type."}) }),
   instrument_subtype: z.string().optional(),
   method: z.string().optional(),
@@ -138,6 +139,13 @@ const taskEditFormSchema = z.object({
   dependencies: z.array(z.string()).optional(),
   isMilestone: z.boolean().optional(),
 }).superRefine((data, ctx) => {
+  if (data.task_type === "VALIDATION_PROJECT" && (!data.title || data.title.trim() === "")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Project Name is required for Validation Projects.",
+      path: ["title"],
+    });
+  }
   if (data.task_type === "MDL" && !data.instrument_subtype) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -183,7 +191,7 @@ const taskEditFormSchema = z.object({
         });
     }
   } else { 
-    if (data.isMilestone === true) { // isMilestone can be true only for VP/VS
+    if (data.isMilestone === true) { 
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Milestones are only applicable to 'VALIDATION_PROJECT' or 'VALIDATION_STEP' tasks.",
@@ -244,12 +252,13 @@ export default function TasksPage() {
   const form = useForm<TaskEditFormData>({
     resolver: zodResolver(taskEditFormSchema),
     defaultValues: {
+      title: "",
       task_type: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t!== "VALIDATION_STEP") || TASK_TYPES[0],
       instrument_subtype: undefined,
       method: undefined,
       dependencies: [],
       isMilestone: false,
-      recurrence: "None",
+      recurrence: "Daily", // Default to daily for non-validation on initial form setup
     }
   });
 
@@ -281,11 +290,8 @@ export default function TasksPage() {
         } else {
            const currentRecurrence = form.getValues("recurrence");
            if (currentRecurrence === "None" && !(editingTask && editingTask.recurrence === "None" && (editingTask.task_type !== "VALIDATION_PROJECT" && editingTask.task_type !== "VALIDATION_STEP"))) {
-             // If not editing an existing non-validation task that was 'None', set a default.
-             // This also applies when switching from a validation type.
              form.setValue("recurrence", "Daily", { shouldValidate: true });
            } else if (currentRecurrence === "None" && editingTask && editingTask.recurrence === "None" && (editingTask.task_type !== "VALIDATION_PROJECT" && editingTask.task_type !== "VALIDATION_STEP")) {
-             // If editing an existing non-validation task that was 'None', keep it as 'None'.
              form.setValue("recurrence", "None", { shouldValidate: true });
            }
         }
@@ -485,6 +491,7 @@ export default function TasksPage() {
   useEffect(() => {
     if (editingTask) {
       form.reset({
+        title: editingTask.title || "", // Use actual title for VALIDATION_PROJECT
         task_type: editingTask.task_type,
         instrument_subtype: editingTask.instrument_subtype || undefined,
         method: editingTask.method || undefined,
@@ -509,30 +516,24 @@ export default function TasksPage() {
     }
 
     const newStatus: TaskStatus = currentStatus === "Done" ? "To Do" : "Done";
-    const currentTasks = tasks;
-    // Optimistic update
-    setTasks(prevTasks => prevTasks.map(task =>
-      task.id === taskId ? { ...task, status: newStatus } : task
-    ).filter(task => filterStatus === 'all' || (filterStatus === 'complete' && newStatus === 'Done') || (filterStatus === 'incomplete' && newStatus !== 'Done')));
-
-
+    
     try {
       const updatedTaskRecord = await updateTask(pbClient, taskId, { status: newStatus });
-      // Update with server response, and filter based on current view
-       setTasks(prevTasks => {
+      setTasks(prevTasks => {
         const updatedList = prevTasks.map(t => t.id === updatedTaskRecord.id ? updatedTaskRecord : t);
         if (filterStatus === 'all') return updatedList;
         if (filterStatus === 'complete') return updatedList.filter(t => t.status === 'Done');
         if (filterStatus === 'incomplete') return updatedList.filter(t => t.status !== 'Done');
-        return updatedList; // Should not reach here if filterStatus is one of the three
+        return updatedList; 
       });
       toast({ title: "Success", description: `Task marked as ${newStatus}.` });
     } catch (err) {
       console.warn("Error updating task status:", err);
-      setTasks(currentTasks); // Revert optimistic update
+      // Re-fetch to ensure UI consistency after error
+      if (pbClient) fetchTasksCallback(pbClient);
       toast({ title: "Error", description: `Failed to update task status: ${getDetailedErrorMessage(err as any)}`, variant: "destructive" });
     }
-  }, [pbClient, toast, tasks, filterStatus]); 
+  }, [pbClient, toast, filterStatus, fetchTasksCallback]); 
 
   const handleDeleteTask = useCallback(async (taskId: string) => {
     if (!pbClient) {
@@ -574,8 +575,10 @@ export default function TasksPage() {
     }
     setIsSubmittingEdit(true);
 
+    const finalTitle = data.task_type === "VALIDATION_PROJECT" ? data.title! : data.task_type;
+
     const payload: Partial<Task> & { userId: string } = {
-      title: data.task_type, 
+      title: finalTitle, 
       task_type: data.task_type, 
       instrument_subtype: (data.task_type === "MDL" || data.task_type === "SOP") ? data.instrument_subtype : undefined,
       method: (data.task_type === "MDL" && data.instrument_subtype && MDL_INSTRUMENTS_WITH_METHODS[data.instrument_subtype]?.length > 0) ? data.method : undefined,
@@ -599,7 +602,9 @@ export default function TasksPage() {
     } catch (err: any) {
       console.warn("Failed to update task:", err);
       let detailedMessage = getDetailedErrorMessage(err);
-      if (err.data?.data?.instrument_subtype?.message) {
+      if (err.data?.data?.title?.message) {
+        detailedMessage = `Title: ${err.data.data.title.message}`;
+      } else if (err.data?.data?.instrument_subtype?.message) {
         detailedMessage = `Instrument Subtype: ${err.data.data.instrument_subtype.message}`;
       } else if (err.data?.data?.method?.message) {
         detailedMessage = `Method: ${err.data.data.method.message}`;
@@ -626,6 +631,7 @@ export default function TasksPage() {
 
     if (selected) {
         if (!((currentTaskType === "VALIDATION_PROJECT" || currentTaskType === "VALIDATION_STEP") && currentIsMilestone) && (selected as DateRange)?.from && !(selected as DateRange)?.to) {
+          // Keep picker open if only start date is selected for range
         } else {
             setIsDatePickerOpenEdit(false);
         }
@@ -810,7 +816,7 @@ export default function TasksPage() {
         <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleEditDialogClose(); else setIsEditDialogOpen(true); }}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle className="font-headline">Edit Task: {editingTask.title.replace(/_/g, ' ')}</DialogTitle>
+              <DialogTitle className="font-headline">Edit: {editingTask.title.replace(/_/g, ' ')}</DialogTitle>
               <DialogDescription>Make changes to the task details below.</DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -820,7 +826,7 @@ export default function TasksPage() {
                   name="task_type"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Task Name</FormLabel>
+                      <FormLabel>Task Type</FormLabel>
                        <Select
                           onValueChange={field.onChange}
                           value={field.value}
@@ -828,7 +834,7 @@ export default function TasksPage() {
                         >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select task name" />
+                            <SelectValue placeholder="Select task type" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -843,6 +849,23 @@ export default function TasksPage() {
                     </FormItem>
                   )}
                 />
+
+                {watchedTaskType === "VALIDATION_PROJECT" && (
+                   <FormField
+                    control={form.control}
+                    name="title"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Project Name</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="Enter the project name"/>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
 
                 {watchedTaskType === "MDL" && (
                    <>
@@ -1057,7 +1080,7 @@ export default function TasksPage() {
                         control={form.control}
                         name="assignedTo_text"
                         render={({ field }) => (
-                        <FormItem className={(watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP" || (watchedTaskType === "MDL" && availableMethodsForEdit.length > 0)) ? "md:col-span-2" : ""}>
+                        <FormItem className={(watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP" || (watchedTaskType === "MDL" && availableMethodsForEdit.length > 0) || (watchedTaskType !== "VALIDATION_PROJECT" && watchedTaskType !== "VALIDATION_STEP") ) ? "md:col-span-2" : ""}>
                             <FormLabel>Assigned To (Optional)</FormLabel>
                             <Select
                               onValueChange={field.onChange}
@@ -1177,3 +1200,4 @@ export default function TasksPage() {
     </div>
   );
 }
+

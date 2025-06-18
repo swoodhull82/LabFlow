@@ -20,13 +20,13 @@ import {
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
-import { getTasks, updateTask as updateTaskService, deleteTask as deleteTaskService, getEmployees as getEmployeesService } from "@/services/taskService"; // Assuming getEmployees is in taskService or a new service
+import { getTasks, updateTask as updateTaskService, deleteTask as deleteTaskService } from "@/services/taskService"; 
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, GripVertical, PlusCircle, CornerDownRight, Trash2, Save, CalendarIcon, XCircle } from "lucide-react";
 import { Button as ShadcnButton } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Popover, PopoverContent, PopoverTrigger, PopoverAnchor } from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -57,7 +57,8 @@ const MIN_TASK_DURATION_DAYS = 1;
 
 const getTaskBarColor = (status?: TaskStatus, isMilestone?: boolean, taskType?: TaskType): string => {
   if (taskType === "VALIDATION_PROJECT" && isMilestone) return 'bg-purple-500 hover:bg-purple-600';
-  if (taskType === "VALIDATION_STEP" && isMilestone) return 'bg-indigo-500 hover:bg-indigo-600'; // Different color for step milestones
+  if (taskType === "VALIDATION_STEP" && isMilestone) return 'bg-indigo-500 hover:bg-indigo-600'; 
+  if (taskType === "VALIDATION_PROJECT") return 'bg-purple-400 hover:bg-purple-500'; // Non-milestone VP
   if (taskType === "VALIDATION_STEP") return 'bg-teal-500 hover:bg-teal-600';
   if (!status) return 'bg-primary hover:bg-primary/90';
   switch (status.toLowerCase()) {
@@ -126,15 +127,15 @@ const quickEditFormSchema = z.object({
   isMilestone: z.boolean().optional(),
 }).refine(data => {
     if (data.isMilestone === true) {
-      if (!data.startDate) return false; // Milestone needs a date
-      if (data.dueDate && data.startDate.getTime() !== data.dueDate.getTime()) return false; // Milestone dates must match
+      if (!data.startDate) return false; 
+      if (data.dueDate && data.startDate.getTime() !== data.dueDate.getTime()) return false; 
     } else {
-      if (data.startDate && data.dueDate && data.startDate > data.dueDate) return false; // Range validation
+      if (data.startDate && data.dueDate && data.startDate > data.dueDate) return false; 
     }
     return true;
 }, {
     message: "Date configuration invalid. Milestones require a single date (set via Start Date). For ranges, start date must be before or same as due date.",
-    path: ["startDate"],
+    path: ["startDate"], 
 });
 type QuickEditFormData = z.infer<typeof quickEditFormSchema>;
 
@@ -237,7 +238,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 
       const taskIsMilestone = (isValidationProject || isValidationStep) && 
                               (task.isMilestone === true || 
-                               (task.isMilestone !== false && // If not explicitly false, check dates
+                               (task.isMilestone !== false && 
                                 isValid(taskStartDateObj) && isValid(taskDueDateObj) &&
                                 isSameDay(taskStartDateObj, taskDueDateObj)));
 
@@ -368,7 +369,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         const taskStartInView = max([taskStartActual, chartStartDate]);
         const taskEndInView = min([taskEndActual, chartEndDate]);
 
-        const isRenderMilestone = task.isMilestone; // Use the pre-calculated isMilestone
+        const isRenderMilestone = task.isMilestone; 
 
         if (taskStartInView > taskEndInView && !isRenderMilestone) return;
 
@@ -407,7 +408,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
   const dependencyLines = useMemo(() => {
     const lines: { id: string, d: string }[] = [];
     const taskBarHeight = ROW_HEIGHT - TASK_BAR_VERTICAL_PADDING * 2;
-    const yBarOffset = taskBarHeight / 4; 
+    const yOffsetForRegularTask = taskBarHeight / 4;
 
     tasksToDisplay.forEach((dependentTask) => {
         if (!dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
@@ -423,19 +424,12 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
             
             let pathFromY = predecessorDetails.barCenterY;
             if (!predecessorDetails.isMilestoneRender) {
-              pathFromY += yBarOffset; 
+              pathFromY += yOffsetForRegularTask; 
             }
 
             let pathToY = dependentDetails.barCenterY;
             if (!dependentDetails.isMilestoneRender) {
-              pathToY -= yBarOffset; 
-            }
-            
-            if (!predecessorDetails.isMilestoneRender && 
-                !dependentDetails.isMilestoneRender && 
-                predecessorDetails.index === dependentDetails.index) { 
-                  pathFromY = predecessorDetails.barCenterY + yBarOffset;
-                  pathToY = dependentDetails.barCenterY - yBarOffset * 1.5; 
+              pathToY -= yOffsetForRegularTask; 
             }
             
             const verticalSegmentX = toX - DEPENDENCY_LINE_OFFSET;
@@ -473,7 +467,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
         
         if (!updates.hasOwnProperty('dependencies') && (taskToUpdate.task_type === "VALIDATION_PROJECT" || taskToUpdate.task_type === "VALIDATION_STEP")) {
             // Keep existing dependencies if not explicitly provided in updates for VP/VS
-            // For other task types, or if dependencies is explicitly null/undefined, clear them
         } else if (updates.dependencies === null || updates.dependencies === undefined) {
             payload.dependencies = [];
         }
@@ -860,7 +853,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
                               queryParams.set('defaultTitle', `Step for: ${task.title}`);
                               router.push(`/tasks/new?${queryParams.toString()}`);
                             }}
-                            disabled={!task.isValidationProject} // Only enabled for VP to add steps
+                            disabled={!task.isValidationProject} 
                           >
                             <PlusCircle className="h-4 w-4 text-muted-foreground hover:text-primary" />
                           </ShadcnButton>
@@ -1111,7 +1104,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
 };
 
 interface QuickEditFormProps {
-  task: Task & { isMilestone?: boolean }; // Ensure task type here has isMilestone
+  task: Task & { isMilestone?: boolean }; 
   onSave: (taskId: string, updates: Partial<Task>) => Promise<void>;
   onClose: () => void;
 }
@@ -1167,15 +1160,23 @@ const QuickEditForm: React.FC<QuickEditFormProps> = ({ task, onSave, onClose }) 
       setIsSubmitting(false);
     }
   };
+  
+  const showTitleInput = task.task_type === "VALIDATION_PROJECT";
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-      <h4 className="font-medium text-sm leading-none">Edit: {task.title}</h4>
-      <div>
-        <Label htmlFor="quickEditTitle">Title</Label>
-        <Input id="quickEditTitle" {...form.register("title")} className="mt-1" />
-        {form.formState.errors.title && <p className="text-xs text-destructive mt-1">{form.formState.errors.title.message}</p>}
-      </div>
+      <h4 className="font-medium text-sm leading-none">
+        Edit: {task.task_type === "VALIDATION_PROJECT" ? task.title : task.task_type.replace(/_/g, ' ')}
+      </h4>
+      
+      {showTitleInput && (
+        <div>
+          <Label htmlFor="quickEditTitle">Project Name</Label>
+          <Input id="quickEditTitle" {...form.register("title")} className="mt-1" />
+          {form.formState.errors.title && <p className="text-xs text-destructive mt-1">{form.formState.errors.title.message}</p>}
+        </div>
+      )}
+
 
       {(task.task_type === "VALIDATION_PROJECT" || task.task_type === "VALIDATION_STEP") && (
         <div className="flex items-center space-x-2">
@@ -1308,3 +1309,4 @@ const buttonVariants = cva(
     },
   }
 );
+
