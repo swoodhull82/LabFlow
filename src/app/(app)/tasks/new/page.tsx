@@ -49,18 +49,28 @@ const getDetailedTaskFetchErrorMessage = (error: any): string => {
   return message;
 };
 
+// Helper function to determine initial task type based on query params or a fallback
+// Defined outside component to be stable for useState initializers
+const getInitialTaskTypeOnClientHelper = (searchParamsInstance: URLSearchParams): TaskType => {
+  const defaultTypeFromQuery = searchParamsInstance.get("defaultType") as TaskType | null;
+  if (defaultTypeFromQuery && TASK_TYPES.includes(defaultTypeFromQuery)) {
+    return defaultTypeFromQuery;
+  }
+  return TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP") || TASK_TYPES[0];
+};
+
 
 export default function NewTaskPage() {
   const { pbClient, user } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
   const searchParams = useSearchParams();
-  const defaultTypeFromQuery = searchParams.get("defaultType") as TaskType | null;
+  
+  // Note: defaultTypeFromQuery is now primarily used by getInitialTaskTypeOnClientHelper
+  const defaultTypeFromQuery = searchParams.get("defaultType") as TaskType | null; 
   const dependsOnValidationProjectQuery = searchParams.get("dependsOnValidationProject");
-  // const defaultTitleFromQuery = searchParams.get("defaultTitle"); // No longer used
 
-
-  const [taskType, setTaskType] = useState<TaskType>(defaultTypeFromQuery || TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP") || TASK_TYPES[0]);
+  const [taskType, setTaskType] = useState<TaskType>(() => getInitialTaskTypeOnClientHelper(searchParams));
   const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
   const [method, setMethod] = useState<string | undefined>();
   const [description, setDescription] = useState("");
@@ -71,7 +81,28 @@ export default function NewTaskPage() {
   const [dueDate, setDueDate] = useState<Date | undefined>();
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
-  const [recurrence, setRecurrence] = useState<TaskRecurrence>(TASK_RECURRENCES.find(r => r.toLowerCase() === 'none') || TASK_RECURRENCES[0] || "None");
+  const [recurrence, setRecurrence] = useState<TaskRecurrence>(() => {
+    if (typeof window === 'undefined') {
+      const initialType = getInitialTaskTypeOnClientHelper(new URLSearchParams()); // Simplified for SSR
+      return (initialType === "VALIDATION_PROJECT" || initialType === "VALIDATION_STEP") ? "None" : "Daily";
+    }
+  
+    const initialTypeForRecurrence = getInitialTaskTypeOnClientHelper(searchParams);
+  
+    if (initialTypeForRecurrence === "VALIDATION_PROJECT" || initialTypeForRecurrence === "VALIDATION_STEP") {
+      if (localStorage.getItem('newTaskFormRecurrence') !== "None") {
+          localStorage.setItem('newTaskFormRecurrence', "None");
+      }
+      return "None";
+    }
+  
+    const savedRecurrence = localStorage.getItem('newTaskFormRecurrence');
+    if (savedRecurrence && TASK_RECURRENCES.includes(savedRecurrence as TaskRecurrence)) {
+      return savedRecurrence as TaskRecurrence;
+    }
+    return "Daily"; // Default for non-validation types if nothing in storage
+  });
+
   const [assignedToText, setAssignedToText] = useState<string | undefined>();
   const [attachments, setAttachments] = useState<FileList | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -100,17 +131,78 @@ export default function NewTaskPage() {
   }, [defaultTypeFromQuery, dependsOnValidationProjectQuery]);
 
 
+  // Effect to persist recurrence to localStorage whenever it changes
   useEffect(() => {
-    if (defaultTypeFromQuery) {
-      setTaskType(defaultTypeFromQuery);
-      if (defaultTypeFromQuery === "VALIDATION_PROJECT" || defaultTypeFromQuery === "VALIDATION_STEP") {
-        setRecurrence("None"); 
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('newTaskFormRecurrence', recurrence);
+    }
+  }, [recurrence]);
+
+  // Effect to adjust recurrence when taskType changes
+  useEffect(() => {
+    if (taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") {
+      if (recurrence !== "None") {
+        setRecurrence("None");
+      }
+    } else {
+      if (recurrence === "None") {
+        // If switching to a non-validation type and recurrence became "None",
+        // set to a sensible default (e.g., "Daily").
+        // This also handles initial load if localStorage was "None" or empty for a non-validation type.
+        setRecurrence("Daily"); 
       }
     }
-    if (dependsOnValidationProjectQuery) {
-        setSelectedDependencies([dependsOnValidationProjectQuery]);
+  }, [taskType, recurrence, setRecurrence]);
+
+
+  useEffect(() => {
+    // This effect handles logic dependent on taskType, instrumentSubtype, etc.
+    // It should NOT directly set recurrence, as that's handled by the dedicated effect above.
+    // It only sets it to "None" IF the taskType forces it (VALIDATION types).
+    // Update: The dedicated effect above handles this better.
+
+    if (taskType !== "MDL" && taskType !== "SOP") {
+      setInstrumentSubtype(undefined);
+      setMethod(undefined);
+      setAvailableMethods([]);
+    } else if (taskType === "MDL") {
+      if (instrumentSubtype && MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype]) {
+        setAvailableMethods(MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype]);
+      } else {
+        setAvailableMethods([]);
+      }
+      if (instrumentSubtype && MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype] && !MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype].includes(method || '')) {
+        setMethod(undefined);
+      }
+    } else { // SOP
+        setMethod(undefined);
+        setAvailableMethods([]);
     }
-  }, [defaultTypeFromQuery, dependsOnValidationProjectQuery]);
+
+    // The recurrence logic is now primarily handled in its own dedicated useEffect.
+    // This main effect ensures other states are consistent with taskType.
+
+    if (taskType === "VALIDATION_PROJECT" && isMilestone && startDate) {
+      setDueDate(startDate);
+    } else if (taskType === "VALIDATION_PROJECT" && isMilestone && !startDate) {
+      setDueDate(undefined);
+    }
+
+    if (taskType === "VALIDATION_STEP") {
+      setIsMilestone(false); // Milestones are not for steps
+       if (!dependsOnValidationProjectQuery) { 
+          setSelectedDependencies([]);
+      }
+    } else if (taskType !== "VALIDATION_PROJECT") { // Non-validation, non-project
+      setIsMilestone(false);
+      if (!dependsOnValidationProjectQuery) {
+        setSelectedDependencies([]);
+      }
+    }
+    // Initial query param driven setup for taskType and dependencies (already handled by useState initializers).
+    // This effect fine-tunes based on further interactions or derived state.
+  }, [taskType, instrumentSubtype, isMilestone, startDate, method, dependsOnValidationProjectQuery, setInstrumentSubtype, setMethod, setAvailableMethods, setIsMilestone, setDueDate, setSelectedDependencies]);
+
 
   const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -196,47 +288,6 @@ export default function NewTaskPage() {
     };
   }, [pbClient, fetchAndSetEmployees, fetchAllTasksForDependencySelection, taskType]);
 
-  useEffect(() => {
-    if (taskType !== "MDL" && taskType !== "SOP") {
-      setInstrumentSubtype(undefined);
-      setMethod(undefined);
-      setAvailableMethods([]);
-    } else if (taskType === "MDL") {
-      if (instrumentSubtype && MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype]) {
-        setAvailableMethods(MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype]);
-      } else {
-        setAvailableMethods([]);
-      }
-      if (instrumentSubtype && MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype] && !MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype].includes(method || '')) {
-        setMethod(undefined);
-      }
-    } else { 
-        setMethod(undefined);
-        setAvailableMethods([]);
-    }
-
-    if (taskType === "VALIDATION_PROJECT") {
-      setRecurrence("None"); 
-    } else if (taskType === "VALIDATION_STEP") {
-      setIsMilestone(false);
-      setRecurrence("None");
-       if (!dependsOnValidationProjectQuery) { 
-          setSelectedDependencies([]);
-      }
-    } else { 
-      setIsMilestone(false);
-      if (!dependsOnValidationProjectQuery) {
-        setSelectedDependencies([]);
-      }
-    }
-
-    if (taskType === "VALIDATION_PROJECT" && isMilestone && startDate) {
-      setDueDate(startDate);
-    } else if (taskType === "VALIDATION_PROJECT" && isMilestone && !startDate) {
-      setDueDate(undefined);
-    }
-  }, [taskType, instrumentSubtype, isMilestone, startDate, defaultTypeFromQuery, dependsOnValidationProjectQuery, method]);
-
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
@@ -257,7 +308,7 @@ export default function NewTaskPage() {
       return;
     }
     if (!taskType) {
-      toast({ title: "Validation Error", description: "Task Name (Type) is required.", variant: "destructive" });
+      toast({ title: "Validation Error", description: "Task Name is required.", variant: "destructive" });
       return;
     }
     if (taskType === "MDL" && !instrumentSubtype) {
@@ -299,7 +350,7 @@ export default function NewTaskPage() {
 
     const formData = new FormData();
     formData.append("task_type", taskType);
-    formData.append("title", taskType); // Title is now the same as taskType
+    formData.append("title", taskType); 
 
     if (taskType === "MDL" && instrumentSubtype) {
         formData.append("instrument_subtype", instrumentSubtype);
@@ -479,15 +530,8 @@ export default function NewTaskPage() {
                 value={taskType} 
                 onValueChange={(value: TaskType) => {
                   setTaskType(value);
-                  setInstrumentSubtype(undefined); 
-                  setMethod(undefined);
-                  setIsMilestone(false);
-                  if (!dependsOnValidationProjectQuery) { 
-                      setSelectedDependencies([]);
-                  }
-                  if (value === "VALIDATION_PROJECT" || value === "VALIDATION_STEP") {
-                    setRecurrence("None");
-                  }
+                  // Other state resets related to taskType change (instrument, method, etc.)
+                  // Recurrence will be handled by its dedicated useEffect.
                 }}
                 disabled={defaultTypeFromQuery === "VALIDATION_PROJECT" || (defaultTypeFromQuery === "VALIDATION_STEP" && !!dependsOnValidationProjectQuery)}
               >
@@ -501,8 +545,6 @@ export default function NewTaskPage() {
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Removed Task Name Input field */}
 
             {(taskType === "MDL") && (
               <>
