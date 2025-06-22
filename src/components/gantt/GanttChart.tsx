@@ -481,7 +481,34 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             const pathToY = dependentDetails.task.isMilestone ? dependentDetails.barCenterY : dependentDetails.barCenterY - yOffset;
             
             const verticalSegmentX = toX - DEPENDENCY_LINE_OFFSET;
-            const pathD = `M ${fromX} ${pathFromY} L ${verticalSegmentX} ${pathFromY} L ${verticalSegmentX} ${pathToY} L ${toX} ${pathToY}`;
+            
+            const cornerRadius = 8;
+            const ySign = Math.sign(pathToY - pathFromY);
+
+            const horizontalSegment1Length = Math.abs(verticalSegmentX - fromX);
+            const verticalSegmentLength = Math.abs(pathToY - pathFromY);
+            const horizontalSegment2Length = DEPENDENCY_LINE_OFFSET;
+
+            const effectiveRadius = Math.min(
+                cornerRadius,
+                horizontalSegment1Length / 2,
+                verticalSegmentLength / 2,
+                horizontalSegment2Length / 2
+            );
+
+            let pathD: string;
+
+            if (effectiveRadius < 1) {
+                pathD = `M ${fromX} ${pathFromY} L ${verticalSegmentX} ${pathFromY} L ${verticalSegmentX} ${pathToY} L ${toX} ${pathToY}`;
+            } else {
+                pathD = 
+                    `M ${fromX} ${pathFromY}` +
+                    ` L ${verticalSegmentX - effectiveRadius} ${pathFromY}` +
+                    ` Q ${verticalSegmentX} ${pathFromY} ${verticalSegmentX} ${pathFromY + effectiveRadius * ySign}` +
+                    ` L ${verticalSegmentX} ${pathToY - effectiveRadius * ySign}` +
+                    ` Q ${verticalSegmentX} ${pathToY} ${verticalSegmentX + effectiveRadius} ${pathToY}` +
+                    ` L ${toX} ${pathToY}`;
+            }
 
             const isConflict = isBefore(dependentDetails.effectiveStartDate, predecessorDetails.effectiveDueDate);
 
@@ -508,7 +535,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                 toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${updates.title || taskToUpdate.title}"`), variant: "destructive" });
             }
         } finally {
-            // Always refetch to ensure UI consistency, resetting drag state or applying successful updates.
             if (pbClient) fetchTimelineData(pbClient);
         }
     }, [pbClient, allTasks, toast, fetchTimelineData]);
