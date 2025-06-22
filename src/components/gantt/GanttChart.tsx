@@ -479,7 +479,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
 
             const pathFromY = predecessorDetails.task.isMilestone ? predecessorDetails.barCenterY : predecessorDetails.barCenterY + yOffset;
             const pathToY = dependentDetails.task.isMilestone ? dependentDetails.barCenterY : dependentDetails.barCenterY - yOffset;
-
+            
             const verticalSegmentX = toX - DEPENDENCY_LINE_OFFSET;
             const pathD = `M ${fromX} ${pathFromY} L ${verticalSegmentX} ${pathFromY} L ${verticalSegmentX} ${pathToY} L ${toX} ${pathToY}`;
 
@@ -789,6 +789,20 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                             </Button>
                         )}
                         <span className="font-medium truncate" title={task.title}>{task.title}</span>
+                        {task.isParent && (
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    router.push(`/tasks/new?defaultType=VALIDATION_STEP&dependsOnValidationProject=${task.id}`);
+                                }}
+                                title="Add a step to this project"
+                            >
+                                <PlusCircle className="h-4 w-4" />
+                            </Button>
+                        )}
                     </div>
                     <div className="flex items-center justify-center">
                         {task.assignee ? (
@@ -910,12 +924,22 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                                 <span className="absolute text-xs text-foreground/80 whitespace-nowrap" style={{ left: `calc(100% + 4px)`, top: '50%', transform: 'translateY(-50%)' }}>{task.title}</span>
                                 </>
                             ) : (
-                              <div className={cn("h-full w-full rounded-md", task.color.base, task.color.hover)}>
-                                  <div className={cn("h-full rounded-md", task.color.progress)} style={{ width: `${task.progress || 0}%` }}/>
-                                  <div className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-20 group-hover:opacity-100 opacity-0" onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'start')}><div className="bg-white/50 w-px h-1/2 absolute top-1/4 left-1"></div></div>
-                                  <div className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-20 group-hover:opacity-100 opacity-0" onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'end')}><div className="bg-white/50 w-px h-1/2 absolute top-1/4 right-1"></div></div>
-                                  <div className="absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity" onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)} title="Draw dependency"/>
-                              </div>
+                              <>
+                                <div className={cn("h-full w-full rounded-md", task.color.base, task.color.hover)}>
+                                    <div className={cn("h-full rounded-md", task.color.progress)} style={{ width: `${task.progress || 0}%` }}/>
+                                </div>
+                                <div
+                                    onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'start')}
+                                    className="absolute top-1/2 -translate-y-1/2 -left-1 w-3 h-3 rounded-full bg-background border-2 border-primary cursor-ew-resize z-20 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title="Resize start date"
+                                />
+                                <div
+                                    onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'end')}
+                                    className="absolute top-1/2 -translate-y-1/2 -right-1 w-3 h-3 rounded-full bg-background border-2 border-primary cursor-ew-resize z-20 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title="Resize end date"
+                                />
+                                <div className="absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity" onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)} title="Draw dependency"/>
+                              </>
                             )}
                           </div>
                         </TooltipTrigger>
