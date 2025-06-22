@@ -2,14 +2,14 @@
 "use client";
 
 import type { Task, Employee, TaskType } from '@/lib/types';
-import { addDays, differenceInDays, format, startOfDay, isSameDay, isWithinInterval, max, min, isValid, addMonths, subMonths, startOfMonth, endOfMonth, addYears, isBefore } from 'date-fns';
+import { addDays, differenceInDays, format, startOfDay, isSameDay, isWithinInterval, max, min, isValid, addMonths, subMonths, startOfMonth, endOfMonth, addYears, isBefore, getISOWeek, eachDayOfInterval, startOfQuarter, endOfQuarter, addQuarters, subQuarters, eachWeekOfInterval, eachMonthOfInterval } from 'date-fns';
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
 import { getTasks, updateTask as updateTaskService, deleteTask as deleteTaskService } from "@/services/taskService";
 import { getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, PlusCircle, Trash2, Save, CalendarIcon, XCircle, MoreHorizontal, ChevronDown, CornerDownRight } from "lucide-react";
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, PlusCircle, Trash2, Save, CalendarIcon, XCircle, MoreHorizontal, ChevronDown, CornerDownRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -25,26 +25,25 @@ import * as z from "zod";
 import type PocketBase from "pocketbase";
 import Link from "next/link";
 import { useRouter } from 'next/navigation';
-import { cva } from "class-variance-authority";
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { cva } from 'class-variance-authority';
 
 
 const ROW_HEIGHT = 40;
 const LEFT_PANEL_WIDTH = 450;
 const TASK_BAR_VERTICAL_PADDING = 6;
-const GANTT_VIEW_MONTHS = 3;
 const MILESTONE_SIZE = 14;
-const MIN_DAY_CELL_WIDTH = 20;
-const MAX_DAY_CELL_WIDTH = 80;
-const DEFAULT_DAY_CELL_WIDTH = 35;
 const DEPENDENCY_LINE_OFFSET = 12;
+const Y_OFFSET_FACTOR = 0.20; 
 const ARROW_SIZE = 4;
-const RESIZE_HANDLE_WIDTH = 6;
 const MIN_TASK_DURATION_DAYS = 1;
 
-
 const getTaskBarColor = (taskType?: TaskType, isMilestone?: boolean): string => {
-  if (isMilestone) return 'bg-purple-500 hover:bg-purple-600';
+  if (isMilestone) {
+    if (taskType === "VALIDATION_PROJECT") return 'bg-purple-500 hover:bg-purple-600';
+    if (taskType === "VALIDATION_STEP") return 'bg-indigo-500 hover:bg-indigo-600';
+    return 'bg-amber-500 hover:bg-amber-600';
+  }
   if (taskType === "VALIDATION_PROJECT") return 'bg-blue-500 hover:bg-blue-600';
   if (taskType === "VALIDATION_STEP") return 'bg-teal-500 hover:bg-teal-600';
   return 'bg-gray-400 hover:bg-gray-500';
@@ -103,6 +102,8 @@ interface DependencyDrawState {
   currentMouseY: number;
 }
 
+type TimeScaleView = 'day' | 'week' | 'month' | 'quarter';
+
 interface GanttChartProps {
   filterTaskType?: TaskType | "ALL_EXCEPT_VALIDATION" | "VALIDATION_PROJECT";
   displayHeaderControls?: 'defaultTitle' | 'addValidationButton';
@@ -137,7 +138,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewStartDate, setViewStartDate] = useState<Date>(startOfMonth(new Date()));
-  const [dayCellWidth, setDayCellWidth] = useState<number>(DEFAULT_DAY_CELL_WIDTH);
+  const [timeScaleView, setTimeScaleView] = useState<TimeScaleView>('week');
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [dependencyDrawState, setDependencyDrawState] = useState<DependencyDrawState | null>(null);
@@ -216,10 +217,11 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     const enrichedTasks = allTasks.map(task => {
       const taskStartDateObj = startOfDay(new Date(task.startDate!));
       const taskDueDateObj = startOfDay(new Date(task.dueDate!));
-      const isValidationProject = task.task_type === "VALIDATION_PROJECT";
-      const taskIsMilestone = isValidationProject && (task.isMilestone === true || (task.isMilestone !== false && isValid(taskStartDateObj) && isValid(taskDueDateObj) && isSameDay(taskStartDateObj, taskDueDateObj)));
+      const isValidationType = task.task_type === "VALIDATION_PROJECT" || task.task_type === "VALIDATION_STEP";
+      const taskIsMilestone = isValidationType && (task.isMilestone === true || (task.isMilestone !== false && isValid(taskStartDateObj) && isValid(taskDueDateObj) && isSameDay(taskStartDateObj, taskDueDateObj)));
+      const isParent = task.task_type === "VALIDATION_PROJECT";
       
-      const children = isValidationProject ? allTasks.filter(child => child.task_type === "VALIDATION_STEP" && child.dependencies?.includes(task.id)) : [];
+      const children = isParent ? allTasks.filter(child => child.task_type === "VALIDATION_STEP" && child.dependencies?.includes(task.id)) : [];
 
       return {
         ...task,
@@ -227,7 +229,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         dueDate: taskDueDateObj,
         progress: typeof task.progress === 'number' && task.progress >= 0 && task.progress <= 100 ? task.progress : 0,
         isMilestone: taskIsMilestone,
-        isParent: isValidationProject,
+        isParent: isParent,
         dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
         children,
         assignee: employees.find(e => e.name === task.assignedTo_text)
@@ -263,37 +265,89 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     
     rootTasks.forEach(task => addTask(task, 0));
     
-    const currentChartStartDate = viewStartDate;
-    const currentChartEndDate = endOfMonth(addMonths(viewStartDate, GANTT_VIEW_MONTHS - 1));
-    const totalDaysInView = differenceInDays(currentChartEndDate, currentChartStartDate) + 1;
-    const getMonthYear = (date: Date) => format(date, 'MMM yyyy');
-    const monthHeadersData: { name: string; span: number }[] = [];
+    // --- Timescale Logic ---
+    const headerData: {
+        topHeaderCells: { key: string; label: string; width: number }[];
+        bottomHeaderCells: { key: string; label: string; width: number }[];
+        totalWidth: number;
+        pixelsPerDay: number;
+        chartEndDate: Date;
+    } = { topHeaderCells: [], bottomHeaderCells: [], totalWidth: 0, pixelsPerDay: 0, chartEndDate: viewStartDate };
+    
+    let chartEndDate: Date;
+    switch(timeScaleView) {
+        case 'day':
+        case 'week':
+            chartEndDate = endOfMonth(addMonths(viewStartDate, 2));
+            headerData.pixelsPerDay = timeScaleView === 'day' ? 35 : 20;
+            const dailyDays = eachDayOfInterval({ start: viewStartDate, end: chartEndDate });
+            const monthSpans: { [key: string]: number } = {};
+            dailyDays.forEach(day => {
+                const monthKey = format(day, 'MMM yyyy');
+                monthSpans[monthKey] = (monthSpans[monthKey] || 0) + 1;
+                headerData.bottomHeaderCells.push({
+                    key: format(day, 'yyyy-MM-dd'),
+                    label: timeScaleView === 'day' ? format(day, 'd') : format(day, 'EEEEE'),
+                    width: headerData.pixelsPerDay,
+                });
+            });
+            Object.entries(monthSpans).forEach(([name, daysInMonth]) => {
+                headerData.topHeaderCells.push({ key: name, label: name, width: daysInMonth * headerData.pixelsPerDay });
+            });
+            break;
 
-    if (totalDaysInView > 0) {
-      let currentDayPtr = new Date(currentChartStartDate);
-      const monthSpans: {[key: string]: number} = {};
-      while(currentDayPtr <= currentChartEndDate) {
-        const monthKey = getMonthYear(currentDayPtr);
-        monthSpans[monthKey] = (monthSpans[monthKey] || 0) + 1;
-        currentDayPtr = addDays(currentDayPtr, 1);
-      }
-      Object.entries(monthSpans).forEach(([name, daysInMonth]) => {
-          monthHeadersData.push({ name, span: daysInMonth });
-      });
+        case 'month':
+            chartEndDate = endOfMonth(addMonths(viewStartDate, 11));
+            const weeklyIntervals = eachWeekOfInterval({ start: viewStartDate, end: chartEndDate }, { weekStartsOn: 1 });
+            const monthSpansMonthView: { [key: string]: number } = {};
+            weeklyIntervals.forEach(weekStart => {
+                const weekEnd = addDays(weekStart, 6);
+                const monthKey = format(weekStart, 'MMM yyyy');
+                monthSpansMonthView[monthKey] = (monthSpansMonthView[monthKey] || 0) + 7;
+                headerData.bottomHeaderCells.push({
+                    key: format(weekStart, 'yyyy-MM-dd'),
+                    label: `W${getISOWeek(weekStart)}`,
+                    width: 7 * 5,
+                });
+            });
+            headerData.pixelsPerDay = 5;
+            Object.entries(monthSpansMonthView).forEach(([name, daysInMonth]) => {
+                headerData.topHeaderCells.push({ key: name, label: name, width: daysInMonth * headerData.pixelsPerDay });
+            });
+            break;
+        
+        case 'quarter':
+            chartEndDate = endOfQuarter(addYears(viewStartDate, 1));
+            const monthlyIntervals = eachMonthOfInterval({ start: startOfQuarter(viewStartDate), end: chartEndDate });
+            const quarterSpans: { [key: string]: number } = {};
+            monthlyIntervals.forEach(monthStart => {
+                const quarterKey = `${format(monthStart, 'yyyy')} Q${format(monthStart, 'q')}`;
+                quarterSpans[quarterKey] = (quarterSpans[quarterKey] || 0) + differenceInDays(endOfMonth(monthStart), monthStart) + 1;
+                headerData.bottomHeaderCells.push({
+                    key: format(monthStart, 'yyyy-MM'),
+                    label: format(monthStart, 'MMM'),
+                    width: (differenceInDays(endOfMonth(monthStart), monthStart) + 1) * 2
+                });
+            });
+            headerData.pixelsPerDay = 2;
+            Object.entries(quarterSpans).forEach(([name, daysInQuarter]) => {
+                 headerData.topHeaderCells.push({ key: name, label: name.split(' ')[1], width: daysInQuarter * headerData.pixelsPerDay });
+            });
+            break;
     }
+    headerData.chartEndDate = chartEndDate;
+    headerData.totalWidth = headerData.bottomHeaderCells.reduce((acc, cell) => acc + cell.width, 0);
 
     return {
       tasksToDisplay,
       tasksById,
-      chartStartDate: currentChartStartDate,
-      chartEndDate: currentChartEndDate,
-      totalDaysInView: totalDaysInView > 0 ? totalDaysInView : 0,
-      monthHeaders: monthHeadersData,
+      chartStartDate: viewStartDate,
+      ...headerData,
     };
-  }, [allTasks, employees, viewStartDate, collapsedTasks, filterTaskType]);
+  }, [allTasks, employees, viewStartDate, collapsedTasks, filterTaskType, timeScaleView]);
 
 
-  const { tasksToDisplay, tasksById, chartStartDate, chartEndDate, totalDaysInView, monthHeaders } = chartData;
+  const { tasksToDisplay, tasksById, chartStartDate, chartEndDate, totalWidth, pixelsPerDay, topHeaderCells, bottomHeaderCells } = chartData;
 
   const taskRenderDetailsMap = useMemo(() => {
     const map = new Map<string, {
@@ -311,7 +365,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         let taskEndActual = task.dueDate;
 
         if (dragState && dragState.taskId === task.id) {
-            const dragOffsetDays = Math.round(( (dragState.currentMouseX ?? dragState.initialMouseX) - dragState.initialMouseX) / dayCellWidth);
+            const dragOffsetDays = Math.round(( (dragState.currentMouseX ?? dragState.initialMouseX) - dragState.initialMouseX) / pixelsPerDay);
             if (dragState.type === 'drag') {
                 taskStartActual = addDays(dragState.originalStartDate, dragOffsetDays);
                 taskEndActual = addDays(dragState.originalDueDate, dragOffsetDays);
@@ -326,18 +380,14 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             }
         }
         
-        const taskStartInView = max([taskStartActual, chartStartDate]);
-        const taskEndInView = min([taskEndActual, chartEndDate]);
-        if (taskStartInView > taskEndInView && !task.isMilestone) return;
+        const taskStartDayOffset = differenceInDays(taskStartActual, chartStartDate);
+        const taskDurationDays = differenceInDays(taskEndActual, taskStartActual) + 1;
+        if (taskDurationDays <= 0 && !task.isMilestone) return;
 
-        const taskStartDayOffset = differenceInDays(taskStartInView, chartStartDate);
-        const taskDurationInViewDays = task.isMilestone ? 1 : differenceInDays(taskEndInView, taskStartInView) + 1;
-        if (taskDurationInViewDays <= 0 && !task.isMilestone) return;
-
-        let barLeftPosition = taskStartDayOffset * dayCellWidth;
-        const barW = task.isMilestone ? MILESTONE_SIZE : taskDurationInViewDays * dayCellWidth;
+        let barLeftPosition = taskStartDayOffset * pixelsPerDay;
+        const barW = task.isMilestone ? MILESTONE_SIZE : taskDurationDays * pixelsPerDay;
         if (task.isMilestone) {
-            barLeftPosition += (dayCellWidth / 2) - (MILESTONE_SIZE / 2);
+            barLeftPosition += (pixelsPerDay / 2) - (MILESTONE_SIZE / 2);
         }
 
         map.set(task.id, {
@@ -351,10 +401,11 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         });
     });
     return map;
-  }, [tasksToDisplay, chartStartDate, chartEndDate, dayCellWidth, dragState]);
+  }, [tasksToDisplay, chartStartDate, pixelsPerDay, dragState]);
   
   const dependencyLines = useMemo(() => {
     const lines: { id: string; d: string; isConflict: boolean }[] = [];
+    const yOffset = ROW_HEIGHT * Y_OFFSET_FACTOR;
     
     tasksToDisplay.forEach((dependentTask) => {
         if (!dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
@@ -368,11 +419,11 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             const fromX = predecessorDetails.task.isMilestone ? predecessorDetails.barStartX + MILESTONE_SIZE / 2 : predecessorDetails.barStartX + predecessorDetails.barWidth;
             const toX = dependentDetails.task.isMilestone ? dependentDetails.barStartX + MILESTONE_SIZE / 2 : dependentDetails.barStartX;
 
-            const fromY = predecessorDetails.barCenterY;
-            const toY = dependentDetails.barCenterY;
+            const pathFromY = predecessorDetails.task.isMilestone ? predecessorDetails.barCenterY : predecessorDetails.barCenterY + yOffset;
+            const pathToY = dependentDetails.task.isMilestone ? dependentDetails.barCenterY : dependentDetails.barCenterY - yOffset;
             
             const verticalSegmentX = toX - DEPENDENCY_LINE_OFFSET;
-            const pathD = `M ${fromX} ${fromY} L ${verticalSegmentX} ${fromY} L ${verticalSegmentX} ${toY} L ${toX} ${toY}`;
+            const pathD = `M ${fromX} ${pathFromY} L ${verticalSegmentX} ${pathFromY} L ${verticalSegmentX} ${pathToY} L ${toX} ${pathToY}`;
             
             const isConflict = isBefore(dependentDetails.effectiveStartDate, predecessorDetails.effectiveDueDate);
 
@@ -522,7 +573,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             window.removeEventListener('mousemove', handleWindowMouseMove);
             window.removeEventListener('mouseup', handleWindowMouseUp);
         };
-    }, [dragState, dependencyDrawState, dayCellWidth, taskRenderDetailsMap, handleTaskUpdate, tasksById, toast, tasksToDisplay]);
+    }, [dragState, dependencyDrawState, pixelsPerDay, taskRenderDetailsMap, handleTaskUpdate, tasksById, toast, tasksToDisplay]);
 
   const handlePopoverOpenChange = (isOpen: boolean, task: Task) => {
     setIsQuickEditPopoverOpen(isOpen);
@@ -533,10 +584,25 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     }
   };
 
-  const handlePrevMonth = () => setViewStartDate(prev => subMonths(prev, 1));
-  const handleNextMonth = () => setViewStartDate(prev => addMonths(prev, 1));
-  const handleZoomIn = () => setDayCellWidth(prev => Math.min(MAX_DAY_CELL_WIDTH, prev + 5));
-  const handleZoomOut = () => setDayCellWidth(prev => Math.max(MIN_DAY_CELL_WIDTH, prev - 5));
+  const handlePanLeft = () => setViewStartDate(prev => {
+    switch(timeScaleView) {
+        case 'day': return subMonths(prev, 1);
+        case 'week': return subMonths(prev, 1);
+        case 'month': return subQuarters(prev, 1);
+        case 'quarter': return subYears(prev, 1);
+        default: return prev;
+    }
+  });
+  const handlePanRight = () => setViewStartDate(prev => {
+      switch(timeScaleView) {
+        case 'day': return addMonths(prev, 1);
+        case 'week': return addMonths(prev, 1);
+        case 'month': return addQuarters(prev, 1);
+        case 'quarter': return addYears(prev, 1);
+        default: return prev;
+    }
+  });
+
   const refetchTasks = () => pbClient && fetchTimelineData(pbClient);
 
   useEffect(() => {
@@ -588,8 +654,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
 
   const today = startOfDay(new Date());
   const showTodayLine = isWithinInterval(today, { start: chartStartDate, end: chartEndDate });
-  const todayLineLeftPosition = showTodayLine && totalDaysInView > 0 ? (differenceInDays(today, chartStartDate) * dayCellWidth) : 0;
-  const timelineGridWidth = totalDaysInView * dayCellWidth;
+  const todayLineLeftPosition = showTodayLine ? (differenceInDays(today, chartStartDate) * pixelsPerDay) : 0;
   const timelineGridHeight = tasksToDisplay.length * ROW_HEIGHT;
 
   const renderNoTasksMessage = () => (
@@ -617,17 +682,22 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             </Link>
           ) : ( <div/> )}
          <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={handleZoomOut} disabled={dayCellWidth <= MIN_DAY_CELL_WIDTH} title="Zoom Out"><ZoomOut className="h-4 w-4" /></Button>
-            <Button variant="outline" size="icon" onClick={handleZoomIn} disabled={dayCellWidth >= MAX_DAY_CELL_WIDTH} title="Zoom In"><ZoomIn className="h-4 w-4" /></Button>
-            <Button variant="outline" size="sm" onClick={handlePrevMonth}><ChevronLeft className="h-4 w-4 mr-1" />Prev</Button>
-            <span className="font-medium text-sm text-muted-foreground tabular-nums w-48 text-center">{format(viewStartDate, "MMM yyyy")} - {format(addMonths(viewStartDate, GANTT_VIEW_MONTHS - 1), "MMM yyyy")}</span>
-            <Button variant="outline" size="sm" onClick={handleNextMonth}>Next<ChevronRight className="h-4 w-4 ml-1" /></Button>
+            <div className="flex items-center rounded-md bg-muted p-1 text-sm">
+                {(['day', 'week', 'month', 'quarter'] as const).map(view => (
+                    <Button key={view} size="sm" variant={timeScaleView === view ? 'outline' : 'ghost'} className="h-7 px-2" onClick={() => setTimeScaleView(view)}>
+                        {view.charAt(0).toUpperCase() + view.slice(1)}
+                    </Button>
+                ))}
+            </div>
+            <Button variant="outline" size="sm" onClick={handlePanLeft}><ChevronLeft className="h-4 w-4 mr-1" />Prev</Button>
+            <span className="font-medium text-sm text-muted-foreground tabular-nums w-48 text-center">{format(viewStartDate, "MMM yyyy")} - {format(chartEndDate, "MMM yyyy")}</span>
+            <Button variant="outline" size="sm" onClick={handlePanRight}>Next<ChevronRight className="h-4 w-4 ml-1" /></Button>
          </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
         <div style={{ width: `${LEFT_PANEL_WIDTH}px` }} className="flex-shrink-0 border-r border-border flex flex-col">
-          <div className="h-[30px] flex items-center p-2 font-semibold text-xs border-b border-border flex-shrink-0 sticky top-0 bg-background/95 backdrop-blur-sm z-20 text-muted-foreground uppercase tracking-wider">
+          <div className="h-[60px] flex items-center p-2 font-semibold text-xs border-b border-border flex-shrink-0 sticky top-0 bg-background/95 backdrop-blur-sm z-20 text-muted-foreground uppercase tracking-wider">
             <div className="grid grid-cols-[1fr_80px_80px] w-full items-center gap-2">
                 <span>Task Name</span>
                 <span className="text-center">Assignee</span>
@@ -698,31 +768,36 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         <div className="flex-1 overflow-auto" ref={timelineScrollContainerRef}>
            <div className="relative timeline-inner-content">
             <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm">
-              <div className="grid h-[30px] border-b border-border" style={{ gridTemplateColumns: monthHeaders.map(m => `${m.span * dayCellWidth}px`).join(' ') || '1fr' }}>
-                {monthHeaders.map((month, index) => (
-                  <div key={index} className="flex items-center justify-center border-r border-border font-semibold text-xs text-muted-foreground">{month.name}</div>
+              <div className="flex h-[30px] border-b border-border">
+                {topHeaderCells.map((cell) => (
+                  <div key={cell.key} style={{width: `${cell.width}px`}} className="flex-shrink-0 flex items-center justify-center border-r border-border font-semibold text-xs text-muted-foreground">{cell.label}</div>
+                ))}
+              </div>
+              <div className="flex h-[30px] border-b border-border">
+                 {bottomHeaderCells.map((cell) => (
+                  <div key={cell.key} style={{width: `${cell.width}px`}} className="flex-shrink-0 flex items-center justify-center border-r border-border text-xs text-muted-foreground">{cell.label}</div>
                 ))}
               </div>
             </div>
-            <div className="relative" style={{height: `${timelineGridHeight}px`, width: `${timelineGridWidth}px`}}>
-                <div className="absolute inset-0 grid" style={{ gridTemplateColumns: `repeat(${totalDaysInView > 0 ? totalDaysInView : 1}, ${dayCellWidth}px)`}}>
-                    {Array.from({ length: totalDaysInView > 0 ? totalDaysInView : 0 }).map((_, dayIndex) => (
-                        <div key={dayIndex} className="border-r border-border/40 h-full"></div>
+            <div className="relative" style={{height: `${timelineGridHeight}px`, width: `${totalWidth}px`}}>
+                <div className="absolute inset-0 flex">
+                    {bottomHeaderCells.map((cell) => (
+                        <div key={cell.key} style={{width: `${cell.width}px`}} className="flex-shrink-0 border-r border-border/40 h-full"></div>
                     ))}
                 </div>
                 <div className="absolute inset-0">
                     {tasksToDisplay.map((task, taskIndex) => (
-                        <div key={`row-${task.id}`} className={cn("absolute left-0 right-0 border-b border-border/40", task.id === hoveredTaskId ? 'bg-primary/5' : '')} style={{ top: `${taskIndex * ROW_HEIGHT}px`, height: `${ROW_HEIGHT}px` }}></div>
+                        <div key={`row-${task.id}`} className={cn("absolute left-0 right-0 border-b border-border/40", task.id === hoveredTaskId ? 'bg-primary/5' : '')} style={{ top: `${taskIndex * ROW_HEIGHT}px`, height: `${ROW_HEIGHT}px`, width: `${totalWidth}px` }}></div>
                     ))}
                 </div>
 
-                {showTodayLine && totalDaysInView > 0 && (
+                {showTodayLine && (
                   <div className="absolute top-0 bottom-0 w-0.5 bg-destructive z-[5]" style={{ left: `${todayLineLeftPosition}px` }} title={`Today: ${format(today, 'PPP')}`}>
                     <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-destructive text-white text-[10px] px-1 rounded-sm font-semibold">TODAY</div>
                   </div>
                 )}
 
-                <svg width={timelineGridWidth} height={timelineGridHeight} className="absolute inset-0 pointer-events-none z-10">
+                <svg width={totalWidth} height={timelineGridHeight} className="absolute inset-0 pointer-events-none z-10">
                     <defs>
                       <marker id="arrowhead" markerWidth={ARROW_SIZE*1.2} markerHeight={ARROW_SIZE*0.8} refX={ARROW_SIZE*1.1} refY={ARROW_SIZE*0.4} orient="auto-start-reverse">
                         <polygon points={`0 0, ${ARROW_SIZE} ${ARROW_SIZE*0.4}, 0 ${ARROW_SIZE*0.8}`} className="fill-muted-foreground/70" />
@@ -746,7 +821,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                 {tasksToDisplay.map((task, taskIndex) => {
                   const taskDetails = taskRenderDetailsMap.get(task.id);
                   if (!taskDetails) return null;
-                  const { barStartX, barWidth, isMilestone } = task;
 
                   const isBeingDragged = dragState?.taskId === task.id;
                   
@@ -760,10 +834,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                             className={cn("absolute transition-opacity duration-150 ease-in-out group z-10 flex items-center justify-center cursor-grab rounded-md")}
                             style={{ left: `${taskDetails.barStartX}px`, width: `${taskDetails.barWidth < 0 ? 0 : taskDetails.barWidth}px`, top: `${(taskIndex * ROW_HEIGHT) + TASK_BAR_VERTICAL_PADDING}px`, height: ROW_HEIGHT - (TASK_BAR_VERTICAL_PADDING * 2) }}
                           >
-                           {isMilestone ? (
+                           {task.isMilestone ? (
                                 <>
                                 <div className={cn("absolute inset-0 flex items-center justify-center pointer-events-none", getTaskBarColor(task.task_type, true))} style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)', width: MILESTONE_SIZE, height: MILESTONE_SIZE, left: '50%', top: '50%', transform: 'translate(-50%,-50%)' }} />
-                                <span className="absolute text-xs text-foreground/80 whitespace-nowrap" style={{ left: 'calc(50% + 10px)', top: '50%', transform: 'translateY(-50%)' }}>{task.title}</span>
+                                <span className="absolute text-xs text-foreground/80 whitespace-nowrap" style={{ left: `calc(100% + 4px)`, top: '50%', transform: 'translateY(-50%)' }}>{task.title}</span>
                                 </>
                             ) : (
                               <div className={cn("h-full w-full rounded-md", getTaskBarColor(task.task_type, false))}>
