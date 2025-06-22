@@ -2,7 +2,7 @@
 "use client";
 
 import type { Task, Employee, TaskType } from '@/lib/types';
-import { addDays, differenceInDays, format, startOfDay, isSameDay, isWithinInterval, max, min, isValid, addMonths, subMonths, startOfMonth, endOfMonth, addYears, isBefore, getISOWeek, eachDayOfInterval, startOfQuarter, endOfQuarter, addQuarters, subQuarters, eachWeekOfInterval, eachMonthOfInterval } from 'date-fns';
+import { addDays, differenceInDays, format, startOfDay, isSameDay, isWithinInterval, max, min, isValid, addMonths, subMonths, startOfMonth, endOfMonth, addYears, isBefore, getISOWeek, eachDayOfInterval, startOfQuarter, endOfQuarter, addQuarters, subQuarters, eachWeekOfInterval, eachMonthOfInterval, subYears, addQuarters as addQuartersDateFns, endOfYear, startOfYear } from 'date-fns';
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
@@ -34,26 +34,25 @@ const LEFT_PANEL_WIDTH = 450;
 const TASK_BAR_VERTICAL_PADDING = 6;
 const MILESTONE_SIZE = 14;
 const DEPENDENCY_LINE_OFFSET = 12;
-const Y_OFFSET_FACTOR = 0.20; 
+const Y_OFFSET_FACTOR = 0.20;
 const ARROW_SIZE = 4;
 const MIN_TASK_DURATION_DAYS = 1;
 
-const getTaskBarColor = (taskType?: TaskType, isMilestone?: boolean): string => {
-  if (isMilestone) {
-    if (taskType === "VALIDATION_PROJECT") return 'bg-purple-500 hover:bg-purple-600';
-    if (taskType === "VALIDATION_STEP") return 'bg-indigo-500 hover:bg-indigo-600';
-    return 'bg-amber-500 hover:bg-amber-600';
-  }
-  if (taskType === "VALIDATION_PROJECT") return 'bg-blue-500 hover:bg-blue-600';
-  if (taskType === "VALIDATION_STEP") return 'bg-teal-500 hover:bg-teal-600';
-  return 'bg-gray-400 hover:bg-gray-500';
+const PROJECT_COLORS = [
+  { base: 'bg-blue-500', hover: 'hover:bg-blue-600', progress: 'bg-blue-700' },
+  { base: 'bg-teal-500', hover: 'hover:bg-teal-600', progress: 'bg-teal-700' },
+  { base: 'bg-rose-500', hover: 'hover:bg-rose-600', progress: 'bg-rose-700' },
+  { base: 'bg-amber-500', hover: 'hover:bg-amber-600', progress: 'bg-amber-700' },
+  { base: 'bg-cyan-500', hover: 'hover:bg-cyan-600', progress: 'bg-cyan-700' },
+  { base: 'bg-lime-500', hover: 'hover:bg-lime-600', progress: 'bg-lime-700' },
+];
+const DEFAULT_TASK_COLOR = { base: 'bg-gray-400', hover: 'hover:bg-gray-500', progress: 'bg-gray-600' };
+const MILESTONE_COLORS = {
+  VALIDATION_PROJECT: { base: 'bg-purple-500', hover: 'hover:bg-purple-600' },
+  VALIDATION_STEP: { base: 'bg-indigo-500', hover: 'hover:bg-indigo-600' },
+  DEFAULT: { base: 'bg-amber-500', hover: 'hover:bg-amber-600' },
 };
 
-const getProgressColor = (taskType?: TaskType): string => {
-  if (taskType === "VALIDATION_PROJECT") return 'bg-blue-700';
-  if (taskType === "VALIDATION_STEP") return 'bg-teal-700';
-  return 'bg-gray-600';
-};
 
 const getInitials = (name: string = ""): string => {
     return name
@@ -116,15 +115,15 @@ const quickEditFormSchema = z.object({
   isMilestone: z.boolean().optional(),
 }).refine(data => {
     if (data.isMilestone === true) {
-      if (!data.startDate) return false; 
-      if (data.dueDate && data.startDate.getTime() !== data.dueDate.getTime()) return false; 
+      if (!data.startDate) return false;
+      if (data.dueDate && data.startDate.getTime() !== data.dueDate.getTime()) return false;
     } else {
-      if (data.startDate && data.dueDate && data.startDate > data.dueDate) return false; 
+      if (data.startDate && data.dueDate && data.startDate > data.dueDate) return false;
     }
     return true;
 }, {
     message: "Date configuration invalid. Milestones require a single date (set via Start Date). For ranges, start date must be before or same as due date.",
-    path: ["startDate"], 
+    path: ["startDate"],
 });
 type QuickEditFormData = z.infer<typeof quickEditFormSchema>;
 
@@ -166,12 +165,12 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
       const projectionHorizon = addYears(new Date(), 5);
       const taskFetchOptions: any = { signal, projectionHorizon };
       const employeeFetchOptions: any = { signal };
-      
+
       const [fetchedTasks, fetchedEmployees] = await Promise.all([
         getTasks(pb, taskFetchOptions),
         getEmployees(pb, employeeFetchOptions)
       ]);
-      
+
       const validRawTasks = fetchedTasks.filter(task =>
         task.startDate && task.dueDate &&
         isValid(new Date(task.startDate)) && isValid(new Date(task.dueDate))
@@ -220,7 +219,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
       const isValidationType = task.task_type === "VALIDATION_PROJECT" || task.task_type === "VALIDATION_STEP";
       const taskIsMilestone = isValidationType && (task.isMilestone === true || (task.isMilestone !== false && isValid(taskStartDateObj) && isValid(taskDueDateObj) && isSameDay(taskStartDateObj, taskDueDateObj)));
       const isParent = task.task_type === "VALIDATION_PROJECT";
-      
+
       const children = isParent ? allTasks.filter(child => child.task_type === "VALIDATION_STEP" && child.dependencies?.includes(task.id)) : [];
 
       return {
@@ -244,42 +243,77 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     }
 
     const tasksById = new Map(tasksToFilter.map(t => [t.id, t]));
-    const rootTasks = tasksToFilter.filter(t => {
+
+    const projectColorMap = new Map<string, typeof PROJECT_COLORS[0]>();
+    let colorIndex = 0;
+    const rootProjects = tasksToFilter.filter(t => t.isParent);
+    rootProjects.forEach(proj => {
+      if (!projectColorMap.has(proj.id)) {
+        projectColorMap.set(proj.id, PROJECT_COLORS[colorIndex % PROJECT_COLORS.length]);
+        colorIndex++;
+      }
+    });
+
+    const getProjectRootId = (taskId: string, allTasksMap: Map<string, any>, visited = new Set<string>()): string | null => {
+      if (visited.has(taskId)) return null; // cycle detection
+      visited.add(taskId);
+      const task = allTasksMap.get(taskId);
+      if (!task) return null;
+      if (task.isParent) return task.id;
+      if (task.dependencies && task.dependencies.length > 0) {
+        for (const depId of task.dependencies) {
+          const rootId = getProjectRootId(depId, allTasksMap, visited);
+          if (rootId) return rootId;
+        }
+      }
+      return null;
+    };
+
+    const tasksWithColor = tasksToFilter.map(task => {
+      const rootId = getProjectRootId(task.id, tasksById);
+      const color = (rootId ? projectColorMap.get(rootId) : null) ?? DEFAULT_TASK_COLOR;
+      return { ...task, color };
+    });
+
+    const rootTasks = tasksWithColor.filter(t => {
         if(t.task_type === 'VALIDATION_STEP') {
             return !t.dependencies.some(depId => tasksById.has(depId) && tasksById.get(depId)?.task_type === 'VALIDATION_PROJECT');
         }
         return true;
     }).sort((a,b) => a.startDate.getTime() - b.startDate.getTime());
 
-    const tasksToDisplay: (typeof tasksToFilter[0] & { level: number })[] = [];
-    
-    function addTask(task: typeof tasksToFilter[0], level: number) {
+    const tasksToDisplay: (typeof tasksWithColor[0] & { level: number })[] = [];
+
+    function addTask(task: typeof tasksWithColor[0], level: number) {
         tasksToDisplay.push({ ...task, level });
         if (task.isParent && !collapsedTasks.has(task.id)) {
-            task.children.sort((a,b) => a.startDate.getTime() - b.startDate.getTime()).forEach(child => {
+            const childrenWithColor = task.children.map(child => {
+                const childWithColor = tasksWithColor.find(t => t.id === child.id);
+                return childWithColor || { ...child, color: DEFAULT_TASK_COLOR };
+            });
+            childrenWithColor.sort((a,b) => a.startDate.getTime() - b.startDate.getTime()).forEach(child => {
                 const childTask = tasksById.get(child.id);
-                if(childTask) addTask(childTask, level + 1);
+                if(childTask) addTask(child, level + 1);
             });
         }
     }
-    
+
     rootTasks.forEach(task => addTask(task, 0));
-    
+
     // --- Timescale Logic ---
-    const headerData: {
+    let headerData: {
         topHeaderCells: { key: string; label: string; width: number }[];
         bottomHeaderCells: { key: string; label: string; width: number }[];
         totalWidth: number;
         pixelsPerDay: number;
         chartEndDate: Date;
     } = { topHeaderCells: [], bottomHeaderCells: [], totalWidth: 0, pixelsPerDay: 0, chartEndDate: viewStartDate };
-    
+
     let chartEndDate: Date;
     switch(timeScaleView) {
-        case 'day':
-        case 'week':
-            chartEndDate = endOfMonth(addMonths(viewStartDate, 2));
-            headerData.pixelsPerDay = timeScaleView === 'day' ? 35 : 20;
+        case 'day': {
+            chartEndDate = endOfMonth(addMonths(viewStartDate, 1));
+            headerData.pixelsPerDay = 35;
             const dailyDays = eachDayOfInterval({ start: viewStartDate, end: chartEndDate });
             const monthSpans: { [key: string]: number } = {};
             dailyDays.forEach(day => {
@@ -287,7 +321,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                 monthSpans[monthKey] = (monthSpans[monthKey] || 0) + 1;
                 headerData.bottomHeaderCells.push({
                     key: format(day, 'yyyy-MM-dd'),
-                    label: timeScaleView === 'day' ? format(day, 'd') : format(day, 'EEEEE'),
+                    label: format(day, 'd'),
                     width: headerData.pixelsPerDay,
                 });
             });
@@ -295,45 +329,69 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                 headerData.topHeaderCells.push({ key: name, label: name, width: daysInMonth * headerData.pixelsPerDay });
             });
             break;
-
-        case 'month':
-            chartEndDate = endOfMonth(addMonths(viewStartDate, 11));
-            const weeklyIntervals = eachWeekOfInterval({ start: viewStartDate, end: chartEndDate }, { weekStartsOn: 1 });
-            const monthSpansMonthView: { [key: string]: number } = {};
-            weeklyIntervals.forEach(weekStart => {
-                const weekEnd = addDays(weekStart, 6);
-                const monthKey = format(weekStart, 'MMM yyyy');
-                monthSpansMonthView[monthKey] = (monthSpansMonthView[monthKey] || 0) + 7;
+        }
+        case 'week': {
+            chartEndDate = endOfMonth(addMonths(viewStartDate, 2));
+            headerData.pixelsPerDay = 20;
+            const dailyDays = eachDayOfInterval({ start: viewStartDate, end: chartEndDate });
+            const monthSpans: { [key: string]: number } = {};
+            dailyDays.forEach(day => {
+                const monthKey = format(day, 'MMM yyyy');
+                monthSpans[monthKey] = (monthSpans[monthKey] || 0) + 1;
                 headerData.bottomHeaderCells.push({
-                    key: format(weekStart, 'yyyy-MM-dd'),
-                    label: `W${getISOWeek(weekStart)}`,
-                    width: 7 * 5,
+                    key: format(day, 'yyyy-MM-dd'),
+                    label: format(day, 'EEEEE'),
+                    width: headerData.pixelsPerDay,
                 });
             });
-            headerData.pixelsPerDay = 5;
-            Object.entries(monthSpansMonthView).forEach(([name, daysInMonth]) => {
+             Object.entries(monthSpans).forEach(([name, daysInMonth]) => {
                 headerData.topHeaderCells.push({ key: name, label: name, width: daysInMonth * headerData.pixelsPerDay });
             });
             break;
-        
-        case 'quarter':
-            chartEndDate = endOfQuarter(addYears(viewStartDate, 1));
-            const monthlyIntervals = eachMonthOfInterval({ start: startOfQuarter(viewStartDate), end: chartEndDate });
+        }
+        case 'month': {
+            chartEndDate = endOfYear(viewStartDate);
+            headerData.pixelsPerDay = 4;
+            const weeklyIntervals = eachWeekOfInterval({ start: startOfMonth(viewStartDate), end: chartEndDate }, { weekStartsOn: 1 });
+            const monthSpans: { [key: string]: number } = {};
+            weeklyIntervals.forEach(weekStart => {
+                const monthKey = format(weekStart, 'MMM yyyy');
+                const daysInWeek = 7;
+                monthSpans[monthKey] = (monthSpans[monthKey] || 0) + daysInWeek;
+                headerData.bottomHeaderCells.push({
+                    key: format(weekStart, 'yyyy-MM-dd'),
+                    label: `W${getISOWeek(weekStart)}`,
+                    width: daysInWeek * headerData.pixelsPerDay,
+                });
+            });
+            Object.entries(monthSpans).forEach(([name, daysInMonth]) => {
+                const actualWidth = headerData.bottomHeaderCells
+                    .filter(c => format(new Date(c.key), 'MMM yyyy') === name)
+                    .reduce((sum, c) => sum + c.width, 0);
+                headerData.topHeaderCells.push({ key: name, label: name, width: actualWidth });
+            });
+            break;
+        }
+        case 'quarter': {
+            chartEndDate = endOfYear(addYears(viewStartDate, 1));
+            headerData.pixelsPerDay = 2;
+            const monthlyIntervals = eachMonthOfInterval({ start: startOfYear(viewStartDate), end: chartEndDate });
             const quarterSpans: { [key: string]: number } = {};
-            monthlyIntervals.forEach(monthStart => {
+             monthlyIntervals.forEach(monthStart => {
                 const quarterKey = `${format(monthStart, 'yyyy')} Q${format(monthStart, 'q')}`;
-                quarterSpans[quarterKey] = (quarterSpans[quarterKey] || 0) + differenceInDays(endOfMonth(monthStart), monthStart) + 1;
+                const daysInMonth = differenceInDays(endOfMonth(monthStart), monthStart) + 1;
+                quarterSpans[quarterKey] = (quarterSpans[quarterKey] || 0) + daysInMonth;
                 headerData.bottomHeaderCells.push({
                     key: format(monthStart, 'yyyy-MM'),
                     label: format(monthStart, 'MMM'),
-                    width: (differenceInDays(endOfMonth(monthStart), monthStart) + 1) * 2
+                    width: daysInMonth * headerData.pixelsPerDay
                 });
             });
-            headerData.pixelsPerDay = 2;
             Object.entries(quarterSpans).forEach(([name, daysInQuarter]) => {
                  headerData.topHeaderCells.push({ key: name, label: name.split(' ')[1], width: daysInQuarter * headerData.pixelsPerDay });
             });
             break;
+        }
     }
     headerData.chartEndDate = chartEndDate;
     headerData.totalWidth = headerData.bottomHeaderCells.reduce((acc, cell) => acc + cell.width, 0);
@@ -344,7 +402,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
       chartStartDate: viewStartDate,
       ...headerData,
     };
-  }, [allTasks, employees, viewStartDate, collapsedTasks, filterTaskType, timeScaleView]);
+  }, [allTasks, employees, viewStartDate, timeScaleView, collapsedTasks, filterTaskType]);
 
 
   const { tasksToDisplay, tasksById, chartStartDate, chartEndDate, totalWidth, pixelsPerDay, topHeaderCells, bottomHeaderCells } = chartData;
@@ -379,7 +437,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                 taskEndActual = max([taskEndActual, addDays(dragState.originalStartDate, (MIN_TASK_DURATION_DAYS-1) )]);
             }
         }
-        
+
         const taskStartDayOffset = differenceInDays(taskStartActual, chartStartDate);
         const taskDurationDays = differenceInDays(taskEndActual, taskStartActual) + 1;
         if (taskDurationDays <= 0 && !task.isMilestone) return;
@@ -402,11 +460,11 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     });
     return map;
   }, [tasksToDisplay, chartStartDate, pixelsPerDay, dragState]);
-  
+
   const dependencyLines = useMemo(() => {
     const lines: { id: string; d: string; isConflict: boolean }[] = [];
     const yOffset = ROW_HEIGHT * Y_OFFSET_FACTOR;
-    
+
     tasksToDisplay.forEach((dependentTask) => {
         if (!dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
         const dependentDetails = taskRenderDetailsMap.get(dependentTask.id);
@@ -415,16 +473,16 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         dependentTask.dependencies.forEach((predecessorId, depIndex) => {
             const predecessorDetails = taskRenderDetailsMap.get(predecessorId);
             if (!predecessorDetails) return;
-            
+
             const fromX = predecessorDetails.task.isMilestone ? predecessorDetails.barStartX + MILESTONE_SIZE / 2 : predecessorDetails.barStartX + predecessorDetails.barWidth;
             const toX = dependentDetails.task.isMilestone ? dependentDetails.barStartX + MILESTONE_SIZE / 2 : dependentDetails.barStartX;
 
             const pathFromY = predecessorDetails.task.isMilestone ? predecessorDetails.barCenterY : predecessorDetails.barCenterY + yOffset;
             const pathToY = dependentDetails.task.isMilestone ? dependentDetails.barCenterY : dependentDetails.barCenterY - yOffset;
-            
+
             const verticalSegmentX = toX - DEPENDENCY_LINE_OFFSET;
             const pathD = `M ${fromX} ${pathFromY} L ${verticalSegmentX} ${pathFromY} L ${verticalSegmentX} ${pathToY} L ${toX} ${pathToY}`;
-            
+
             const isConflict = isBefore(dependentDetails.effectiveStartDate, predecessorDetails.effectiveDueDate);
 
             lines.push({ id: `dep-${predecessorId}-to-${dependentTask.id}-${depIndex}`, d: pathD, isConflict });
@@ -441,10 +499,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         try {
             await updateTaskService(pbClient, taskId, payload);
             toast({ title: "Task Updated", description: `Task "${updates.title || taskToUpdate.title}" was successfully updated.` });
-            if (pbClient) fetchTimelineData(pbClient); 
+            if (pbClient) fetchTimelineData(pbClient);
         } catch (err) {
             toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${updates.title || taskToUpdate.title}"`), variant: "destructive" });
-            if (pbClient) fetchTimelineData(pbClient); 
+            if (pbClient) fetchTimelineData(pbClient);
         }
     }, [pbClient, allTasks, toast, fetchTimelineData]);
 
@@ -456,7 +514,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         e.stopPropagation();
         setDragState({ type: 'drag', taskId: task.id, initialMouseX: e.clientX, originalStartDate: taskDetails.effectiveStartDate, originalDueDate: taskDetails.effectiveDueDate });
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'grabbing';
-        document.body.style.userSelect = 'none'; 
+        document.body.style.userSelect = 'none';
     }, [taskRenderDetailsMap]);
 
     const handleMouseDownOnResizeHandle = useCallback((e: React.MouseEvent, task: Task, handleType: 'start' | 'end') => {
@@ -469,11 +527,11 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'ew-resize';
         document.body.style.userSelect = 'none';
     }, [taskRenderDetailsMap]);
-    
+
     const handleMouseDownOnDependencyConnector = useCallback((e: React.MouseEvent, task: Task) => {
         if (e.button !== 0) return;
         const taskDetails = taskRenderDetailsMap.get(task.id);
-        if (!taskDetails || task.isMilestone) return; 
+        if (!taskDetails || task.isMilestone) return;
 
         e.preventDefault();
         e.stopPropagation();
@@ -483,7 +541,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         if (!ganttRect || !timelineScroll) return;
 
         const initialMouseXInGrid = e.clientX - ganttRect.left + timelineScroll.scrollLeft;
-        const initialMouseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60; 
+        const initialMouseYInGrid = e.clientY - ganttRect.top + timelineScroll.scrollTop - 60;
 
         setDependencyDrawState({ sourceTaskId: task.id, sourceTaskBarEndX: taskDetails.barStartX + taskDetails.barWidth, sourceTaskBarCenterY: taskDetails.barCenterY, currentMouseX: initialMouseXInGrid, currentMouseY: initialMouseYInGrid });
         if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'crosshair';
@@ -494,7 +552,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         try {
             await deleteTaskService(pbClient, taskToDelete.id);
             toast({ title: "Task Deleted", description: `Task "${taskToDelete.title}" has been deleted.` });
-            fetchTimelineData(pbClient); 
+            fetchTimelineData(pbClient);
         } catch (err) {
             toast({ title: "Delete Failed", description: getDetailedErrorMessage(err, "deleting task"), variant: "destructive" });
         } finally {
@@ -537,7 +595,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                 }
                 setDragState(null);
                 if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'default';
-                document.body.style.userSelect = ''; 
+                document.body.style.userSelect = '';
             } else if (dependencyDrawState) {
                 const ganttRect = ganttBodyRef.current?.getBoundingClientRect();
                 const timelineScroll = timelineScrollContainerRef.current;
@@ -547,7 +605,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
 
                     const targetTaskIndex = Math.floor(releaseYInGrid / ROW_HEIGHT);
                     const targetTask = tasksToDisplay[targetTaskIndex];
-                    
+
                     if (targetTask && targetTask.id !== dependencyDrawState.sourceTaskId) {
                         const currentTargetDeps = targetTask.dependencies || [];
                         const sourceTask = tasksById.get(dependencyDrawState.sourceTaskId);
@@ -588,7 +646,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     switch(timeScaleView) {
         case 'day': return subMonths(prev, 1);
         case 'week': return subMonths(prev, 1);
-        case 'month': return subQuarters(prev, 1);
+        case 'month': return subQuartersDateFns(prev, 1);
         case 'quarter': return subYears(prev, 1);
         default: return prev;
     }
@@ -597,7 +655,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
       switch(timeScaleView) {
         case 'day': return addMonths(prev, 1);
         case 'week': return addMonths(prev, 1);
-        case 'month': return addQuarters(prev, 1);
+        case 'month': return addQuartersDateFns(prev, 1);
         case 'quarter': return addYears(prev, 1);
         default: return prev;
     }
@@ -631,7 +689,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
       leftEl?.removeEventListener('scroll', handleLeftScroll);
       rightEl?.removeEventListener('scroll', handleRightScroll);
     };
-  }, []); 
+  }, []);
 
   if (isLoading) {
     return (
@@ -684,8 +742,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
          <div className="flex items-center gap-2">
             <div className="flex items-center rounded-md bg-muted p-1 text-sm">
                 {(['day', 'week', 'month', 'quarter'] as const).map(view => (
-                    <Button key={view} size="sm" variant={timeScaleView === view ? 'outline' : 'ghost'} className="h-7 px-2" onClick={() => setTimeScaleView(view)}>
-                        {view.charAt(0).toUpperCase() + view.slice(1)}
+                    <Button key={view} size="sm" variant={timeScaleView === view ? 'outline' : 'ghost'} className="h-7 px-2 capitalize" onClick={() => setTimeScaleView(view)}>
+                        {view}
                     </Button>
                 ))}
             </div>
@@ -823,7 +881,12 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                   if (!taskDetails) return null;
 
                   const isBeingDragged = dragState?.taskId === task.id;
-                  
+                  const milestoneColor = task.task_type === 'VALIDATION_PROJECT'
+                      ? MILESTONE_COLORS.VALIDATION_PROJECT
+                      : task.task_type === 'VALIDATION_STEP'
+                      ? MILESTONE_COLORS.VALIDATION_STEP
+                      : MILESTONE_COLORS.DEFAULT;
+
                   return (
                       <Tooltip key={`${task.id}-timeline`} delayDuration={isBeingDragged ? 999999 : 100}>
                         <TooltipTrigger asChild>
@@ -836,12 +899,12 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                           >
                            {task.isMilestone ? (
                                 <>
-                                <div className={cn("absolute inset-0 flex items-center justify-center pointer-events-none", getTaskBarColor(task.task_type, true))} style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)', width: MILESTONE_SIZE, height: MILESTONE_SIZE, left: '50%', top: '50%', transform: 'translate(-50%,-50%)' }} />
+                                <div className={cn("absolute inset-0 flex items-center justify-center pointer-events-none", milestoneColor.base, milestoneColor.hover)} style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)', width: MILESTONE_SIZE, height: MILESTONE_SIZE, left: '50%', top: '50%', transform: 'translate(-50%,-50%)' }} />
                                 <span className="absolute text-xs text-foreground/80 whitespace-nowrap" style={{ left: `calc(100% + 4px)`, top: '50%', transform: 'translateY(-50%)' }}>{task.title}</span>
                                 </>
                             ) : (
-                              <div className={cn("h-full w-full rounded-md", getTaskBarColor(task.task_type, false))}>
-                                  <div className={cn("h-full rounded-md", getProgressColor(task.task_type))} style={{ width: `${task.progress || 0}%` }}/>
+                              <div className={cn("h-full w-full rounded-md", task.color.base, task.color.hover)}>
+                                  <div className={cn("h-full rounded-md", task.color.progress)} style={{ width: `${task.progress || 0}%` }}/>
                                   <div className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-20 group-hover:opacity-100 opacity-0" onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'start')}><div className="bg-white/50 w-px h-1/2 absolute top-1/4 left-1"></div></div>
                                   <div className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-20 group-hover:opacity-100 opacity-0" onMouseDown={(e) => handleMouseDownOnResizeHandle(e, task, 'end')}><div className="bg-white/50 w-px h-1/2 absolute top-1/4 right-1"></div></div>
                                   <div className="absolute right-[-6px] top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-background cursor-crosshair z-30 opacity-0 group-hover:opacity-100 transition-opacity" onMouseDown={(e) => handleMouseDownOnDependencyConnector(e, task)} title="Draw dependency"/>
@@ -886,7 +949,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
 
 
 interface QuickEditFormProps {
-  task: Task & { isMilestone?: boolean }; 
+  task: Task & { isMilestone?: boolean };
   onSave: (taskId: string, updates: Partial<Task>) => Promise<void>;
   onClose: () => void;
 }
@@ -929,7 +992,7 @@ const QuickEditForm: React.FC<QuickEditFormProps> = ({ task, onSave, onClose }) 
       setIsSubmitting(false);
     }
   };
-  
+
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
       <h4 className="font-medium text-sm leading-none">Edit: {task.title}</h4>
@@ -985,3 +1048,4 @@ const buttonVariants = cva(
     defaultVariants: { variant: "default", size: "default" },
   }
 );
+
