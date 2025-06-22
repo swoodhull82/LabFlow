@@ -499,9 +499,16 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         try {
             await updateTaskService(pbClient, taskId, payload);
             toast({ title: "Task Updated", description: `Task "${updates.title || taskToUpdate.title}" was successfully updated.` });
-            if (pbClient) fetchTimelineData(pbClient);
-        } catch (err) {
-            toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${updates.title || taskToUpdate.title}"`), variant: "destructive" });
+        } catch (err: any) {
+            const isAutocancelError = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+
+            if (isAutocancelError) {
+                console.warn(`Task update for "${updates.title || taskToUpdate.title}" was cancelled. This is usually not a problem.`, err);
+            } else {
+                toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${updates.title || taskToUpdate.title}"`), variant: "destructive" });
+            }
+        } finally {
+            // Always refetch to ensure UI consistency, resetting drag state or applying successful updates.
             if (pbClient) fetchTimelineData(pbClient);
         }
     }, [pbClient, allTasks, toast, fetchTimelineData]);
@@ -1048,4 +1055,3 @@ const buttonVariants = cva(
     defaultVariants: { variant: "default", size: "default" },
   }
 );
-
