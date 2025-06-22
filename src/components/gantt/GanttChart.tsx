@@ -15,7 +15,8 @@ import {
   addMonths,
   subMonths,
   startOfMonth,
-  endOfMonth
+  endOfMonth,
+  addYears
 } from 'date-fns';
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
@@ -172,7 +173,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType, displayHeaderCo
     setIsLoading(true);
     setError(null);
     try {
-      const fetchOptions: any = { signal };
+      const projectionHorizon = addYears(new Date(), 5);
+      const fetchOptions: any = { signal, projectionHorizon };
 
       const fetchedTasks = await getTasks(pb, fetchOptions);
       const validRawTasks = fetchedTasks.filter(task =>
@@ -1309,4 +1311,3 @@ const buttonVariants = cva(
     },
   }
 );
-

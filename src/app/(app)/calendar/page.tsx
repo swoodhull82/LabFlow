@@ -4,7 +4,7 @@
 import { Calendar as ShadcnCalendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { format, isPast, isSameDay, isFuture, differenceInCalendarDays, startOfDay, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isValid } from "date-fns";
+import { format, isPast, isSameDay, isFuture, differenceInCalendarDays, startOfDay, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isValid, addYears } from "date-fns";
 import type { CalendarEvent } from "@/lib/types"; 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
@@ -82,7 +82,8 @@ export default function CalendarPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const fetchedEvents = await getCalendarEvents(pb, { signal }); 
+      const projectionHorizon = addYears(new Date(), 2);
+      const fetchedEvents = await getCalendarEvents(pb, { signal, projectionHorizon }); 
       setAllEvents(fetchedEvents);
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));

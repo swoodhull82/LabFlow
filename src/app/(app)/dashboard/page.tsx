@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
@@ -13,7 +14,7 @@ import { getTasks } from "@/services/taskService";
 import { getEmployees } from "@/services/employeeService";
 import type { Task, TaskStatus, Employee, TaskType } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
-import { format, isPast, isToday, addDays, startOfDay, getQuarter, getYear } from "date-fns";
+import { format, isPast, isToday, addDays, startOfDay, getQuarter, getYear, addYears } from "date-fns";
 import type PocketBase from "pocketbase";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TASK_TYPES } from "@/lib/constants";
@@ -334,8 +335,9 @@ export default function DashboardPage() {
     setIsLoading(true);
     setError(null);
     try {
+      const projectionHorizon = addYears(new Date(), 2);
       const [fetchedTasks, _fetchedEmployees] = await Promise.all([
-        getTasks(pb, { signal }),
+        getTasks(pb, { signal, projectionHorizon }),
         getEmployees(pb, { signal }) 
       ]);
       setAllFetchedTasks(fetchedTasks); 
