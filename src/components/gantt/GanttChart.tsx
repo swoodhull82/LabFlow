@@ -34,7 +34,6 @@ const LEFT_PANEL_WIDTH = 450;
 const TASK_BAR_VERTICAL_PADDING = 6;
 const MILESTONE_SIZE = 14;
 const DEPENDENCY_LINE_OFFSET = 12;
-const Y_OFFSET_FACTOR = 0.20;
 const ARROW_SIZE = 4;
 const MIN_TASK_DURATION_DAYS = 1;
 
@@ -463,7 +462,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
 
   const dependencyLines = useMemo(() => {
     const lines: { id: string; d: string; isConflict: boolean }[] = [];
-    const yOffset = ROW_HEIGHT * Y_OFFSET_FACTOR;
 
     tasksToDisplay.forEach((dependentTask) => {
         if (!dependentTask.dependencies || dependentTask.dependencies.length === 0) return;
@@ -477,8 +475,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             const fromX = predecessorDetails.task.isMilestone ? predecessorDetails.barStartX + MILESTONE_SIZE / 2 : predecessorDetails.barStartX + predecessorDetails.barWidth;
             const toX = dependentDetails.task.isMilestone ? dependentDetails.barStartX + MILESTONE_SIZE / 2 : dependentDetails.barStartX;
 
-            const pathFromY = predecessorDetails.task.isMilestone ? predecessorDetails.barCenterY : predecessorDetails.barCenterY + yOffset;
-            const pathToY = dependentDetails.task.isMilestone ? dependentDetails.barCenterY : dependentDetails.barCenterY - yOffset;
+            const pathFromY = predecessorDetails.barCenterY;
+            const pathToY = dependentDetails.barCenterY;
             
             const verticalSegmentX = toX - DEPENDENCY_LINE_OFFSET;
             
@@ -498,7 +496,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
 
             let pathD: string;
 
-            if (effectiveRadius < 1) {
+            if (effectiveRadius < 1 || verticalSegmentLength === 0) {
                 pathD = `M ${fromX} ${pathFromY} L ${verticalSegmentX} ${pathFromY} L ${verticalSegmentX} ${pathToY} L ${toX} ${pathToY}`;
             } else {
                 pathD = 
