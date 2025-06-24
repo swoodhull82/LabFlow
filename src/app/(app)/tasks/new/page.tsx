@@ -49,13 +49,12 @@ const getDetailedTaskFetchErrorMessage = (error: any): string => {
   return message;
 };
 
-// Helper function to determine initial task type based on query params or a fallback
-// Defined outside component to be stable for useState initializers
 const getInitialTaskTypeOnClientHelper = (searchParamsInstance: URLSearchParams): TaskType => {
   const defaultTypeFromQuery = searchParamsInstance.get("defaultType") as TaskType | null;
   if (defaultTypeFromQuery && TASK_TYPES.includes(defaultTypeFromQuery)) {
     return defaultTypeFromQuery;
   }
+  // Default to a non-validation type if no specific valid type is provided
   return TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP") || TASK_TYPES[0];
 };
 
@@ -66,11 +65,11 @@ export default function NewTaskPage() {
   const { toast } = useToast();
   const searchParams = useSearchParams();
   
-  // Note: defaultTypeFromQuery is now primarily used by getInitialTaskTypeOnClientHelper
-  const defaultTypeFromQuery = searchParams.get("defaultType") as TaskType | null; 
+  const initialTaskType = useMemo(() => getInitialTaskTypeOnClientHelper(searchParams), [searchParams]);
   const dependsOnValidationProjectQuery = searchParams.get("dependsOnValidationProject");
 
-  const [taskType, setTaskType] = useState<TaskType>(() => getInitialTaskTypeOnClientHelper(searchParams));
+  const [taskType, setTaskType] = useState<TaskType>(initialTaskType);
+  const [customProjectName, setCustomProjectName] = useState<string>(""); 
   const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
   const [method, setMethod] = useState<string | undefined>();
   const [description, setDescription] = useState("");
@@ -82,25 +81,18 @@ export default function NewTaskPage() {
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
   const [recurrence, setRecurrence] = useState<TaskRecurrence>(() => {
-    if (typeof window === 'undefined') {
-      const initialType = getInitialTaskTypeOnClientHelper(new URLSearchParams()); // Simplified for SSR
-      return (initialType === "VALIDATION_PROJECT" || initialType === "VALIDATION_STEP") ? "None" : "Daily";
-    }
-  
-    const initialTypeForRecurrence = getInitialTaskTypeOnClientHelper(searchParams);
-  
-    if (initialTypeForRecurrence === "VALIDATION_PROJECT" || initialTypeForRecurrence === "VALIDATION_STEP") {
-      if (localStorage.getItem('newTaskFormRecurrence') !== "None") {
-          localStorage.setItem('newTaskFormRecurrence', "None");
-      }
+    const typeForRecurrence = getInitialTaskTypeOnClientHelper(searchParams); // Use a fresh check for initial state
+    if (typeForRecurrence === "VALIDATION_PROJECT" || typeForRecurrence === "VALIDATION_STEP") {
+      if (typeof window !== 'undefined') localStorage.setItem('newTaskFormRecurrence', "None");
       return "None";
     }
-  
-    const savedRecurrence = localStorage.getItem('newTaskFormRecurrence');
-    if (savedRecurrence && TASK_RECURRENCES.includes(savedRecurrence as TaskRecurrence)) {
-      return savedRecurrence as TaskRecurrence;
+    if (typeof window !== 'undefined') {
+      const savedRecurrence = localStorage.getItem('newTaskFormRecurrence');
+      if (savedRecurrence && TASK_RECURRENCES.includes(savedRecurrence as TaskRecurrence)) {
+        return savedRecurrence as TaskRecurrence;
+      }
     }
-    return "Daily"; // Default for non-validation types if nothing in storage
+    return "Daily"; // Default for non-validation types if nothing saved
   });
 
   const [assignedToText, setAssignedToText] = useState<string | undefined>();
@@ -121,46 +113,44 @@ export default function NewTaskPage() {
   const [availableMethods, setAvailableMethods] = useState<readonly string[]>([]);
 
   const availableTaskTypesToDisplay = useMemo(() => {
-    if (defaultTypeFromQuery === "VALIDATION_PROJECT") {
+    if (initialTaskType === "VALIDATION_PROJECT") {
       return TASK_TYPES.filter(t => t === "VALIDATION_PROJECT");
-    } else if (defaultTypeFromQuery === "VALIDATION_STEP" && dependsOnValidationProjectQuery) {
+    } else if (initialTaskType === "VALIDATION_STEP" && dependsOnValidationProjectQuery) {
       return TASK_TYPES.filter(t => t === "VALIDATION_STEP");
     } else {
-      return TASK_TYPES.filter(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP");
+      return TASK_TYPES.filter(t => t !== "VALIDATION_PROJECT"); // Exclude VP if not specifically for it
     }
-  }, [defaultTypeFromQuery, dependsOnValidationProjectQuery]);
+  }, [initialTaskType, dependsOnValidationProjectQuery]);
 
 
-  // Effect to persist recurrence to localStorage whenever it changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('newTaskFormRecurrence', recurrence);
     }
   }, [recurrence]);
 
-  // Effect to adjust recurrence when taskType changes
   useEffect(() => {
     if (taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") {
       if (recurrence !== "None") {
         setRecurrence("None");
       }
     } else {
+      // If switching from a validation type to non-validation, and recurrence is "None",
+      // set it to a default like "Daily".
+      // Also consider if a user explicitly set "None" for a non-validation task, and it was saved.
       if (recurrence === "None") {
-        // If switching to a non-validation type and recurrence became "None",
-        // set to a sensible default (e.g., "Daily").
-        // This also handles initial load if localStorage was "None" or empty for a non-validation type.
-        setRecurrence("Daily"); 
+        const savedRecurrence = typeof window !== 'undefined' ? localStorage.getItem('newTaskFormRecurrence') : null;
+        if (savedRecurrence && savedRecurrence !== "None" && TASK_RECURRENCES.includes(savedRecurrence as TaskRecurrence)) {
+          setRecurrence(savedRecurrence as TaskRecurrence);
+        } else {
+          setRecurrence("Daily"); 
+        }
       }
     }
   }, [taskType, recurrence, setRecurrence]);
 
 
   useEffect(() => {
-    // This effect handles logic dependent on taskType, instrumentSubtype, etc.
-    // It should NOT directly set recurrence, as that's handled by the dedicated effect above.
-    // It only sets it to "None" IF the taskType forces it (VALIDATION types).
-    // Update: The dedicated effect above handles this better.
-
     if (taskType !== "MDL" && taskType !== "SOP") {
       setInstrumentSubtype(undefined);
       setMethod(undefined);
@@ -174,34 +164,31 @@ export default function NewTaskPage() {
       if (instrumentSubtype && MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype] && !MDL_INSTRUMENTS_WITH_METHODS[instrumentSubtype].includes(method || '')) {
         setMethod(undefined);
       }
-    } else { // SOP
+    } else { 
         setMethod(undefined);
         setAvailableMethods([]);
     }
 
-    // The recurrence logic is now primarily handled in its own dedicated useEffect.
-    // This main effect ensures other states are consistent with taskType.
-
-    if (taskType === "VALIDATION_PROJECT" && isMilestone && startDate) {
+    if ((taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && isMilestone && startDate) {
       setDueDate(startDate);
-    } else if (taskType === "VALIDATION_PROJECT" && isMilestone && !startDate) {
+    } else if ((taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && isMilestone && !startDate) {
       setDueDate(undefined);
+    }
+    
+    if (taskType !== "VALIDATION_PROJECT" && taskType !== "VALIDATION_STEP") {
+      setIsMilestone(false);
     }
 
     if (taskType === "VALIDATION_STEP") {
-      setIsMilestone(false); // Milestones are not for steps
-       if (!dependsOnValidationProjectQuery) { 
+       if (!dependsOnValidationProjectQuery && selectedDependencies.length > 0) { 
           setSelectedDependencies([]);
       }
-    } else if (taskType !== "VALIDATION_PROJECT") { // Non-validation, non-project
-      setIsMilestone(false);
+    } else if (taskType !== "VALIDATION_PROJECT") {
       if (!dependsOnValidationProjectQuery) {
         setSelectedDependencies([]);
       }
     }
-    // Initial query param driven setup for taskType and dependencies (already handled by useState initializers).
-    // This effect fine-tunes based on further interactions or derived state.
-  }, [taskType, instrumentSubtype, isMilestone, startDate, method, dependsOnValidationProjectQuery, setInstrumentSubtype, setMethod, setAvailableMethods, setIsMilestone, setDueDate, setSelectedDependencies]);
+  }, [taskType, instrumentSubtype, isMilestone, startDate, method, dependsOnValidationProjectQuery, selectedDependencies.length]);
 
 
   const fetchAndSetEmployees = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
@@ -307,8 +294,11 @@ export default function NewTaskPage() {
       toast({ title: "Error", description: "You must be logged in to create a task.", variant: "destructive" });
       return;
     }
-    if (!taskType) {
-      toast({ title: "Validation Error", description: "Task Name is required.", variant: "destructive" });
+    
+    const finalTitle = taskType === "VALIDATION_PROJECT" ? customProjectName.trim() : taskType;
+
+    if (!finalTitle) {
+      toast({ title: "Validation Error", description: taskType === "VALIDATION_PROJECT" ? "Project Name is required." : "Task Type (which serves as Name) is required.", variant: "destructive" });
       return;
     }
     if (taskType === "MDL" && !instrumentSubtype) {
@@ -333,15 +323,15 @@ export default function NewTaskPage() {
     }
     
     const effectiveRecurrence = (taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") ? "None" : recurrence;
-    if (taskType !== "VALIDATION_PROJECT" && taskType !== "VALIDATION_STEP" && (!effectiveRecurrence || !TASK_RECURRENCES.includes(effectiveRecurrence))) {
+    if (!(taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && (!effectiveRecurrence || !TASK_RECURRENCES.includes(effectiveRecurrence))) {
       toast({ title: "Validation Error", description: "Task recurrence is required for this task type.", variant: "destructive" });
       return;
     }
-    if (taskType === "VALIDATION_PROJECT" && isMilestone && !startDate) {
+    if ((taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && isMilestone && !startDate) {
       toast({ title: "Validation Error", description: "Milestone date is required for a Validation milestone.", variant: "destructive" });
       return;
     }
-    if (!(taskType === "VALIDATION_PROJECT" && isMilestone) && startDate && dueDate && startDate > dueDate) {
+    if (!((taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && isMilestone) && startDate && dueDate && startDate > dueDate) {
        toast({ title: "Validation Error", description: "Start date must be before or same as due date.", variant: "destructive" });
       return;
     }
@@ -349,8 +339,8 @@ export default function NewTaskPage() {
     setIsSubmitting(true);
 
     const formData = new FormData();
+    formData.append("title", finalTitle); 
     formData.append("task_type", taskType);
-    formData.append("title", taskType); 
 
     if (taskType === "MDL" && instrumentSubtype) {
         formData.append("instrument_subtype", instrumentSubtype);
@@ -368,11 +358,7 @@ export default function NewTaskPage() {
     formData.append("priority", priority);
     formData.append("recurrence", effectiveRecurrence);
     
-    if (taskType === "VALIDATION_PROJECT") {
-        formData.append("isMilestone", isMilestone.toString());
-    } else {
-        formData.append("isMilestone", "false"); 
-    }
+    formData.append("isMilestone", (taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") ? isMilestone.toString() : "false");
     
     if (selectedDependencies.length > 0) {
         formData.append("dependencies", JSON.stringify(selectedDependencies));
@@ -398,7 +384,7 @@ export default function NewTaskPage() {
 
     try {
       await createTask(pbClient, formData);
-      toast({ title: "Success", description: `New ${taskType.replace(/_/g, ' ')} task created successfully!` });
+      toast({ title: "Success", description: `New ${finalTitle} task created successfully!` });
       if (taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP" || dependsOnValidationProjectQuery) {
         router.push("/validations");
       } else {
@@ -406,7 +392,7 @@ export default function NewTaskPage() {
       }
     } catch (err: any) {
       console.error("Failed to create task (full error object):", err); 
-      let detailedMessage = "Failed to create task. Please try again. Ensure 'VALIDATION_STEP' is an allowed value for 'task_type' in your PocketBase collection settings if creating a step.";
+      let detailedMessage = "Failed to create task. Please try again.";
       
       if (err.data && typeof err.data === 'object') {
         let mainErrorMessage = "";
@@ -432,9 +418,9 @@ export default function NewTaskPage() {
           detailedMessage = `Validation errors: ${fieldErrorString}`;
         } else if (Object.keys(err.data).length > 0 && detailedMessage.startsWith("Failed to create task.")) {
             try {
-                detailedMessage = `PocketBase error: ${JSON.stringify(err.data)}. Ensure 'VALIDATION_STEP' is an allowed value for 'task_type' in your PocketBase collection.`;
+                detailedMessage = `PocketBase error: ${JSON.stringify(err.data)}.`;
             } catch (e) {
-                detailedMessage = `PocketBase error: Could not stringify error data. Ensure 'VALIDATION_STEP' is an allowed value for 'task_type' in PocketBase.`;
+                detailedMessage = `PocketBase error: Could not stringify error data.`;
             }
         }
       } else if (err.message && typeof err.message === 'string') { 
@@ -455,7 +441,7 @@ export default function NewTaskPage() {
   
 
   const handleDateSelect = (selected: Date | DateRange | undefined) => {
-    if (taskType === "VALIDATION_PROJECT" && isMilestone) {
+    if ((taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && isMilestone) {
       const singleDate = selected as Date | undefined;
       setStartDate(singleDate);
       setDueDate(singleDate);
@@ -465,7 +451,8 @@ export default function NewTaskPage() {
       setDueDate(range?.to);
     }
     if (selected) { 
-        if (!(taskType === "VALIDATION_PROJECT" && isMilestone) && (selected as DateRange)?.from && !(selected as DateRange)?.to) {
+        if (!((taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && isMilestone) && (selected as DateRange)?.from && !(selected as DateRange)?.to) {
+          // Keep picker open if only start date is selected for a range
         } else {
             setIsDatePickerOpen(false);
         }
@@ -473,7 +460,7 @@ export default function NewTaskPage() {
   };
 
   let datePickerButtonText = "Pick a date";
-  if (taskType === "VALIDATION_PROJECT" && isMilestone) {
+  if ((taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && isMilestone) {
     datePickerButtonText = startDate ? `Milestone: ${format(startDate, "PPP")}` : "Pick Milestone Date";
   } else {
     if (startDate && dueDate) {
@@ -504,16 +491,17 @@ export default function NewTaskPage() {
   }
 
   const isCreatingStepTask = taskType === "VALIDATION_STEP" && !!dependsOnValidationProjectQuery;
+  const isCreatingValidationProject = taskType === "VALIDATION_PROJECT" || initialTaskType === "VALIDATION_PROJECT";
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl md:text-3xl font-headline font-semibold">
-          {taskType === "VALIDATION_PROJECT" ? "New Validation Project" : 
+          {isCreatingValidationProject ? "New Validation Project" : 
            (isCreatingStepTask ? `New Step for Validation Project` : "Add New Task")}
         </h1>
         <Button variant="outline" asChild>
-          <Link href={taskType === "VALIDATION_PROJECT" || isCreatingStepTask ? "/validations" : "/tasks"}>Cancel</Link>
+          <Link href={isCreatingValidationProject || isCreatingStepTask ? "/validations" : "/tasks"}>Cancel</Link>
         </Button>
       </div>
 
@@ -525,18 +513,19 @@ export default function NewTaskPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <Label htmlFor="task_name_select">Task Name</Label>
+              <Label htmlFor="task_type_select">Task Type</Label>
               <Select 
                 value={taskType} 
                 onValueChange={(value: TaskType) => {
                   setTaskType(value);
-                  // Other state resets related to taskType change (instrument, method, etc.)
-                  // Recurrence will be handled by its dedicated useEffect.
+                  if (value !== "VALIDATION_PROJECT") {
+                    setCustomProjectName(""); // Clear custom name if not a VP
+                  }
                 }}
-                disabled={defaultTypeFromQuery === "VALIDATION_PROJECT" || (defaultTypeFromQuery === "VALIDATION_STEP" && !!dependsOnValidationProjectQuery)}
+                disabled={ (initialTaskType === "VALIDATION_PROJECT" || (initialTaskType === "VALIDATION_STEP" && !!dependsOnValidationProjectQuery))}
               >
-                <SelectTrigger id="task_name_select">
-                  <SelectValue placeholder="Select task name" />
+                <SelectTrigger id="task_type_select">
+                  <SelectValue placeholder="Select task type" />
                 </SelectTrigger>
                 <SelectContent>
                   {availableTaskTypesToDisplay.map(tt => (
@@ -545,6 +534,18 @@ export default function NewTaskPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {taskType === "VALIDATION_PROJECT" && (
+              <div>
+                <Label htmlFor="customProjectName">Project Name</Label>
+                <Input 
+                  id="customProjectName" 
+                  placeholder="Enter the project name" 
+                  value={customProjectName} 
+                  onChange={(e) => setCustomProjectName(e.target.value)} 
+                />
+              </div>
+            )}
 
             {(taskType === "MDL") && (
               <>
@@ -639,7 +640,7 @@ export default function NewTaskPage() {
               </div>
             </div>
 
-            {taskType === "VALIDATION_PROJECT" && (
+            {(taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && (
               <div className="flex items-center space-x-2">
                 <Checkbox id="isMilestone" checked={isMilestone} onCheckedChange={(checked) => setIsMilestone(Boolean(checked))} />
                 <Label htmlFor="isMilestone" className="flex items-center cursor-pointer">
@@ -650,7 +651,7 @@ export default function NewTaskPage() {
             
             <div>
               <Label htmlFor="dateRangePicker">
-                {taskType === "VALIDATION_PROJECT" && isMilestone ? "Milestone Date" : "Date Range (Start - Due)"}
+                {(taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && isMilestone ? "Milestone Date" : "Date Range (Start - Due)"}
               </Label>
               <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
                 <PopoverTrigger asChild>
@@ -665,10 +666,10 @@ export default function NewTaskPage() {
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0">
                   <Calendar
-                    mode={(taskType === "VALIDATION_PROJECT" && isMilestone) ? "single" : "range"}
-                    selected={(taskType === "VALIDATION_PROJECT" && isMilestone) ? startDate : { from: startDate, to: dueDate }}
+                    mode={((taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && isMilestone) ? "single" : "range"}
+                    selected={((taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && isMilestone) ? startDate : { from: startDate, to: dueDate }}
                     onSelect={handleDateSelect}
-                    numberOfMonths={(taskType === "VALIDATION_PROJECT" && isMilestone) ? 1 : 2}
+                    numberOfMonths={((taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && isMilestone) ? 1 : 2}
                     initialFocus
                   />
                 </PopoverContent>
@@ -691,7 +692,7 @@ export default function NewTaskPage() {
                   </Select>
                 </div>
               )}
-              <div className={(taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP" || (taskType === "MDL" && availableMethods.length > 0) ) ? "md:col-span-2" : ""}>
+              <div className={(taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP" || (taskType === "MDL" && availableMethods.length > 0) || (taskType !== "VALIDATION_PROJECT" && taskType !== "VALIDATION_STEP") ) ? "md:col-span-2" : ""}>
                 <Label htmlFor="assignedTo">Assigned To</Label>
                 <Select 
                   onValueChange={(value: string) => setAssignedToText(value === "__NONE__" ? undefined : value)} 

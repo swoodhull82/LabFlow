@@ -1,8 +1,9 @@
 
 'use client';
-import type { CalendarEvent, Task, TaskStatus } from "@/lib/types";
+import type { CalendarEvent, Task, TaskStatus, TaskRecurrence } from "@/lib/types";
 import type PocketBase from 'pocketbase';
 import { withRetry } from '@/lib/retry';
+import { generateProjectedTasks } from '@/lib/recurrence';
 
 const TASK_COLLECTION_NAME = "tasks";
 
@@ -11,42 +12,71 @@ interface PocketBaseRequestOptions {
   [key: string]: any;
 }
 
-const pbTaskToCalendarEvent = (taskRecord: any): CalendarEvent => {
-  const task = taskRecord as Task; 
-
+const pbTaskToCalendarEvent = (taskRecord: Task): CalendarEvent => {
   return {
-    id: task.id,
-    title: task.title,
-    eventDate: task.dueDate ? new Date(task.dueDate) : new Date(), 
-    description: task.description,
-    status: task.status as TaskStatus, 
-    userId: task.userId, 
-    created: task.created ? new Date(task.created) : new Date(),
-    updated: task.updated ? new Date(task.updated) : new Date(),
-    collectionId: task.collectionId,
-    collectionName: task.collectionName, 
-    expand: task.expand,
+    id: taskRecord.id,
+    title: taskRecord.title,
+    eventDate: taskRecord.dueDate ? new Date(taskRecord.dueDate) : new Date(), 
+    description: taskRecord.description,
+    status: taskRecord.status as TaskStatus, 
+    userId: taskRecord.userId, 
+    created: taskRecord.created ? new Date(taskRecord.created) : new Date(),
+    updated: taskRecord.updated ? new Date(taskRecord.updated) : new Date(),
+    collectionId: taskRecord.collectionId,
+    collectionName: taskRecord.collectionName, 
+    expand: taskRecord.expand,
   };
 };
 
-export const getCalendarEvents = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<CalendarEvent[]> => {
+const pbRecordToTask = (record: any): Task => {
+  return {
+    id: record.id,
+    title: record.title || "",
+    task_type: record.task_type,
+    description: record.description,
+    status: record.status,
+    priority: record.priority,
+    startDate: record.startDate ? new Date(record.startDate) : undefined,
+    dueDate: record.dueDate ? new Date(record.dueDate) : undefined,
+    assignedTo_text: record.assignedTo_text,
+    recurrence: (record.recurrence as TaskRecurrence) || "None",
+    attachments: record.attachments,
+    userId: record.userId,
+    created: new Date(record.created),
+    updated: new Date(record.updated),
+    collectionId: record.collectionId,
+    collectionName: record.collectionName,
+    expand: record.expand,
+    progress: record.progress,
+    isMilestone: typeof record.isMilestone === 'boolean' ? record.isMilestone : false,
+    dependencies: Array.isArray(record.dependencies) ? record.dependencies : (typeof record.dependencies === 'string' && record.dependencies.startsWith('[') ? JSON.parse(record.dependencies) : []),
+    instrument_subtype: record.instrument_subtype || undefined,
+    method: record.method || undefined,
+  } as Task;
+};
+
+
+export const getCalendarEvents = async (pb: PocketBase, options?: PocketBaseRequestOptions & { projectionHorizon?: Date }): Promise<CalendarEvent[]> => {
   try {
-    const { signal, ...otherOptions } = options || {};
-    const defaultFields = 'id,title,dueDate,description,status,userId,created,updated';
+    const { signal, projectionHorizon, ...otherOptions } = options || {};
+    const defaultFields = 'id,title,task_type,dueDate,description,status,userId,created,updated,recurrence,startDate,priority,progress,isMilestone,dependencies,instrument_subtype,method';
     const requestParams = {
       filter: 'dueDate != null && dueDate != ""', 
       sort: '-dueDate', 
       fields: defaultFields,
-      ...otherOptions, // Allow overriding filter, sort, and fields if provided in options
+      ...otherOptions,
     };
 
     const records = await withRetry(() => 
       pb.collection(TASK_COLLECTION_NAME).getFullList(requestParams, { signal }),
       { ...options, context: "fetching tasks for calendar" }
     );
-    return records.map(pbTaskToCalendarEvent).filter(event => event.eventDate); 
+    
+    const rawTasks = records.map(pbRecordToTask);
+    const allTasks = projectionHorizon ? generateProjectedTasks(rawTasks, projectionHorizon) : rawTasks;
+
+    return allTasks.map(pbTaskToCalendarEvent).filter(event => event.eventDate); 
   } catch (error) {
     throw error;
   }
 };
-

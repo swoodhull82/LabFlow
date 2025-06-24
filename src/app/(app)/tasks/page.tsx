@@ -32,7 +32,7 @@ import { format } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { deleteTask, getTasks, updateTask } from "@/services/taskService";
-import { getEmployees } from "@/services/employeeService"; // Assuming this service exists
+import { getEmployees } from "@/services/employeeService"; 
 import { useToast } from "@/hooks/use-toast";
 import type PocketBase from "pocketbase";
 import { useForm } from "react-hook-form";
@@ -125,6 +125,7 @@ const getDetailedErrorMessage = (error: any, context: string = "tasks"): string 
 };
 
 const taskEditFormSchema = z.object({
+  title: z.string().optional(), // Optional overall, will be required for VALIDATION_PROJECT by superRefine
   task_type: z.enum(TASK_TYPES as [TaskType, ...TaskType[]], { errorMap: () => ({ message: "Please select a valid task type."}) }),
   instrument_subtype: z.string().optional(),
   method: z.string().optional(),
@@ -138,6 +139,13 @@ const taskEditFormSchema = z.object({
   dependencies: z.array(z.string()).optional(),
   isMilestone: z.boolean().optional(),
 }).superRefine((data, ctx) => {
+  if (data.task_type === "VALIDATION_PROJECT" && (!data.title || data.title.trim() === "")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Project Name is required for Validation Projects.",
+      path: ["title"],
+    });
+  }
   if (data.task_type === "MDL" && !data.instrument_subtype) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -160,54 +168,46 @@ const taskEditFormSchema = z.object({
     });
   }
 
-  if (data.task_type === "VALIDATION_PROJECT") {
+  if (data.task_type === "VALIDATION_PROJECT" || data.task_type === "VALIDATION_STEP") {
     if (data.isMilestone && !data.startDate) {
      ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Milestone date (Start Date) is required for a Validation Project milestone.",
+        message: "Milestone date (Start Date) is required for a Validation milestone.",
         path: ["startDate"],
       });
     }
-     if (data.recurrence !== "None") {
+    if (data.isMilestone && data.startDate && data.dueDate && data.startDate.getTime() !== data.dueDate.getTime()) {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "Recurrence must be 'None' for Validation Projects.",
-            path: ["recurrence"],
+            message: "For milestones, Start Date and Due Date must be the same.",
+            path: ["dueDate"]
         });
     }
-  } else if (data.task_type === "VALIDATION_STEP") {
-    if (data.isMilestone === true) {
-         ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Milestones are not applicable to Validation Step tasks.",
-            path: ["isMilestone"],
-        });
-    }
-    if (data.recurrence && data.recurrence !== "None") {
+    if (data.recurrence !== "None") {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "Recurrence must be 'None' for Validation Step tasks.",
+            message: "Recurrence must be 'None' for Validation Projects/Steps.",
             path: ["recurrence"],
         });
     }
   } else { 
-    if (data.isMilestone) {
+    if (data.isMilestone === true) { 
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Milestones are only applicable to 'VALIDATION_PROJECT' tasks.",
+        message: "Milestones are only applicable to 'VALIDATION_PROJECT' or 'VALIDATION_STEP' tasks.",
         path: ["isMilestone"],
       });
     }
-     if (!data.recurrence) { // Recurrence is mandatory for non-validation tasks
+     if (!data.recurrence || !TASK_RECURRENCES.includes(data.recurrence)) { 
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Recurrence is required for this task type.",
+        message: "Recurrence is required and must be a valid option for this task type.",
         path: ["recurrence"],
       });
     }
   }
 
-  if (!(data.task_type === "VALIDATION_PROJECT" && data.isMilestone)) {
+  if (!((data.task_type === "VALIDATION_PROJECT" || data.task_type === "VALIDATION_STEP") && data.isMilestone)) {
     if (data.startDate && data.dueDate && data.startDate > data.dueDate) {
         ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -252,12 +252,13 @@ export default function TasksPage() {
   const form = useForm<TaskEditFormData>({
     resolver: zodResolver(taskEditFormSchema),
     defaultValues: {
+      title: "",
       task_type: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t!== "VALIDATION_STEP") || TASK_TYPES[0],
       instrument_subtype: undefined,
       method: undefined,
       dependencies: [],
       isMilestone: false,
-      recurrence: "None",
+      recurrence: "Daily", // Default to daily for non-validation on initial form setup
     }
   });
 
@@ -287,12 +288,14 @@ export default function TasksPage() {
         if (value.task_type === "VALIDATION_PROJECT" || value.task_type === "VALIDATION_STEP") {
            form.setValue("recurrence", "None", { shouldValidate: true });
         } else {
-           if (form.getValues("recurrence") === "None" && !(editingTask && editingTask.recurrence === "None" && editingTask.task_type !== "VALIDATION_PROJECT" && editingTask.task_type !== "VALIDATION_STEP" )) {
+           const currentRecurrence = form.getValues("recurrence");
+           if (currentRecurrence === "None" && !(editingTask && editingTask.recurrence === "None" && (editingTask.task_type !== "VALIDATION_PROJECT" && editingTask.task_type !== "VALIDATION_STEP"))) {
+             form.setValue("recurrence", "Daily", { shouldValidate: true });
+           } else if (currentRecurrence === "None" && editingTask && editingTask.recurrence === "None" && (editingTask.task_type !== "VALIDATION_PROJECT" && editingTask.task_type !== "VALIDATION_STEP")) {
+             form.setValue("recurrence", "None", { shouldValidate: true });
            }
         }
-         if (value.task_type === "VALIDATION_STEP") {
-           form.setValue("isMilestone", false, { shouldValidate: true });
-        } else if (value.task_type !== "VALIDATION_PROJECT") {
+         if (value.task_type !== "VALIDATION_PROJECT" && value.task_type !== "VALIDATION_STEP") {
             form.setValue("isMilestone", false, { shouldValidate: true });
         }
 
@@ -307,7 +310,7 @@ export default function TasksPage() {
         }
       }
       if (name === "isMilestone" || name === "startDate") {
-        if (form.getValues("task_type") === "VALIDATION_PROJECT" && form.getValues("isMilestone") && form.getValues("startDate")) {
+        if ((form.getValues("task_type") === "VALIDATION_PROJECT" || form.getValues("task_type") === "VALIDATION_STEP") && form.getValues("isMilestone") && form.getValues("startDate")) {
           const currentStartDate = form.getValues("startDate");
           if (!form.getValues("dueDate") || form.getValues("dueDate")?.getTime() !== currentStartDate!.getTime()) {
             form.setValue("dueDate", currentStartDate, { shouldValidate: true });
@@ -488,6 +491,7 @@ export default function TasksPage() {
   useEffect(() => {
     if (editingTask) {
       form.reset({
+        title: editingTask.title || "", // Use actual title for VALIDATION_PROJECT
         task_type: editingTask.task_type,
         instrument_subtype: editingTask.instrument_subtype || undefined,
         method: editingTask.method || undefined,
@@ -496,10 +500,10 @@ export default function TasksPage() {
         priority: editingTask.priority,
         startDate: editingTask.startDate ? new Date(editingTask.startDate) : undefined,
         dueDate: editingTask.dueDate ? new Date(editingTask.dueDate) : undefined,
-        recurrence: (editingTask.task_type === "VALIDATION_PROJECT" || editingTask.task_type === "VALIDATION_STEP") ? "None" : (editingTask.recurrence || "None"),
+        recurrence: editingTask.recurrence,
         assignedTo_text: editingTask.assignedTo_text || "",
         dependencies: Array.isArray(editingTask.dependencies) ? editingTask.dependencies : [],
-        isMilestone: editingTask.task_type === "VALIDATION_STEP" ? false : (editingTask.isMilestone || false),
+        isMilestone: (editingTask.task_type === "VALIDATION_PROJECT" || editingTask.task_type === "VALIDATION_STEP") ? (editingTask.isMilestone || false) : false,
       });
     }
   }, [editingTask, form]);
@@ -512,22 +516,24 @@ export default function TasksPage() {
     }
 
     const newStatus: TaskStatus = currentStatus === "Done" ? "To Do" : "Done";
-    const currentTasks = tasks;
-    const optimisticUpdatedTasks = currentTasks.map(task =>
-      task.id === taskId ? { ...task, status: newStatus } : task
-    );
-    setTasks(optimisticUpdatedTasks);
-
+    
     try {
       const updatedTaskRecord = await updateTask(pbClient, taskId, { status: newStatus });
-      setTasks(prevTasks => prevTasks.map(t => t.id === updatedTaskRecord.id ? updatedTaskRecord : t));
+      setTasks(prevTasks => {
+        const updatedList = prevTasks.map(t => t.id === updatedTaskRecord.id ? updatedTaskRecord : t);
+        if (filterStatus === 'all') return updatedList;
+        if (filterStatus === 'complete') return updatedList.filter(t => t.status === 'Done');
+        if (filterStatus === 'incomplete') return updatedList.filter(t => t.status !== 'Done');
+        return updatedList; 
+      });
       toast({ title: "Success", description: `Task marked as ${newStatus}.` });
     } catch (err) {
       console.warn("Error updating task status:", err);
-      setTasks(currentTasks);
+      // Re-fetch to ensure UI consistency after error
+      if (pbClient) fetchTasksCallback(pbClient);
       toast({ title: "Error", description: `Failed to update task status: ${getDetailedErrorMessage(err as any)}`, variant: "destructive" });
     }
-  }, [pbClient, toast, tasks]); 
+  }, [pbClient, toast, filterStatus, fetchTasksCallback]); 
 
   const handleDeleteTask = useCallback(async (taskId: string) => {
     if (!pbClient) {
@@ -569,8 +575,10 @@ export default function TasksPage() {
     }
     setIsSubmittingEdit(true);
 
+    const finalTitle = data.task_type === "VALIDATION_PROJECT" ? data.title! : data.task_type;
+
     const payload: Partial<Task> & { userId: string } = {
-      title: data.task_type, 
+      title: finalTitle, 
       task_type: data.task_type, 
       instrument_subtype: (data.task_type === "MDL" || data.task_type === "SOP") ? data.instrument_subtype : undefined,
       method: (data.task_type === "MDL" && data.instrument_subtype && MDL_INSTRUMENTS_WITH_METHODS[data.instrument_subtype]?.length > 0) ? data.method : undefined,
@@ -578,10 +586,10 @@ export default function TasksPage() {
       status: data.status,
       priority: data.priority,
       startDate: data.startDate,
-      dueDate: (data.task_type === "VALIDATION_PROJECT" && data.isMilestone && data.startDate) ? data.startDate : data.dueDate,
+      dueDate: ((data.task_type === "VALIDATION_PROJECT" || data.task_type === "VALIDATION_STEP") && data.isMilestone && data.startDate) ? data.startDate : data.dueDate,
       recurrence: data.recurrence, 
       assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
-      isMilestone: data.task_type === "VALIDATION_PROJECT" ? data.isMilestone : false,
+      isMilestone: (data.task_type === "VALIDATION_PROJECT" || data.task_type === "VALIDATION_STEP") ? data.isMilestone : false,
       dependencies: data.task_type === "VALIDATION_STEP" ? editingTask.dependencies : (data.dependencies || []),
       userId: user.id,
     };
@@ -594,7 +602,9 @@ export default function TasksPage() {
     } catch (err: any) {
       console.warn("Failed to update task:", err);
       let detailedMessage = getDetailedErrorMessage(err);
-      if (err.data?.data?.instrument_subtype?.message) {
+      if (err.data?.data?.title?.message) {
+        detailedMessage = `Title: ${err.data.data.title.message}`;
+      } else if (err.data?.data?.instrument_subtype?.message) {
         detailedMessage = `Instrument Subtype: ${err.data.data.instrument_subtype.message}`;
       } else if (err.data?.data?.method?.message) {
         detailedMessage = `Method: ${err.data.data.method.message}`;
@@ -609,7 +619,7 @@ export default function TasksPage() {
     const currentTaskType = form.getValues("task_type");
     const currentIsMilestone = form.getValues("isMilestone");
 
-    if (currentTaskType === "VALIDATION_PROJECT" && currentIsMilestone) {
+    if ((currentTaskType === "VALIDATION_PROJECT" || currentTaskType === "VALIDATION_STEP") && currentIsMilestone) {
       const singleDate = selected as Date | undefined;
       form.setValue("startDate", singleDate, { shouldValidate: true });
       form.setValue("dueDate", singleDate, { shouldValidate: true });
@@ -620,7 +630,8 @@ export default function TasksPage() {
     }
 
     if (selected) {
-        if (!(currentTaskType === "VALIDATION_PROJECT" && currentIsMilestone) && (selected as DateRange)?.from && !(selected as DateRange)?.to) {
+        if (!((currentTaskType === "VALIDATION_PROJECT" || currentTaskType === "VALIDATION_STEP") && currentIsMilestone) && (selected as DateRange)?.from && !(selected as DateRange)?.to) {
+          // Keep picker open if only start date is selected for range
         } else {
             setIsDatePickerOpenEdit(false);
         }
@@ -628,7 +639,7 @@ export default function TasksPage() {
   };
 
   let datePickerButtonTextEdit = "Pick a date";
-  if (watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone) {
+  if ((watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP") && watchedIsMilestone) {
     datePickerButtonTextEdit = watchedFormStartDate ? `Milestone: ${format(watchedFormStartDate, "PPP")}` : "Pick Milestone Date";
   } else {
     if (watchedFormStartDate && watchedFormDueDate) {
@@ -736,18 +747,18 @@ export default function TasksPage() {
                   <TableRow key={task.id} className="hover:bg-muted/50 transition-colors">
                     <TableCell>
                       <div className="font-medium">{task.title.replace(/_/g, ' ')}</div>
-                      {(task.task_type === "MDL" || task.task_type === "SOP") && task.instrument_subtype && (
-                        <div className="text-xs text-muted-foreground">{task.instrument_subtype}</div>
-                      )}
-                      {task.task_type === "MDL" && task.method && (
-                        <div className="text-xs text-muted-foreground">{task.method}</div>
-                      )}
-                      {task.description && task.task_type !== "MDL" && task.task_type !== "SOP" && (
-                        <div className="text-xs text-muted-foreground truncate max-w-xs" title={task.description}>{task.description}</div>
-                      )}
-                       {(!(task.task_type === "MDL" || task.task_type === "SOP") || !task.instrument_subtype) && !task.description && !task.method && (
-                         <div className="text-xs text-muted-foreground">-</div>
-                       )}
+                        {(task.task_type === "MDL" || task.task_type === "SOP") && task.instrument_subtype && (
+                          <div className="text-xs text-muted-foreground">{task.instrument_subtype}</div>
+                        )}
+                        {task.task_type === "MDL" && task.method && (
+                          <div className="text-xs text-muted-foreground">{task.method}</div>
+                        )}
+                        {task.description && !(task.task_type === "MDL" || task.task_type === "SOP") && (
+                          <div className="text-xs text-muted-foreground truncate max-w-xs" title={task.description}>{task.description}</div>
+                        )}
+                         {(!(task.task_type === "MDL" || task.task_type === "SOP") || !task.instrument_subtype) && !task.description && !task.method && (
+                           <div className="text-xs text-muted-foreground">-</div>
+                         )}
                     </TableCell>
                     <TableCell>
                       <Badge variant={getStatusBadgeVariant(task.status)}>{task.status}</Badge>
@@ -805,7 +816,7 @@ export default function TasksPage() {
         <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleEditDialogClose(); else setIsEditDialogOpen(true); }}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle className="font-headline">Edit Task: {editingTask.title.replace(/_/g, ' ')}</DialogTitle>
+              <DialogTitle className="font-headline">Edit: {editingTask.title.replace(/_/g, ' ')}</DialogTitle>
               <DialogDescription>Make changes to the task details below.</DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -815,7 +826,7 @@ export default function TasksPage() {
                   name="task_type"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Task Name</FormLabel>
+                      <FormLabel>Task Type</FormLabel>
                        <Select
                           onValueChange={field.onChange}
                           value={field.value}
@@ -823,11 +834,11 @@ export default function TasksPage() {
                         >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select task name" />
+                            <SelectValue placeholder="Select task type" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {TASK_TYPES.filter(t => t !== "VALIDATION_PROJECT" && t!== "VALIDATION_STEP").map(tt => (
+                          {TASK_TYPES.map(tt => (
                             <SelectItem key={tt} value={tt}>
                               {tt.replace(/_/g, ' ')}
                             </SelectItem>
@@ -838,6 +849,23 @@ export default function TasksPage() {
                     </FormItem>
                   )}
                 />
+
+                {watchedTaskType === "VALIDATION_PROJECT" && (
+                   <FormField
+                    control={form.control}
+                    name="title"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Project Name</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="Enter the project name"/>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
 
                 {watchedTaskType === "MDL" && (
                    <>
@@ -974,7 +1002,7 @@ export default function TasksPage() {
                   />
                 </div>
 
-                {watchedTaskType === "VALIDATION_PROJECT" && (
+                {(watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP") && (
                   <FormField
                     control={form.control}
                     name="isMilestone"
@@ -997,7 +1025,7 @@ export default function TasksPage() {
 
                 <div>
                     <FormLabel>
-                        {watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone ? "Milestone Date" : "Date Range (Start - Due)"}
+                        {(watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP") && watchedIsMilestone ? "Milestone Date" : "Date Range (Start - Due)"}
                     </FormLabel>
                     <Popover open={isDatePickerOpenEdit} onOpenChange={setIsDatePickerOpenEdit}>
                         <PopoverTrigger asChild>
@@ -1011,10 +1039,10 @@ export default function TasksPage() {
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0">
                         <Calendar
-                            mode={(watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone) ? "single" : "range"}
-                            selected={(watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone) ? watchedFormStartDate : { from: watchedFormStartDate, to: watchedFormDueDate }}
+                            mode={((watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP") && watchedIsMilestone) ? "single" : "range"}
+                            selected={((watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP") && watchedIsMilestone) ? watchedFormStartDate : { from: watchedFormStartDate, to: watchedFormDueDate }}
                             onSelect={handleDateSelectEdit}
-                            numberOfMonths={(watchedTaskType === "VALIDATION_PROJECT" && watchedIsMilestone) ? 1 : 2}
+                            numberOfMonths={((watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP") && watchedIsMilestone) ? 1 : 2}
                             initialFocus
                         />
                         </PopoverContent>
@@ -1052,7 +1080,7 @@ export default function TasksPage() {
                         control={form.control}
                         name="assignedTo_text"
                         render={({ field }) => (
-                        <FormItem className={(watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP" || (watchedTaskType === "MDL" && availableMethodsForEdit.length > 0)) ? "md:col-span-2" : ""}>
+                        <FormItem className={(watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP" || (watchedTaskType === "MDL" && availableMethodsForEdit.length > 0) || (watchedTaskType !== "VALIDATION_PROJECT" && watchedTaskType !== "VALIDATION_STEP") ) ? "md:col-span-2" : ""}>
                             <FormLabel>Assigned To (Optional)</FormLabel>
                             <Select
                               onValueChange={field.onChange}
@@ -1172,3 +1200,4 @@ export default function TasksPage() {
     </div>
   );
 }
+

@@ -13,7 +13,7 @@ const Avatar = React.forwardRef<
   <AvatarPrimitive.Root
     ref={ref}
     className={cn(
-      "relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted", // Added bg-muted here
+      "relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted",
       className
     )}
     {...props}
@@ -33,22 +33,19 @@ const AvatarImage = React.forwardRef<
 ))
 AvatarImage.displayName = AvatarPrimitive.Image.displayName
 
-// AvatarFallback component definition is removed
-// const AvatarFallback = React.forwardRef<
-//   React.ElementRef<typeof AvatarPrimitive.Fallback>,
-//   React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Fallback>
-// >(({ className, ...props }, ref) => (
-//   <AvatarPrimitive.Fallback
-//     ref={ref}
-//     className={cn(
-//       "flex h-full w-full items-center justify-center rounded-full bg-muted",
-//       className
-//     )}
-//     {...props}
-//   />
-// ))
-// AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName
+const AvatarFallback = React.forwardRef<
+  React.ElementRef<typeof AvatarPrimitive.Fallback>,
+  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Fallback>
+>(({ className, ...props }, ref) => (
+  <AvatarPrimitive.Fallback
+    ref={ref}
+    className={cn(
+      "flex h-full w-full items-center justify-center rounded-full bg-muted",
+      className
+    )}
+    {...props}
+  />
+))
+AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName
 
-export { Avatar, AvatarImage }
-// AvatarFallback is no longer exported
-
+export { Avatar, AvatarImage, AvatarFallback }

@@ -3,6 +3,7 @@
 import type { Task, TaskType, TaskRecurrence } from "@/lib/types"; // Added TaskRecurrence import
 import type PocketBase from 'pocketbase';
 import { withRetry } from '@/lib/retry';
+import { generateProjectedTasks } from '@/lib/recurrence';
 
 const COLLECTION_NAME = "tasks";
 
@@ -46,9 +47,9 @@ const DEFAULT_TASK_LIST_FIELDS = 'id,title,task_type,status,priority,startDate,d
 const DEFAULT_TASK_DETAIL_FIELDS = 'id,title,task_type,description,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies,attachments,instrument_subtype,method,recurrence';
 
 
-export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<Task[]> => {
+export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOptions & { projectionHorizon?: Date }): Promise<Task[]> => {
   try {
-    const { onRetry, signal, ...otherOptions } = options || {};
+    const { onRetry, signal, projectionHorizon, ...otherOptions } = options || {};
     const requestParams = {
       sort: '-created',
       fields: DEFAULT_TASK_LIST_FIELDS,
@@ -62,7 +63,13 @@ export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOption
         onRetry
       }
     );
-    return records.map(pbRecordToTask);
+    const rawTasks = records.map(pbRecordToTask);
+
+    if (projectionHorizon) {
+      return generateProjectedTasks(rawTasks, projectionHorizon);
+    }
+
+    return rawTasks;
   } catch (error) {
     throw error;
   }
@@ -141,4 +148,3 @@ export const deleteTask = async (pb: PocketBase, id: string, options?: PocketBas
 // or remove if it's a remnant from a previous thought process and not used by this service.
 // For now, assuming it might be used by other parts not directly related to taskService's core functions.
 export { getEmployees } from './employeeService'; // Example, adjust if getEmployees is elsewhere
-
