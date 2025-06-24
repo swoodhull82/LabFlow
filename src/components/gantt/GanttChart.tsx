@@ -518,24 +518,44 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
 
     const handleTaskUpdate = useCallback(async (taskId: string, updates: Partial<Task>) => {
         if (!pbClient) return;
-        const taskToUpdate = allTasks.find(t => t.id === taskId);
-        if (!taskToUpdate) return;
-        const payload: Partial<Task> = { ...updates };
+
+        const originalTask = allTasks.find(t => t.id === taskId);
+        if (!originalTask) {
+            return;
+        }
+
+        const updatedTask = { ...originalTask, ...updates };
+
+        // Optimistically update UI
+        setAllTasks(currentTasks =>
+            currentTasks.map(t => (t.id === taskId ? updatedTask : t))
+        );
+
         try {
-            await updateTaskService(pbClient, taskId, payload);
-            toast({ title: "Task Updated", description: `Task "${updates.title || taskToUpdate.title}" was successfully updated.` });
+            await updateTaskService(pbClient, taskId, updates);
+            toast({
+                title: "Task Updated",
+                description: `Task "${updatedTask.title}" was successfully updated.`,
+            });
         } catch (err: any) {
+             // Revert on failure
+            setAllTasks(currentTasks =>
+                currentTasks.map(t => (t.id === taskId ? originalTask : t))
+            );
+            
             const isAutocancelError = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
 
             if (isAutocancelError) {
-                console.warn(`Task update for "${updates.title || taskToUpdate.title}" was cancelled. This is usually not a problem.`, err);
+                console.warn(`Task update for "${updatedTask.title}" was cancelled. This is usually not a problem.`, err);
             } else {
-                toast({ title: "Update Failed", description: getDetailedErrorMessage(err, `updating task "${updates.title || taskToUpdate.title}"`), variant: "destructive" });
+                toast({
+                    title: "Update Failed",
+                    description: getDetailedErrorMessage(err, `updating task "${originalTask.title}"`),
+                    variant: "destructive",
+                });
             }
-        } finally {
-            if (pbClient) fetchTimelineData(pbClient);
         }
-    }, [pbClient, allTasks, toast, fetchTimelineData]);
+    }, [pbClient, allTasks, toast]);
 
     const handleMouseDownOnTaskBar = useCallback((e: React.MouseEvent, task: Task) => {
         if (e.button !== 0) return;
@@ -622,7 +642,11 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             if (dragState) {
                 const taskDetails = taskRenderDetailsMap.get(dragState.taskId);
                 if (taskDetails) {
-                    handleTaskUpdate(dragState.taskId, { startDate: taskDetails.effectiveStartDate, dueDate: taskDetails.effectiveDueDate });
+                    const startChanged = !isSameDay(dragState.originalStartDate, taskDetails.effectiveStartDate);
+                    const endChanged = !isSameDay(dragState.originalDueDate, taskDetails.effectiveDueDate);
+                    if (startChanged || endChanged) {
+                        handleTaskUpdate(dragState.taskId, { startDate: taskDetails.effectiveStartDate, dueDate: taskDetails.effectiveDueDate });
+                    }
                 }
                 setDragState(null);
                 if (ganttBodyRef.current) ganttBodyRef.current.style.cursor = 'default';
