@@ -26,6 +26,8 @@ const pbTaskToCalendarEvent = (taskRecord: Task): CalendarEvent => {
     collectionName: taskRecord.collectionName, 
     expand: taskRecord.expand,
     assignedTo_text: taskRecord.assignedTo_text,
+    priority: taskRecord.priority,
+    progress: taskRecord.progress,
   };
 };
 

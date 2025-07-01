@@ -54,6 +54,8 @@ export interface CalendarEvent {
   collectionName?: string; 
   expand?: any;
   assignedTo_text?: string;
+  priority?: TaskPriority;
+  progress?: number;
 }
 
 export interface Employee {

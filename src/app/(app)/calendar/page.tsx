@@ -5,16 +5,22 @@ import { Calendar as ShadcnCalendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { format, isPast, isSameDay, isFuture, differenceInCalendarDays, startOfDay, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isValid, addYears } from "date-fns";
-import type { CalendarEvent } from "@/lib/types"; 
+import type { CalendarEvent, TaskPriority, TaskStatus } from "@/lib/types"; 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { getCalendarEvents } from "@/services/calendarEventService"; 
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, Dot, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, AlertTriangle, Dot, ChevronLeft, ChevronRight, PlusCircle, Filter } from "lucide-react";
 import type PocketBase from "pocketbase";
 import { type DateRange } from "react-day-picker";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { QuickTaskForm } from "@/components/tasks/QuickTaskForm";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/constants";
 
 
 const getDetailedErrorMessage = (error: any): string => {
@@ -62,6 +68,19 @@ function CalendarDayContent({ date, tasksForDay }: { date: Date; tasksForDay: Ca
   );
 }
 
+const getPriorityBadgeVariant = (priority?: string) => {
+  if (!priority) return "default";
+  const lowerPriority = priority.toLowerCase();
+  switch (lowerPriority) {
+    case "urgent": return "destructive";
+    case "high": return "destructive";
+    case "medium": return "secondary";
+    case "low": return "outline";
+    default: return "default";
+  }
+};
+
+
 export default function CalendarPage() {
   const { pbClient, user } = useAuth();
   const { toast } = useToast();
@@ -75,6 +94,10 @@ export default function CalendarPage() {
     from: startOfDay(new Date()),
     to: startOfDay(new Date()),
   });
+
+  const [isNewTaskDialogOpen, setIsNewTaskDialogOpen] = useState(false);
+  const [filterPriority, setFilterPriority] = useState<TaskPriority | "all">("all");
+  const [filterStatus, setFilterStatus] = useState<TaskStatus | "all">("all");
 
   const fetchEvents = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -115,11 +138,21 @@ export default function CalendarPage() {
   }, [pbClient, fetchEvents]);
 
   const eventsForView = useMemo(() => {
+    let filtered = allEvents;
     if (activeTab === 'personal' && user) {
-      return allEvents.filter(event => event.assignedTo_text === user.name);
+      filtered = allEvents.filter(event => event.assignedTo_text === user.name);
     }
-    return allEvents;
-  }, [activeTab, allEvents, user]);
+    
+    if (filterPriority !== "all") {
+        filtered = filtered.filter(event => event.priority === filterPriority);
+    }
+
+    if (filterStatus !== "all") {
+        filtered = filtered.filter(event => event.status === filterStatus);
+    }
+
+    return filtered;
+  }, [activeTab, allEvents, user, filterPriority, filterStatus]);
 
   const { tasksByDay, statusModifiers } = useMemo(() => {
     const tasksByDayMap = new Map<string, CalendarEvent[]>();
@@ -188,6 +221,10 @@ export default function CalendarPage() {
     }
   };
 
+  const handleTaskCreated = () => {
+    refetchEvents();
+  };
+
   const handlePrevMonth = () => {
     setMonth(prev => addDays(startOfMonth(prev), -1));
   };
@@ -205,12 +242,32 @@ export default function CalendarPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-2xl md:text-3xl font-headline font-semibold">Calendar</h1>
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
-            <TabsTrigger value="task">Task Calendar</TabsTrigger>
-            <TabsTrigger value="personal">Personal Calendar</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex items-center gap-2">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList>
+                <TabsTrigger value="task">Task Calendar</TabsTrigger>
+                <TabsTrigger value="personal">Personal Calendar</TabsTrigger>
+              </TabsList>
+            </Tabs>
+             {activeTab === 'personal' && (
+                <Dialog open={isNewTaskDialogOpen} onOpenChange={setIsNewTaskDialogOpen}>
+                    <DialogTrigger asChild>
+                         <Button>
+                            <PlusCircle className="mr-2 h-4 w-4" /> New Personal Task
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Add a New Personal Task</DialogTitle>
+                        </DialogHeader>
+                        <QuickTaskForm 
+                            onTaskCreated={handleTaskCreated} 
+                            onDialogClose={() => setIsNewTaskDialogOpen(false)}
+                        />
+                    </DialogContent>
+                </Dialog>
+            )}
+        </div>
       </div>
 
       {isLoading ? (
@@ -273,31 +330,68 @@ export default function CalendarPage() {
           
           <Card>
             <CardHeader>
-              <CardTitle className="font-headline">Tasks for: {selectedRangeText}</CardTitle>
-              <CardDescription>
-                {eventsForSelectedRange.length} task(s) found in the selected period for the <span className="font-semibold">{activeTab === 'personal' ? 'Personal' : 'Task'}</span> calendar.
-              </CardDescription>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <CardTitle className="font-headline">Tasks for: {selectedRangeText}</CardTitle>
+                        <CardDescription>
+                            {eventsForSelectedRange.length} task(s) found in the selected period for the <span className="font-semibold">{activeTab === 'personal' ? 'Personal' : 'Task'}</span> calendar.
+                        </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Filter className="h-4 w-4 text-muted-foreground" />
+                        <Select value={filterPriority} onValueChange={(v) => setFilterPriority(v as TaskPriority | 'all')}>
+                            <SelectTrigger className="w-[140px]">
+                                <SelectValue placeholder="Filter by priority" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Priorities</SelectItem>
+                                {TASK_PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                        <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as TaskStatus | 'all')}>
+                            <SelectTrigger className="w-[140px]">
+                                <SelectValue placeholder="Filter by status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Statuses</SelectItem>
+                                {TASK_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
             </CardHeader>
             <CardContent>
               {eventsForSelectedRange.length > 0 ? (
-                <ul className="space-y-3">
+                <ul className="space-y-4">
                   {eventsForSelectedRange.map(event => (
-                    <li key={event.id} className="p-3 rounded-md border bg-card hover:bg-muted transition-colors">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="font-semibold">{event.title}</h3>
+                    <li key={event.id} className="p-4 rounded-md border bg-card hover:bg-muted/50 transition-colors">
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="flex-grow">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Badge variant={getPriorityBadgeVariant(event.priority)}>{event.priority || 'N/A'}</Badge>
+                            <h3 className="font-semibold">{event.title}</h3>
+                          </div>
                           {event.description && <p className="text-sm text-muted-foreground mt-1">{event.description}</p>}
+                          {typeof event.progress === 'number' && (
+                            <div className="mt-2">
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="text-xs text-muted-foreground">Progress</span>
+                                <span className="text-xs font-medium">{event.progress}%</span>
+                              </div>
+                              <Progress value={event.progress} className="h-2" />
+                            </div>
+                          )}
                         </div>
                         <div className="text-right flex-shrink-0 ml-4">
                           <p className="text-sm font-medium">{format(new Date(event.eventDate), "MMM dd")}</p>
-                          <p className={cn("text-xs", event.status === "Done" ? "text-green-600" : "text-muted-foreground")}>{event.status}</p>
+                          <p className={cn("text-xs mt-1", event.status === "Done" ? "text-green-600" : "text-muted-foreground")}>{event.status}</p>
                         </div>
                       </div>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-muted-foreground py-8 text-center">No tasks scheduled for the selected period.</p>
+                <p className="text-muted-foreground py-8 text-center">No tasks scheduled for the selected period matching your filters.</p>
               )}
             </CardContent>
           </Card>
