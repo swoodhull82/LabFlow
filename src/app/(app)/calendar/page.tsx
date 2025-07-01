@@ -207,25 +207,28 @@ export default function CalendarPage() {
     const today = startOfDay(new Date());
 
     for (const event of eventsForView) {
-      if (!event.eventDate || !isValid(new Date(event.eventDate))) continue;
-      const eventDateObj = startOfDay(new Date(event.eventDate));
-      const dateKey = format(eventDateObj, "yyyy-MM-dd");
+      if (!event.startDate || !isValid(new Date(event.startDate))) continue;
+      const eventStartDateObj = startOfDay(new Date(event.startDate));
+      const dateKey = format(eventStartDateObj, "yyyy-MM-dd");
 
       if (!tasksByDayMap.has(dateKey)) {
         tasksByDayMap.set(dateKey, []);
       }
       tasksByDayMap.get(dateKey)!.push(event);
 
+      if (!event.endDate || !isValid(new Date(event.endDate))) continue;
+      const eventDueDateObj = startOfDay(new Date(event.endDate));
+
       if (event.status === "Done") {
-        statusModifiersMap.completed.add(eventDateObj.getTime());
-      } else if (isPast(eventDateObj) && !isSameDay(eventDateObj, today)) {
-        statusModifiersMap.overdue.add(eventDateObj.getTime());
+        statusModifiersMap.completed.add(eventDueDateObj.getTime());
+      } else if (isPast(eventDueDateObj) && !isSameDay(eventDueDateObj, today)) {
+        statusModifiersMap.overdue.add(eventDueDateObj.getTime());
       } else {
-        const diffDays = differenceInCalendarDays(eventDateObj, today);
+        const diffDays = differenceInCalendarDays(eventDueDateObj, today);
         if (diffDays >= 0 && diffDays < ALMOST_DUE_DAYS) {
-          statusModifiersMap.almostDue.add(eventDateObj.getTime());
-        } else if (isFuture(eventDateObj) || isSameDay(eventDateObj, today)) {
-          statusModifiersMap.active.add(eventDateObj.getTime());
+          statusModifiersMap.almostDue.add(eventDueDateObj.getTime());
+        } else if (isFuture(eventDueDateObj) || isSameDay(eventDueDateObj, today)) {
+          statusModifiersMap.active.add(eventDueDateObj.getTime());
         }
       }
     }
@@ -253,7 +256,7 @@ export default function CalendarPage() {
         events.push(...tasksByDay.get(dateKey)!);
       }
     }
-    return events.sort((a, b) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime());
+    return events.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
   }, [range, tasksByDay]);
 
   const refetchEvents = () => {
@@ -429,7 +432,7 @@ export default function CalendarPage() {
                                 )}
                                 </div>
                                 <div className="text-right flex-shrink-0 ml-4">
-                                <p className="text-sm font-medium">{format(new Date(event.eventDate), "MMM dd")}</p>
+                                <p className="text-sm font-medium">{format(new Date(event.startDate), "MMM dd")}</p>
                                 <p className={cn("text-xs mt-1", event.status === "Done" ? "text-green-600" : "text-muted-foreground")}>{event.status}</p>
                                 </div>
                             </div>

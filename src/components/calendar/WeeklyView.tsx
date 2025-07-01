@@ -2,10 +2,10 @@
 'use client';
 
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { add, format, startOfWeek, eachDayOfInterval, isToday, getHours, getMinutes } from 'date-fns';
+import { add, format, startOfWeek, eachDayOfInterval, isToday, getHours, getMinutes, differenceInMinutes, isValid } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Card, CardHeader } from '@/components/ui/card';
 import type { CalendarEvent } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -22,14 +22,14 @@ const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
 });
 
 const getPriorityColorClass = (priority?: string): string => {
-  if (!priority) return "border-gray-400 bg-gray-50 dark:bg-gray-700/20";
+  if (!priority) return "border-gray-300 bg-gray-50 text-gray-800 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200";
   const lowerPriority = priority.toLowerCase();
   switch (lowerPriority) {
-    case "urgent": return "border-red-500 bg-red-50 dark:bg-red-900/20";
-    case "high": return "border-orange-500 bg-orange-50 dark:bg-orange-900/20";
-    case "medium": return "border-blue-500 bg-blue-50 dark:bg-blue-900/20";
-    case "low": return "border-green-500 bg-green-50 dark:bg-green-900/20";
-    default: return "border-gray-400 bg-gray-50 dark:bg-gray-700/20";
+    case "urgent": return "border-red-500 bg-red-50 text-red-900 dark:bg-red-900/20 dark:border-red-500/70 dark:text-red-100";
+    case "high": return "border-orange-500 bg-orange-50 text-orange-900 dark:bg-orange-900/20 dark:border-orange-500/70 dark:text-orange-100";
+    case "medium": return "border-blue-500 bg-blue-50 text-blue-900 dark:bg-blue-900/20 dark:border-blue-500/70 dark:text-blue-100";
+    case "low": return "border-green-500 bg-green-50 text-green-900 dark:bg-green-900/20 dark:border-green-500/70 dark:text-green-100";
+    default: return "border-gray-300 bg-gray-50 text-gray-800 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200";
   }
 };
 
@@ -45,7 +45,7 @@ const NowIndicator = ({ dayColumns }: { dayColumns: Date[] }) => {
     }, []);
 
     if (todayColumnIndex === -1) {
-        return null; // Don't show if today is not in the current view (e.g., weekend)
+        return null; // Don't show if today is not in the current view
     }
     
     const hoursFromStart = getHours(now) + getMinutes(now) / 60 - START_HOUR;
@@ -54,10 +54,10 @@ const NowIndicator = ({ dayColumns }: { dayColumns: Date[] }) => {
     }
 
     const topPosition = hoursFromStart * HOUR_HEIGHT_PX;
-    const leftPosition = `calc(${todayColumnIndex * 20}% - 1px)`; // 100% / 5 columns = 20% per column
+    const leftPosition = `calc(${todayColumnIndex * 20}%)`;
 
     return (
-        <div className="absolute w-full pointer-events-none z-10" style={{ left: leftPosition, top: `${topPosition}px`, width: '20%' }}>
+        <div className="absolute pointer-events-none z-10" style={{ left: leftPosition, top: `${topPosition}px`, width: '20%' }}>
             <div className="relative h-px bg-destructive w-full">
                 <div className="absolute -left-1.5 -top-1.5 h-3 w-3 rounded-full bg-destructive"></div>
             </div>
@@ -95,8 +95,9 @@ export default function WeeklyView({ events }: WeeklyViewProps) {
             map.set(format(day, 'yyyy-MM-dd'), []);
         });
         events.forEach(event => {
-            if (event.eventDate) {
-                const eventDate = new Date(event.eventDate);
+            if (event.startDate) {
+                const eventDate = new Date(event.startDate);
+                 if (!isValid(eventDate)) return;
                 const eventDayStr = format(eventDate, 'yyyy-MM-dd');
                 if(map.has(eventDayStr)) {
                     map.get(eventDayStr)?.push(event);
@@ -105,7 +106,7 @@ export default function WeeklyView({ events }: WeeklyViewProps) {
         });
         // Sort events within each day by time
         map.forEach((dayEvents) => {
-            dayEvents.sort((a, b) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime());
+            dayEvents.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
         });
         return map;
     }, [events, daysInWeek]);
@@ -168,29 +169,36 @@ export default function WeeklyView({ events }: WeeklyViewProps) {
                         {daysInWeek.map((day) => (
                             <div key={`col-${day.toString()}`} className="relative border-l">
                                 {(eventsByDay.get(format(day, 'yyyy-MM-dd')) || []).map(event => {
-                                    const eventDate = new Date(event.eventDate);
-                                    const hoursFromStart = getHours(eventDate) + getMinutes(eventDate) / 60 - START_HOUR;
-                                    const top = hoursFromStart * HOUR_HEIGHT_PX;
+                                    const startDate = new Date(event.startDate);
+                                    const endDate = new Date(event.endDate);
 
-                                    // Default duration of 1 hour for display
-                                    const durationHours = 1;
-                                    const height = durationHours * HOUR_HEIGHT_PX - 4; // -4 for padding
+                                    if (!isValid(startDate) || !isValid(endDate)) return null;
 
-                                    if (top < 0 || top > ((END_HOUR - START_HOUR) * HOUR_HEIGHT_PX)) return null;
+                                    const startMinutes = getHours(startDate) * 60 + getMinutes(startDate);
+                                    const endMinutes = getHours(endDate) * 60 + getMinutes(endDate);
+
+                                    // Skip if event is outside the displayed hours
+                                    if (endMinutes < START_HOUR * 60 || startMinutes > END_HOUR * 60) return null;
+
+                                    const topOffsetMinutes = startMinutes - (START_HOUR * 60);
+                                    const top = (topOffsetMinutes / 60) * HOUR_HEIGHT_PX;
+
+                                    const durationMinutes = Math.max(30, differenceInMinutes(endDate, startDate));
+                                    const height = (durationMinutes / 60) * HOUR_HEIGHT_PX - 2;
 
                                     return (
                                         <div 
                                             key={event.id}
                                             className={cn(
-                                                "absolute left-1 right-1 p-2 rounded-lg cursor-pointer transition-all shadow-sm hover:shadow-md",
+                                                "absolute left-1 right-1 p-1 rounded-md cursor-pointer transition-all shadow-sm hover:shadow-md overflow-hidden",
                                                 getPriorityColorClass(event.priority),
                                                 "border-l-4"
                                             )}
                                             style={{ top: `${top}px`, height: `${height}px`}}
-                                            title={`${event.title} - ${format(eventDate, 'h:mm a')}`}
+                                            title={`${event.title} - ${format(startDate, 'h:mm a')}`}
                                         >
-                                            <p className="font-semibold text-sm truncate text-foreground">{event.title}</p>
-                                            <p className="text-xs text-muted-foreground">{format(eventDate, 'h:mm a')}</p>
+                                            <p className="font-semibold text-xs truncate">{event.title}</p>
+                                            <p className="text-[10px] opacity-80">{format(startDate, 'h:mm a')} - {format(endDate, 'h:mm a')}</p>
                                         </div>
                                     )
                                 })}

@@ -16,7 +16,8 @@ const pbTaskToCalendarEvent = (taskRecord: Task): CalendarEvent => {
   return {
     id: taskRecord.id,
     title: taskRecord.title,
-    eventDate: taskRecord.dueDate ? new Date(taskRecord.dueDate) : new Date(), 
+    startDate: taskRecord.startDate!,
+    endDate: taskRecord.dueDate!,
     description: taskRecord.description,
     status: taskRecord.status as TaskStatus, 
     userId: taskRecord.userId, 
@@ -64,7 +65,7 @@ export const getCalendarEvents = async (pb: PocketBase, options?: PocketBaseRequ
     const { signal, projectionHorizon, ...otherOptions } = options || {};
     const defaultFields = 'id,title,task_type,dueDate,description,status,userId,created,updated,recurrence,startDate,priority,progress,isMilestone,dependencies,instrument_subtype,method,assignedTo_text';
     const requestParams = {
-      filter: 'dueDate != null && dueDate != ""', 
+      filter: 'startDate != null && startDate != "" && dueDate != null && dueDate != ""', 
       sort: '-dueDate', 
       fields: defaultFields,
       ...otherOptions,
@@ -78,7 +79,7 @@ export const getCalendarEvents = async (pb: PocketBase, options?: PocketBaseRequ
     const rawTasks = records.map(pbRecordToTask);
     const allTasks = projectionHorizon ? generateProjectedTasks(rawTasks, projectionHorizon) : rawTasks;
 
-    return allTasks.map(pbTaskToCalendarEvent).filter(event => event.eventDate); 
+    return allTasks.map(pbTaskToCalendarEvent).filter(event => event.startDate && event.endDate); 
   } catch (error) {
     throw error;
   }

@@ -44,7 +44,8 @@ export interface Task {
 export interface CalendarEvent {
   id: string;
   title: string;
-  eventDate: Date | string; 
+  startDate: Date | string;
+  endDate: Date | string;
   description?: string;
   status?: TaskStatus; 
   userId?: string; 
