@@ -32,9 +32,10 @@ type QuickTaskFormData = z.infer<typeof quickTaskFormSchema>;
 interface QuickTaskFormProps {
   onTaskCreated: () => void;
   onDialogClose: () => void;
+  defaultDate?: Date;
 }
 
-export function QuickTaskForm({ onTaskCreated, onDialogClose }: QuickTaskFormProps) {
+export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: QuickTaskFormProps) {
   const { pbClient, user } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -45,6 +46,7 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose }: QuickTaskFormPro
       title: "",
       description: "",
       priority: "Medium",
+      dueDate: defaultDate,
     },
   });
 
@@ -67,6 +69,8 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose }: QuickTaskFormPro
       formData.append("description", data.description);
     }
     if (data.dueDate) {
+      // For a quick personal task, let's make start and end date the same by default
+      formData.append("startDate", data.dueDate.toISOString());
       formData.append("dueDate", data.dueDate.toISOString());
     }
     if (user.name) {
@@ -130,7 +134,7 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose }: QuickTaskFormPro
             name="dueDate"
             render={({ field }) => (
                 <FormItem className="flex flex-col">
-                <FormLabel>Due Date</FormLabel>
+                <FormLabel>Date & Time</FormLabel>
                 <Popover>
                     <PopoverTrigger asChild>
                     <FormControl>
@@ -138,7 +142,7 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose }: QuickTaskFormPro
                         variant={"outline"}
                         className={`w-full pl-3 text-left font-normal ${!field.value && "text-muted-foreground"}`}
                         >
-                        {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                        {field.value ? format(field.value, "PPP, h:mm a") : <span>Pick a date</span>}
                         <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                         </Button>
                     </FormControl>

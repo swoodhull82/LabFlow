@@ -54,10 +54,9 @@ const NowIndicator = ({ dayColumns }: { dayColumns: Date[] }) => {
     }
 
     const topPosition = hoursFromStart * HOUR_HEIGHT_PX;
-    const leftPosition = `calc(${todayColumnIndex * 20}%)`;
 
     return (
-        <div className="absolute pointer-events-none z-10" style={{ left: leftPosition, top: `${topPosition}px`, width: '20%' }}>
+        <div className="absolute pointer-events-none z-20" style={{ left: `calc(${todayColumnIndex * (100 / dayColumns.length)}%)`, top: `${topPosition}px`, width: `${100/dayColumns.length}%` }}>
             <div className="relative h-px bg-destructive w-full">
                 <div className="absolute -left-1.5 -top-1.5 h-3 w-3 rounded-full bg-destructive"></div>
             </div>
@@ -68,9 +67,10 @@ const NowIndicator = ({ dayColumns }: { dayColumns: Date[] }) => {
 
 interface WeeklyViewProps {
     events: CalendarEvent[];
+    onHourSlotClick: (date: Date) => void;
 }
 
-export default function WeeklyView({ events }: WeeklyViewProps) {
+export default function WeeklyView({ events, onHourSlotClick }: WeeklyViewProps) {
     const [currentDate, setCurrentDate] = useState(new Date());
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -138,7 +138,7 @@ export default function WeeklyView({ events }: WeeklyViewProps) {
             <div className="flex" style={{ height: 'calc(100vh - 300px)' }}>
                 {/* Time Gutter */}
                 <div className="w-16 flex-shrink-0 text-right">
-                     <div className="h-16 sticky top-0 bg-card z-20" />
+                     <div className="h-16 sticky top-0 bg-card z-30" />
                      <div className="relative">
                         {hours.map(hour => (
                             <div key={hour} className="h-[--hour-height] flex items-start justify-end pr-2" style={{'--hour-height': `${HOUR_HEIGHT_PX}px`} as React.CSSProperties}>
@@ -150,7 +150,7 @@ export default function WeeklyView({ events }: WeeklyViewProps) {
 
                 {/* Main Calendar Grid */}
                 <div ref={containerRef} className="flex-grow overflow-y-auto">
-                    <div className="grid grid-cols-5 sticky top-0 bg-card z-20 border-b">
+                    <div className="grid grid-cols-5 sticky top-0 bg-card z-30 border-b">
                         {daysInWeek.map(day => (
                             <div key={day.toString()} className="h-16 flex flex-col items-center justify-center border-l">
                                 <p className="text-sm text-muted-foreground">{format(day, 'EEE')}</p>
@@ -159,15 +159,28 @@ export default function WeeklyView({ events }: WeeklyViewProps) {
                         ))}
                     </div>
                     <div className="grid grid-cols-5 relative">
-                        {/* Hour background lines */}
-                        <div className="col-span-full grid grid-rows-[repeat(11,minmax(0,1fr))]">
-                             {hours.map((_, index) => (
-                                <div key={index} className="h-[--hour-height] border-b" style={{'--hour-height': `${HOUR_HEIGHT_PX}px`} as React.CSSProperties}></div>
-                            ))}
-                        </div>
-                        {/* Day vertical lines and events */}
-                        {daysInWeek.map((day) => (
+                        {/* Day columns with slots and events */}
+                        {daysInWeek.map((day, dayIndex) => (
                             <div key={`col-${day.toString()}`} className="relative border-l">
+                                {/* Clickable Hour Slots */}
+                                <div className="absolute inset-0 z-0">
+                                    {Array.from({ length: END_HOUR - START_HOUR }).map((_, hourIndex) => {
+                                        const hour = START_HOUR + hourIndex;
+                                        const slotDate = new Date(day);
+                                        slotDate.setHours(hour, 0, 0, 0);
+
+                                        return (
+                                            <div
+                                                key={`${dayIndex}-${hourIndex}`}
+                                                onClick={() => onHourSlotClick(slotDate)}
+                                                className="h-[--hour-height] border-b border-border/20 transition-colors hover:bg-primary/10 cursor-pointer"
+                                                style={{'--hour-height': `${HOUR_HEIGHT_PX}px`} as React.CSSProperties}
+                                            ></div>
+                                        );
+                                    })}
+                                </div>
+                                
+                                {/* Events positioned on top */}
                                 {(eventsByDay.get(format(day, 'yyyy-MM-dd')) || []).map(event => {
                                     const startDate = new Date(event.startDate);
                                     const endDate = new Date(event.endDate);
@@ -177,7 +190,6 @@ export default function WeeklyView({ events }: WeeklyViewProps) {
                                     const startMinutes = getHours(startDate) * 60 + getMinutes(startDate);
                                     const endMinutes = getHours(endDate) * 60 + getMinutes(endDate);
 
-                                    // Skip if event is outside the displayed hours
                                     if (endMinutes < START_HOUR * 60 || startMinutes > END_HOUR * 60) return null;
 
                                     const topOffsetMinutes = startMinutes - (START_HOUR * 60);
@@ -190,7 +202,7 @@ export default function WeeklyView({ events }: WeeklyViewProps) {
                                         <div 
                                             key={event.id}
                                             className={cn(
-                                                "absolute left-1 right-1 p-1 rounded-md cursor-pointer transition-all shadow-sm hover:shadow-md overflow-hidden",
+                                                "absolute left-1 right-1 p-1 rounded-md cursor-pointer transition-all shadow-sm hover:shadow-md overflow-hidden z-10",
                                                 getPriorityColorClass(event.priority),
                                                 "border-l-4"
                                             )}
@@ -206,7 +218,7 @@ export default function WeeklyView({ events }: WeeklyViewProps) {
                         ))}
 
                         {/* Now indicator overlay */}
-                        <div className="absolute inset-0 col-span-full">
+                        <div className="absolute inset-0 col-span-full pointer-events-none z-20">
                             <NowIndicator dayColumns={daysInWeek} />
                         </div>
                     </div>

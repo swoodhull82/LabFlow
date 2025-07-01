@@ -100,6 +100,11 @@ export default function CalendarPage() {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartDayRef = useRef<Date | null>(null);
 
+  const [newTaskDate, setNewTaskDate] = useState<Date | undefined>();
+  const [filterPriority, setFilterPriority] = useState<TaskPriority | "all">("all");
+  const [filterStatus, setFilterStatus] = useState<TaskStatus | "all">("all");
+
+
   const handleDayMouseDown = (day: Date, modifiers: DayModifiers) => {
     if (modifiers.disabled) return;
     setIsDragging(true);
@@ -134,11 +139,6 @@ export default function CalendarPage() {
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [handleMouseUp]);
-
-
-  const [isNewTaskDialogOpen, setIsNewTaskDialogOpen] = useState(false);
-  const [filterPriority, setFilterPriority] = useState<TaskPriority | "all">("all");
-  const [filterStatus, setFilterStatus] = useState<TaskStatus | "all">("all");
 
   const fetchEvents = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
     if (!pb) {
@@ -268,6 +268,14 @@ export default function CalendarPage() {
   const handleTaskCreated = () => {
     refetchEvents();
   };
+  
+  const handleHourSlotClick = (date: Date) => {
+    setNewTaskDate(date);
+  };
+  
+  const closeNewTaskDialog = () => {
+    setNewTaskDate(undefined);
+  };
 
   const handlePrevMonth = () => {
     setMonth(prev => addDays(startOfMonth(prev), -1));
@@ -294,22 +302,23 @@ export default function CalendarPage() {
               </TabsList>
             </Tabs>
              {activeTab === 'personal' && (
-                <Dialog open={isNewTaskDialogOpen} onOpenChange={setIsNewTaskDialogOpen}>
-                    <DialogTrigger asChild>
-                         <Button>
-                            <PlusCircle className="mr-2 h-4 w-4" /> New Personal Task
-                        </Button>
-                    </DialogTrigger>
+                <>
+                  <Button onClick={() => handleHourSlotClick(new Date())}>
+                    <PlusCircle className="mr-2 h-4 w-4" /> New Personal Task
+                  </Button>
+                  <Dialog open={!!newTaskDate} onOpenChange={(isOpen) => !isOpen && closeNewTaskDialog()}>
                     <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>Add a New Personal Task</DialogTitle>
-                        </DialogHeader>
-                        <QuickTaskForm 
-                            onTaskCreated={handleTaskCreated} 
-                            onDialogClose={() => setIsNewTaskDialogOpen(false)}
-                        />
+                      <DialogHeader>
+                        <DialogTitle>Add a New Personal Task</DialogTitle>
+                      </DialogHeader>
+                      <QuickTaskForm
+                        onTaskCreated={handleTaskCreated}
+                        onDialogClose={closeNewTaskDialog}
+                        defaultDate={newTaskDate}
+                      />
                     </DialogContent>
-                </Dialog>
+                  </Dialog>
+                </>
             )}
         </div>
       </div>
@@ -448,7 +457,7 @@ export default function CalendarPage() {
             )}
 
             {activeTab === 'personal' && (
-                 <WeeklyView events={eventsForView} />
+                 <WeeklyView events={eventsForView} onHourSlotClick={handleHourSlotClick} />
             )}
         </>
       )}
