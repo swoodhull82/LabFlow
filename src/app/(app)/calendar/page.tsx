@@ -3,7 +3,7 @@
 
 import { Calendar as ShadcnCalendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { format, isPast, isSameDay, isFuture, differenceInCalendarDays, startOfDay, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isValid, addYears } from "date-fns";
 import type { CalendarEvent, TaskPriority, TaskStatus } from "@/lib/types"; 
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { getCalendarEvents } from "@/services/calendarEventService";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertTriangle, Dot, ChevronLeft, ChevronRight, PlusCircle, Filter } from "lucide-react";
 import type PocketBase from "pocketbase";
-import { type DateRange } from "react-day-picker";
+import { type DateRange, type DayModifiers } from "react-day-picker";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -90,10 +90,45 @@ export default function CalendarPage() {
   const [activeTab, setActiveTab] = useState("task");
   
   const [month, setMonth] = useState(new Date());
+
   const [range, setRange] = useState<DateRange | undefined>({
     from: startOfDay(new Date()),
     to: startOfDay(new Date()),
   });
+  
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartDayRef = useRef<Date | null>(null);
+
+  const handleDayMouseDown = (day: Date, modifiers: DayModifiers) => {
+    if (modifiers.disabled) return;
+    setIsDragging(true);
+    dragStartDayRef.current = day;
+    setRange({ from: day, to: day });
+  };
+
+  const handleDayMouseEnter = (day: Date, modifiers: DayModifiers) => {
+    if (isDragging && dragStartDayRef.current && !modifiers.disabled) {
+      const start = dragStartDayRef.current;
+      if (start <= day) {
+        setRange({ from: start, to: day });
+      } else {
+        setRange({ from: day, to: start });
+      }
+    }
+  };
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+    dragStartDayRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [handleMouseUp]);
+
 
   const [isNewTaskDialogOpen, setIsNewTaskDialogOpen] = useState(false);
   const [filterPriority, setFilterPriority] = useState<TaskPriority | "all">("all");
@@ -303,7 +338,9 @@ export default function CalendarPage() {
                 month={month}
                 onMonthChange={setMonth}
                 selected={range}
-                onSelect={setRange}
+                onDayMouseDown={handleDayMouseDown}
+                onDayMouseEnter={handleDayMouseEnter}
+                onSelect={undefined}
                 disabled={isPast}
                 numberOfMonths={2}
                 className="p-0"
