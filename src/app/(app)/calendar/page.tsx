@@ -1,4 +1,3 @@
-
 "use client";
 
 import { Calendar as ShadcnCalendar } from "@/components/ui/calendar";
@@ -21,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/constants";
+import WeeklyView from '@/components/calendar/WeeklyView';
 
 
 const getDetailedErrorMessage = (error: any): string => {
@@ -115,6 +115,11 @@ export default function CalendarPage() {
         setRange({ from: day, to: start });
       }
     }
+  };
+  
+  const handleDayClick = (day: Date, modifiers: DayModifiers) => {
+    if (modifiers.disabled) return;
+    setRange({ from: day, to: day });
   };
 
   const handleMouseUp = useCallback(() => {
@@ -319,119 +324,128 @@ export default function CalendarPage() {
         </div>
       ) : (
         <>
-          <Card className="shadow-md">
-            <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" onClick={handlePrevMonth}><ChevronLeft className="h-4 w-4" /></Button>
-                <Button variant="outline" size="icon" onClick={handleNextMonth}><ChevronRight className="h-4 w-4" /></Button>
-                <h2 className="text-lg font-semibold ml-2">{format(month, "MMMM yyyy")}</h2>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <Button variant="outline" size="sm" onClick={() => setRange({ from: new Date(), to: new Date() })}>Today</Button>
-                <Button variant="outline" size="sm" onClick={() => setRange({ from: startOfWeek(new Date()), to: endOfWeek(new Date()) })}>This Week</Button>
-                <Button variant="outline" size="sm" onClick={() => setRange({ from: startOfMonth(new Date()), to: endOfMonth(new Date()) })}>This Month</Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <ShadcnCalendar
-                mode="range"
-                month={month}
-                onMonthChange={setMonth}
-                selected={range}
-                onDayMouseDown={handleDayMouseDown}
-                onDayMouseEnter={handleDayMouseEnter}
-                onSelect={undefined}
-                disabled={isPast}
-                numberOfMonths={2}
-                className="p-0"
-                classNames={{
-                  day_range_start: "day-range-start",
-                  day_range_end: "day-range-end",
-                  day_selected: "bg-primary/90 text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground",
-                  day_today: "bg-accent text-accent-foreground rounded-full",
-                  day_range_middle: "aria-selected:bg-primary/20 aria-selected:text-primary-foreground rounded-none",
-                }}
-                modifiers={statusModifiers}
-                modifiersClassNames={{ 
-                  completed: "!bg-green-100 dark:!bg-green-900/50",
-                  overdue: "!bg-red-100 dark:!bg-red-900/50",
-                  almostDue: "!bg-yellow-100 dark:!bg-yellow-800/50",
-                  active: "!bg-blue-100 dark:!bg-blue-900/50",
-                }} 
-                components={{
-                  DayContent: (props) => <CalendarDayContent date={props.date} tasksForDay={tasksByDay.get(format(props.date, "yyyy-MM-dd")) || []} />
-                }}
-              />
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader>
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div>
-                        <CardTitle className="font-headline">Tasks for: {selectedRangeText}</CardTitle>
-                        <CardDescription>
-                            {eventsForSelectedRange.length} task(s) found in the selected period for the <span className="font-semibold">{activeTab === 'personal' ? 'Personal' : 'Task'}</span> calendar.
-                        </CardDescription>
-                    </div>
+            {activeTab === 'task' && (
+                <>
+                <Card className="shadow-md">
+                    <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                     <div className="flex items-center gap-2">
-                        <Filter className="h-4 w-4 text-muted-foreground" />
-                        <Select value={filterPriority} onValueChange={(v) => setFilterPriority(v as TaskPriority | 'all')}>
-                            <SelectTrigger className="w-[140px]">
-                                <SelectValue placeholder="Filter by priority" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All Priorities</SelectItem>
-                                {TASK_PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
-                        <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as TaskStatus | 'all')}>
-                            <SelectTrigger className="w-[140px]">
-                                <SelectValue placeholder="Filter by status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All Statuses</SelectItem>
-                                {TASK_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
+                        <Button variant="outline" size="icon" onClick={handlePrevMonth}><ChevronLeft className="h-4 w-4" /></Button>
+                        <Button variant="outline" size="icon" onClick={handleNextMonth}><ChevronRight className="h-4 w-4" /></Button>
+                        <h2 className="text-lg font-semibold ml-2">{format(month, "MMMM yyyy")}</h2>
                     </div>
-                </div>
-            </CardHeader>
-            <CardContent>
-              {eventsForSelectedRange.length > 0 ? (
-                <ul className="space-y-4">
-                  {eventsForSelectedRange.map(event => (
-                    <li key={event.id} className="p-4 rounded-md border bg-card hover:bg-muted/50 transition-colors">
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="flex-grow">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Badge variant={getPriorityBadgeVariant(event.priority)}>{event.priority || 'N/A'}</Badge>
-                            <h3 className="font-semibold">{event.title}</h3>
-                          </div>
-                          {event.description && <p className="text-sm text-muted-foreground mt-1">{event.description}</p>}
-                          {typeof event.progress === 'number' && (
-                            <div className="mt-2">
-                              <div className="flex justify-between items-center mb-1">
-                                <span className="text-xs text-muted-foreground">Progress</span>
-                                <span className="text-xs font-medium">{event.progress}%</span>
-                              </div>
-                              <Progress value={event.progress} className="h-2" />
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={() => setRange({ from: new Date(), to: new Date() })}>Today</Button>
+                        <Button variant="outline" size="sm" onClick={() => setRange({ from: startOfWeek(new Date()), to: endOfWeek(new Date()) })}>This Week</Button>
+                        <Button variant="outline" size="sm" onClick={() => setRange({ from: startOfMonth(new Date()), to: endOfMonth(new Date()) })}>This Month</Button>
+                    </div>
+                    </CardHeader>
+                    <CardContent>
+                    <ShadcnCalendar
+                        mode="range"
+                        month={month}
+                        onMonthChange={setMonth}
+                        selected={range}
+                        onDayMouseDown={handleDayMouseDown}
+                        onDayMouseEnter={handleDayMouseEnter}
+                        onDayClick={handleDayClick}
+                        onSelect={undefined} 
+                        disabled={isPast}
+                        numberOfMonths={2}
+                        className="p-0"
+                        classNames={{
+                        day_range_start: "day-range-start",
+                        day_range_end: "day-range-end",
+                        day_selected: "bg-primary/90 text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground",
+                        day_today: "bg-accent text-accent-foreground rounded-full",
+                        day_range_middle: "aria-selected:bg-primary/20 aria-selected:text-primary-foreground rounded-none",
+                        }}
+                        modifiers={statusModifiers}
+                        modifiersClassNames={{ 
+                        completed: "!bg-green-100 dark:!bg-green-900/50",
+                        overdue: "!bg-red-100 dark:!bg-red-900/50",
+                        almostDue: "!bg-yellow-100 dark:!bg-yellow-800/50",
+                        active: "!bg-blue-100 dark:!bg-blue-900/50",
+                        }} 
+                        components={{
+                        DayContent: (props) => <CalendarDayContent date={props.date} tasksForDay={tasksByDay.get(format(props.date, "yyyy-MM-dd")) || []} />
+                        }}
+                    />
+                    </CardContent>
+                </Card>
+                
+                <Card>
+                    <CardHeader>
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                            <div>
+                                <CardTitle className="font-headline">Tasks for: {selectedRangeText}</CardTitle>
+                                <CardDescription>
+                                    {eventsForSelectedRange.length} task(s) found in the selected period for the Task calendar.
+                                </CardDescription>
                             </div>
-                          )}
+                            <div className="flex items-center gap-2">
+                                <Filter className="h-4 w-4 text-muted-foreground" />
+                                <Select value={filterPriority} onValueChange={(v) => setFilterPriority(v as TaskPriority | 'all')}>
+                                    <SelectTrigger className="w-[140px]">
+                                        <SelectValue placeholder="Filter by priority" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">All Priorities</SelectItem>
+                                        {TASK_PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                                <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as TaskStatus | 'all')}>
+                                    <SelectTrigger className="w-[140px]">
+                                        <SelectValue placeholder="Filter by status" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">All Statuses</SelectItem>
+                                        {TASK_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
-                        <div className="text-right flex-shrink-0 ml-4">
-                          <p className="text-sm font-medium">{format(new Date(event.eventDate), "MMM dd")}</p>
-                          <p className={cn("text-xs mt-1", event.status === "Done" ? "text-green-600" : "text-muted-foreground")}>{event.status}</p>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-muted-foreground py-8 text-center">No tasks scheduled for the selected period matching your filters.</p>
-              )}
-            </CardContent>
-          </Card>
+                    </CardHeader>
+                    <CardContent>
+                    {eventsForSelectedRange.length > 0 ? (
+                        <ul className="space-y-4">
+                        {eventsForSelectedRange.map(event => (
+                            <li key={event.id} className="p-4 rounded-md border bg-card hover:bg-muted/50 transition-colors">
+                            <div className="flex justify-between items-start gap-4">
+                                <div className="flex-grow">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <Badge variant={getPriorityBadgeVariant(event.priority)}>{event.priority || 'N/A'}</Badge>
+                                    <h3 className="font-semibold">{event.title}</h3>
+                                </div>
+                                {event.description && <p className="text-sm text-muted-foreground mt-1">{event.description}</p>}
+                                {typeof event.progress === 'number' && (
+                                    <div className="mt-2">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <span className="text-xs text-muted-foreground">Progress</span>
+                                        <span className="text-xs font-medium">{event.progress}%</span>
+                                    </div>
+                                    <Progress value={event.progress} className="h-2" />
+                                    </div>
+                                )}
+                                </div>
+                                <div className="text-right flex-shrink-0 ml-4">
+                                <p className="text-sm font-medium">{format(new Date(event.eventDate), "MMM dd")}</p>
+                                <p className={cn("text-xs mt-1", event.status === "Done" ? "text-green-600" : "text-muted-foreground")}>{event.status}</p>
+                                </div>
+                            </div>
+                            </li>
+                        ))}
+                        </ul>
+                    ) : (
+                        <p className="text-muted-foreground py-8 text-center">No tasks scheduled for the selected period matching your filters.</p>
+                    )}
+                    </CardContent>
+                </Card>
+                </>
+            )}
+
+            {activeTab === 'personal' && (
+                 <WeeklyView events={eventsForView} />
+            )}
         </>
       )}
     </div>
