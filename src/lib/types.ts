@@ -53,6 +53,7 @@ export interface CalendarEvent {
   collectionId?: string;
   collectionName?: string; 
   expand?: any;
+  assignedTo_text?: string;
 }
 
 export interface Employee {

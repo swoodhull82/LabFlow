@@ -14,6 +14,7 @@ import { Loader2, AlertTriangle, Dot, ChevronLeft, ChevronRight } from "lucide-r
 import type PocketBase from "pocketbase";
 import { type DateRange } from "react-day-picker";
 import { cn } from "@/lib/utils";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 
 const getDetailedErrorMessage = (error: any): string => {
@@ -62,11 +63,12 @@ function CalendarDayContent({ date, tasksForDay }: { date: Date; tasksForDay: Ca
 }
 
 export default function CalendarPage() {
-  const { pbClient } = useAuth();
+  const { pbClient, user } = useAuth();
   const { toast } = useToast();
   const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]); 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("task");
   
   const [month, setMonth] = useState(new Date());
   const [range, setRange] = useState<DateRange | undefined>({
@@ -112,6 +114,13 @@ export default function CalendarPage() {
     };
   }, [pbClient, fetchEvents]);
 
+  const eventsForView = useMemo(() => {
+    if (activeTab === 'personal' && user) {
+      return allEvents.filter(event => event.assignedTo_text === user.name);
+    }
+    return allEvents;
+  }, [activeTab, allEvents, user]);
+
   const { tasksByDay, statusModifiers } = useMemo(() => {
     const tasksByDayMap = new Map<string, CalendarEvent[]>();
     const statusModifiersMap = {
@@ -123,7 +132,7 @@ export default function CalendarPage() {
 
     const today = startOfDay(new Date());
 
-    for (const event of allEvents) {
+    for (const event of eventsForView) {
       if (!event.eventDate || !isValid(new Date(event.eventDate))) continue;
       const eventDateObj = startOfDay(new Date(event.eventDate));
       const dateKey = format(eventDateObj, "yyyy-MM-dd");
@@ -156,7 +165,7 @@ export default function CalendarPage() {
         active: Array.from(statusModifiersMap.active).map(t => new Date(t)),
       },
     };
-  }, [allEvents]);
+  }, [eventsForView]);
 
   const eventsForSelectedRange = useMemo(() => {
     if (!range?.from) return [];
@@ -194,12 +203,20 @@ export default function CalendarPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl md:text-3xl font-headline font-semibold">Task Calendar</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <h1 className="text-2xl md:text-3xl font-headline font-semibold">Calendar</h1>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList>
+            <TabsTrigger value="task">Task Calendar</TabsTrigger>
+            <TabsTrigger value="personal">Personal Calendar</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
 
       {isLoading ? (
         <div className="flex justify-center items-center py-10">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="ml-2">Loading tasks for calendar...</p>
+          <p className="ml-2">Loading calendar...</p>
         </div>
       ) : error ? (
         <div className="text-center py-10 text-destructive">
@@ -258,7 +275,7 @@ export default function CalendarPage() {
             <CardHeader>
               <CardTitle className="font-headline">Tasks for: {selectedRangeText}</CardTitle>
               <CardDescription>
-                {eventsForSelectedRange.length} task(s) found in the selected period.
+                {eventsForSelectedRange.length} task(s) found in the selected period for the <span className="font-semibold">{activeTab === 'personal' ? 'Personal' : 'Task'}</span> calendar.
               </CardDescription>
             </CardHeader>
             <CardContent>
