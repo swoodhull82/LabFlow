@@ -245,12 +245,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
 
     const projectColorMap = new Map<string, typeof PROJECT_COLORS[0]>();
     let colorIndex = 0;
-    const rootProjects = tasksToFilter.filter(t => t.isParent);
+    const rootProjects = tasksToFilter
+      .filter(t => t.isParent)
+      .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+      
     rootProjects.forEach(proj => {
-      if (!projectColorMap.has(proj.id)) {
-        projectColorMap.set(proj.id, PROJECT_COLORS[colorIndex % PROJECT_COLORS.length]);
-        colorIndex++;
-      }
+      projectColorMap.set(proj.id, PROJECT_COLORS[colorIndex % PROJECT_COLORS.length]);
+      colorIndex++;
     });
 
     const getProjectRootId = (taskId: string, allTasksMap: Map<string, any>, visited = new Set<string>()): string | null => {
