@@ -233,7 +233,7 @@ export default function TasksPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryStatusMessage, setRetryStatusMessage] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState<FilterValue>('incomplete');
+  const [filterStatus, setFilterStatus] = useState<FilterValue>('all');
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
@@ -1209,6 +1209,7 @@ export default function TasksPage() {
     </div>
   );
 }
+
 
 
 
