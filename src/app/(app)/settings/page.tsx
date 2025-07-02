@@ -63,27 +63,40 @@ export default function SettingsPage() {
       setPushNotificationsEnabled(JSON.parse(storedPushPref));
     }
 
-    if (pbClient) {
+    const controller = new AbortController();
+
+    if (pbClient && user) {
       setIsLoadingUsers(true);
-      getUsers(pbClient)
+      getUsers(pbClient, { signal: controller.signal })
         .then(users => {
           // Filter out the current user from the list of people to share with
           setAllUsers(users.filter(u => u.id !== user?.id));
         })
         .catch(err => {
-          console.error("Failed to load users for sharing:", err);
-          toast({
-            title: "Error Loading Users",
-            description: "Could not fetch the list of users for calendar sharing.",
-            variant: "destructive",
-          });
+          const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+          if (isAutocancel) {
+            console.warn("Users fetch for sharing was cancelled. This is expected on component unmount and is not an error.");
+          } else {
+            console.error("Failed to load users for sharing:", err);
+            toast({
+              title: "Error Loading Users",
+              description: "Could not fetch the list of users for calendar sharing.",
+              variant: "destructive",
+            });
+          }
         })
         .finally(() => {
           setIsLoadingUsers(false);
         });
+    } else {
+      setIsLoadingUsers(false);
     }
+    
+    return () => {
+        controller.abort();
+    };
 
-  }, [pbClient, toast, user?.id]);
+  }, [pbClient, toast, user]);
 
   useEffect(() => {
     if (user?.sharesPersonalCalendarWith) {
