@@ -80,11 +80,22 @@ export const createPersonalEvent = async (
 ): Promise<CalendarEvent> => {
   try {
     const record = await pb.collection(COLLECTION_NAME).create(eventData);
-    return pbRecordToPersonalEvent(record) as CalendarEvent; // We can assert not null as we just created it with valid data
+    return pbRecordToPersonalEvent(record) as CalendarEvent;
   } catch (error) {
-    if (error instanceof ClientResponseError && error.status === 404) {
-        console.error(`[personalEventService] The '${COLLECTION_NAME}' collection was not found. Cannot create event.`, error);
-        throw new Error(`Cannot create personal event: The 'personal_events' collection does not exist. Please create it in your PocketBase admin panel.`);
+    if (error instanceof ClientResponseError) {
+        if (error.status === 404) {
+            console.error(`[personalEventService] The '${COLLECTION_NAME}' collection was not found. Cannot create event.`, error);
+            throw new Error(`Cannot create personal event: The 'personal_events' collection does not exist. Please create it in your PocketBase admin panel.`);
+        }
+        // Detailed parsing for 400 Bad Request errors
+        if (error.status === 400 && error.data?.data) {
+            const fieldErrors = Object.entries(error.data.data)
+                .map(([key, val]: [string, any]) => `${key}: ${val.message}`)
+                .join('; ');
+            const detailedError = new Error(`Validation failed. Server says: ${fieldErrors}`);
+            (detailedError as any).originalError = error;
+            throw detailedError;
+        }
     }
     console.error("Failed to create personal event:", error);
     throw error;
