@@ -94,7 +94,7 @@ export default function CalendarPage() {
   const [displayedEvents, setDisplayedEvents] = useState<CalendarEvent[]>([]); 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("task");
+  const [activeTab, setActiveTab] = useState("personal");
   
   const [month, setMonth] = useState(new Date());
 
