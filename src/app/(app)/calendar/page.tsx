@@ -23,6 +23,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/constants";
 import WeeklyView from '@/components/calendar/WeeklyView';
+import type { ClientResponseError } from 'pocketbase';
 
 
 const getDetailedErrorMessage = (error: any): string => {
@@ -220,19 +221,22 @@ export default function CalendarPage() {
       }
       tasksByDayMap.get(dateKey)!.push(event);
 
-      if (!event.endDate || !isValid(new Date(event.endDate))) continue;
-      const eventDueDateObj = startOfDay(new Date(event.endDate));
+      // Only calculate status modifiers for actual tasks, not personal events.
+      if (activeTab === 'task' && event.status) {
+        if (!event.endDate || !isValid(new Date(event.endDate))) continue;
+        const eventDueDateObj = startOfDay(new Date(event.endDate));
 
-      if (event.status === "Done") {
-        statusModifiersMap.completed.add(eventDueDateObj.getTime());
-      } else if (isPast(eventDueDateObj) && !isSameDay(eventDueDateObj, today)) {
-        statusModifiersMap.overdue.add(eventDueDateObj.getTime());
-      } else {
-        const diffDays = differenceInCalendarDays(eventDueDateObj, today);
-        if (diffDays >= 0 && diffDays < ALMOST_DUE_DAYS) {
-          statusModifiersMap.almostDue.add(eventDueDateObj.getTime());
-        } else if (isFuture(eventDueDateObj) || isSameDay(eventDueDateObj, today)) {
-          statusModifiersMap.active.add(eventDueDateObj.getTime());
+        if (event.status === "Done") {
+          statusModifiersMap.completed.add(eventDueDateObj.getTime());
+        } else if (isPast(eventDueDateObj) && !isSameDay(eventDueDateObj, today)) {
+          statusModifiersMap.overdue.add(eventDueDateObj.getTime());
+        } else {
+          const diffDays = differenceInCalendarDays(eventDueDateObj, today);
+          if (diffDays >= 0 && diffDays < ALMOST_DUE_DAYS) {
+            statusModifiersMap.almostDue.add(eventDueDateObj.getTime());
+          } else if (isFuture(eventDueDateObj) || isSameDay(eventDueDateObj, today)) {
+            statusModifiersMap.active.add(eventDueDateObj.getTime());
+          }
         }
       }
     }
@@ -246,7 +250,7 @@ export default function CalendarPage() {
         active: Array.from(statusModifiersMap.active).map(t => new Date(t)),
       },
     };
-  }, [eventsForView]);
+  }, [eventsForView, activeTab]);
 
   const eventsForSelectedRange = useMemo(() => {
     if (!range?.from) return [];
@@ -295,9 +299,6 @@ export default function CalendarPage() {
   }, [range]);
 
   const isDateDisabled = (date: Date) => {
-    if (!isValid(date)) {
-      return false;
-    }
     return isBefore(date, startOfDay(new Date()));
   };
 
