@@ -373,23 +373,29 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             break;
         }
         case 'quarter': {
-            chartEndDate = endOfYear(addYears(viewStartDate, 1));
-            headerData.pixelsPerDay = 2;
-            const monthlyIntervals = eachMonthOfInterval({ start: startOfYear(viewStartDate), end: chartEndDate });
-            const quarterSpans: { [key: string]: number } = {};
-             monthlyIntervals.forEach(monthStart => {
-                const quarterKey = `${format(monthStart, 'yyyy')} Q${format(monthStart, 'q')}`;
-                const daysInMonth = differenceInDays(endOfMonth(monthStart), monthStart) + 1;
-                quarterSpans[quarterKey] = (quarterSpans[quarterKey] || 0) + daysInMonth;
+            const yearStart = startOfYear(viewStartDate);
+            const yearEnd = endOfYear(viewStartDate);
+            chartEndDate = yearEnd;
+
+            const totalDaysInYear = differenceInDays(yearEnd, yearStart) + 1;
+            headerData.pixelsPerDay = 4;
+
+            headerData.topHeaderCells.push({
+                key: format(yearStart, 'yyyy'),
+                label: format(yearStart, 'yyyy'),
+                width: totalDaysInYear * headerData.pixelsPerDay
+            });
+            
+            for (let i = 0; i < 4; i++) {
+                const quarterStart = startOfQuarter(addQuartersDateFns(yearStart, i));
+                const quarterEnd = endOfQuarter(quarterStart);
+                const daysInQuarter = differenceInDays(quarterEnd, quarterStart) + 1;
                 headerData.bottomHeaderCells.push({
-                    key: format(monthStart, 'yyyy-MM'),
-                    label: format(monthStart, 'MMM'),
-                    width: daysInMonth * headerData.pixelsPerDay
+                    key: `${format(quarterStart, 'yyyy')}-Q${i+1}`,
+                    label: `Q${i+1}`,
+                    width: daysInQuarter * headerData.pixelsPerDay
                 });
-            });
-            Object.entries(quarterSpans).forEach(([name, daysInQuarter]) => {
-                 headerData.topHeaderCells.push({ key: name, label: name.split(' ')[1], width: daysInQuarter * headerData.pixelsPerDay });
-            });
+            }
             break;
         }
     }
