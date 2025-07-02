@@ -364,8 +364,8 @@ export default function CalendarPage() {
         <div className="flex items-center gap-2">
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList>
-                <TabsTrigger value="task">Task Calendar</TabsTrigger>
                 <TabsTrigger value="personal">Personal Calendar</TabsTrigger>
+                <TabsTrigger value="task">Task Calendar</TabsTrigger>
               </TabsList>
             </Tabs>
              {activeTab === 'personal' && (
