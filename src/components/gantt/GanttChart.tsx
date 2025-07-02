@@ -309,7 +309,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         chartEndDate: Date;
     } = { topHeaderCells: [], bottomHeaderCells: [], totalWidth: 0, pixelsPerDay: 0, chartEndDate: viewStartDate };
 
-    const TARGET_TOTAL_WIDTH = 4000; // A large, consistent width for the scrollable area
+    const TARGET_TOTAL_WIDTH = 2000; // A large, consistent width for the scrollable area
 
     let chartStartDateForRender = viewStartDate;
     let chartEndDate: Date;
@@ -1146,3 +1146,5 @@ const buttonVariants = cva(
     defaultVariants: { variant: "default", size: "default" },
   }
 );
+
+    
