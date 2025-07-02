@@ -63,6 +63,10 @@ interface PocketBaseRequestOptions {
 }
 
 export const getPersonalEvents = async (pb: PocketBase, userId: string, options?: PocketBaseRequestOptions): Promise<CalendarEvent[]> => {
+  if (!userId) {
+    console.warn("[personalEventService] getPersonalEvents called without a userId. Returning empty array to protect privacy.");
+    return [];
+  }
   try {
     const { signal, ...otherOptions } = options || {};
     const requestParams = {

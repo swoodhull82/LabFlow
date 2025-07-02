@@ -74,6 +74,19 @@ A new collection is required to store personal calendar events separately from t
 *   **`created`**: (Date, System Field) - Timestamp of creation.
 *   **`updated`**: (Date, System Field) - Timestamp of last update.
 
+### Securing Personal Events in PocketBase
+
+For personal calendar events to be truly private and visible only to the user who created them, you must set API rules on the `personal_events` collection in your PocketBase Admin UI. While the application code filters events on the client-side, these server-side rules are essential for security.
+
+Navigate to your PocketBase admin dashboard, select the `personal_events` collection, and go to the **"API Rules"** tab. Set the rules as follows:
+
+-   **List Rule**: `userId = @request.auth.id`
+-   **View Rule**: `userId = @request.auth.id`
+-   **Create Rule**: `userId = @request.auth.id`
+-   **Update Rule**: `userId = @request.auth.id`
+-   **Delete Rule**: `userId = @request.auth.id`
+
+These rules ensure that a logged-in user can only interact with their own personal events.
 
 ## Deployment Troubleshooting (GitHub Pages & PocketBase)
 
