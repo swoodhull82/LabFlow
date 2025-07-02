@@ -1,7 +1,7 @@
 
 'use client';
 import type { Employee } from "@/lib/types";
-import type PocketBase from 'pocketbase';
+import PocketBase, { ClientResponseError } from 'pocketbase';
 import { withRetry } from '@/lib/retry';
 
 const COLLECTION_NAME = "employees";
@@ -11,6 +11,29 @@ interface PocketBaseRequestOptions {
   onRetry?: (attempt: number, maxAttempts: number, error: any) => void; 
   [key: string]: any;
 }
+
+// Helper to handle common creation errors from PocketBase
+const handleCreateError = (error: any, collectionName: string) => {
+    if (error instanceof ClientResponseError) {
+        if (error.status === 404) {
+            throw new Error(`Cannot create item: The '${collectionName}' collection does not exist. Please create it in your PocketBase admin panel.`);
+        }
+        if (error.status === 400 && error.data?.data) {
+            // Specific check for the "id" field misconfiguration
+            if (error.data.data.id && error.data.data.id.message) {
+                 throw new Error(`There seems to be a configuration issue with your '${collectionName}' collection. The server is asking for an 'id', which should be automatically generated. Please check in your PocketBase admin panel that the 'id' field is the default system field and not a required text field you created.`);
+            }
+            // Generic validation error message
+            const fieldErrors = Object.entries(error.data.data)
+                .map(([key, val]: [string, any]) => `${key}: ${val.message}`)
+                .join('; ');
+            throw new Error(`Validation failed. Server says: ${fieldErrors}`);
+        }
+    }
+    console.error(`Failed to create item in ${collectionName}:`, error);
+    // Fallback for other errors
+    throw error;
+};
 
 // Helper to convert PocketBase record to Employee type
 const pbRecordToEmployee = (record: any): Employee => {
@@ -59,7 +82,7 @@ export const createEmployee = async (pb: PocketBase, employeeData: Partial<Omit<
     const record = await pb.collection(COLLECTION_NAME).create(employeeData, { signal: options?.signal });
     return pbRecordToEmployee(record);
   } catch (error) {
-    console.error("Failed to create employee:", error);
+    handleCreateError(error, COLLECTION_NAME);
     throw error;
   }
 };
@@ -112,4 +135,3 @@ export const getEmployeeById = async (pb: PocketBase, id: string, options?: Pock
     throw error;
   }
 };
-

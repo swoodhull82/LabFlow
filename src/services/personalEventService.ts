@@ -7,6 +7,30 @@ import { isValid } from 'date-fns';
 
 const COLLECTION_NAME = "personal_events";
 
+// Helper to handle common creation errors from PocketBase
+const handleCreateError = (error: any, collectionName: string) => {
+    if (error instanceof ClientResponseError) {
+        if (error.status === 404) {
+            throw new Error(`Cannot create item: The '${collectionName}' collection does not exist. Please create it in your PocketBase admin panel.`);
+        }
+        if (error.status === 400 && error.data?.data) {
+            // Specific check for the "id" field misconfiguration
+            if (error.data.data.id && error.data.data.id.message) {
+                 throw new Error(`There seems to be a configuration issue with your '${collectionName}' collection. The server is asking for an 'id', which should be automatically generated. Please check in your PocketBase admin panel that the 'id' field is the default system field and not a required text field you created.`);
+            }
+            // Generic validation error message
+            const fieldErrors = Object.entries(error.data.data)
+                .map(([key, val]: [string, any]) => `${key}: ${val.message}`)
+                .join('; ');
+            throw new Error(`Validation failed. Server says: ${fieldErrors}`);
+        }
+    }
+    console.error(`Failed to create item in ${collectionName}:`, error);
+    // Fallback for other errors
+    throw error;
+};
+
+
 // Helper to convert PocketBase record to a CalendarEvent-compatible object
 const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
   const startDate = record.startDate ? new Date(record.startDate) : null;
@@ -82,22 +106,8 @@ export const createPersonalEvent = async (
     const record = await pb.collection(COLLECTION_NAME).create(eventData);
     return pbRecordToPersonalEvent(record) as CalendarEvent;
   } catch (error) {
-    if (error instanceof ClientResponseError) {
-        if (error.status === 404) {
-            console.error(`[personalEventService] The '${COLLECTION_NAME}' collection was not found. Cannot create event.`, error);
-            throw new Error(`Cannot create personal event: The 'personal_events' collection does not exist. Please create it in your PocketBase admin panel.`);
-        }
-        // Detailed parsing for 400 Bad Request errors
-        if (error.status === 400 && error.data?.data) {
-            const fieldErrors = Object.entries(error.data.data)
-                .map(([key, val]: [string, any]) => `${key}: ${val.message}`)
-                .join('; ');
-            const detailedError = new Error(`Validation failed. Server says: ${fieldErrors}`);
-            (detailedError as any).originalError = error;
-            throw detailedError;
-        }
-    }
-    console.error("Failed to create personal event:", error);
+    handleCreateError(error, COLLECTION_NAME);
+    // The line below is for TypeScript's benefit, as handleCreateError always throws.
     throw error;
   }
 };

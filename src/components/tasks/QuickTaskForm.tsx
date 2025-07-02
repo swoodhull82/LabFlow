@@ -116,15 +116,9 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: Qui
       onTaskCreated();
       onDialogClose();
     } catch (err: any) {
-      let detailedMessage = "Failed to create event. Please try again.";
-      if (err.data?.message) {
-        detailedMessage = err.data.message;
-      } else if (err.message) {
-        detailedMessage = err.message;
-      }
       toast({
         title: "Error Creating Event",
-        description: detailedMessage,
+        description: err.message || "An unexpected error occurred. Please try again.",
         variant: "destructive",
       });
     } finally {

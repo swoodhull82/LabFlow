@@ -391,45 +391,9 @@ export default function NewTaskPage() {
         router.push("/tasks");
       }
     } catch (err: any) {
-      console.error("Failed to create task (full error object):", err); 
-      let detailedMessage = "Failed to create task. Please try again.";
-      
-      if (err.data && typeof err.data === 'object') {
-        let mainErrorMessage = "";
-        if (err.data.message && typeof err.data.message === 'string') {
-          mainErrorMessage = err.data.message;
-        }
-
-        let fieldErrorString = "";
-        if (err.data.data && typeof err.data.data === 'object' && Object.keys(err.data.data).length > 0) {
-          fieldErrorString = Object.entries(err.data.data)
-            .map(([key, val]: [string, any]) => {
-              const message = val && val.message ? val.message : 'Invalid value';
-              return `${key}: ${message}`;
-            })
-            .join("; ");
-        }
-
-        if (mainErrorMessage && fieldErrorString) {
-          detailedMessage = `${mainErrorMessage}. Details: ${fieldErrorString}`;
-        } else if (mainErrorMessage) {
-          detailedMessage = mainErrorMessage;
-        } else if (fieldErrorString) {
-          detailedMessage = `Validation errors: ${fieldErrorString}`;
-        } else if (Object.keys(err.data).length > 0 && detailedMessage.startsWith("Failed to create task.")) {
-            try {
-                detailedMessage = `PocketBase error: ${JSON.stringify(err.data)}.`;
-            } catch (e) {
-                detailedMessage = `PocketBase error: Could not stringify error data.`;
-            }
-        }
-      } else if (err.message && typeof err.message === 'string') { 
-        detailedMessage = err.message;
-      }
-      
       toast({
         title: "Error Creating Task",
-        description: detailedMessage,
+        description: err.message || "An unexpected error occurred. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -809,4 +773,3 @@ export default function NewTaskPage() {
     </div>
   );
 }
-
