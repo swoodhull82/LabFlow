@@ -56,11 +56,11 @@ interface QuickTaskFormProps {
 
 const generateTimeSlots = () => {
     const slots = [];
-    // From 6 AM (6) to 5 PM (17)
-    for (let i = 6; i <= 17; i++) {
+    // From 7 AM (7) to 4 PM (16)
+    for (let i = 7; i <= 16; i++) {
         slots.push(`${String(i).padStart(2, '0')}:00`);
-        // Add the :30 slot for all hours except 5 PM
-        if (i < 17) {
+        // Add the :30 slot for all hours except the last one (4 PM)
+        if (i < 16) {
             slots.push(`${String(i).padStart(2, '0')}:30`);
         }
     }
@@ -113,9 +113,9 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
     let startDate, endDate;
 
     if (data.isAllDay) {
-        // Set to span the visible calendar hours (6 AM to 6 PM)
-        startDate = set(data.eventDate, { hours: 6, minutes: 0, seconds: 0 });
-        endDate = set(data.eventDate, { hours: 18, minutes: 0, seconds: 0 });
+        // Set to span the visible calendar hours (7 AM to 4 PM)
+        startDate = set(data.eventDate, { hours: 7, minutes: 0, seconds: 0 });
+        endDate = set(data.eventDate, { hours: 16, minutes: 0, seconds: 0 });
     } else {
         const [startHour, startMinute] = data.startTime!.split(':').map(Number);
         const [endHour, endMinute] = data.endTime!.split(':').map(Number);

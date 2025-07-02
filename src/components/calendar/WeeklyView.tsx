@@ -10,8 +10,8 @@ import type { CalendarEvent } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 // Constants for the view
-const START_HOUR = 6; // 6 AM
-const END_HOUR = 18; // Ends at 6 PM (18:00)
+const START_HOUR = 7; // 7 AM
+const END_HOUR = 16; // Ends at 4 PM (16:00)
 const HOUR_HEIGHT_PX = 60; // Height of one hour slot in pixels
 
 const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
