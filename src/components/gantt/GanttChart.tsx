@@ -2,7 +2,7 @@
 "use client";
 
 import type { Task, Employee, TaskType } from '@/lib/types';
-import { addDays, differenceInDays, format, startOfDay, isSameDay, isWithinInterval, max, min, isValid, addMonths, subMonths, startOfMonth, endOfMonth, addYears, isBefore, getISOWeek, eachDayOfInterval, startOfQuarter, endOfQuarter, addQuarters, subQuarters, eachWeekOfInterval, eachMonthOfInterval, subYears, addQuarters as addQuartersDateFns, endOfYear, startOfYear } from 'date-fns';
+import { addDays, differenceInDays, format, startOfDay, isSameDay, isWithinInterval, max, min, isValid, addMonths, subMonths, startOfMonth, endOfMonth, addYears, isBefore, getISOWeek, eachDayOfInterval, startOfQuarter, endOfQuarter, addQuarters, subQuarters, eachWeekOfInterval, eachMonthOfInterval, subYears, endOfYear, startOfYear } from 'date-fns';
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
@@ -350,8 +350,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             break;
         }
         case 'month': {
-            chartEndDate = endOfYear(viewStartDate);
-            headerData.pixelsPerDay = 4;
+            chartEndDate = endOfMonth(addMonths(viewStartDate, 1));
+            headerData.pixelsPerDay = 15;
             const weeklyIntervals = eachWeekOfInterval({ start: startOfMonth(viewStartDate), end: chartEndDate }, { weekStartsOn: 1 });
             const monthSpans: { [key: string]: number } = {};
             weeklyIntervals.forEach(weekStart => {
@@ -387,7 +387,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             });
             
             for (let i = 0; i < 4; i++) {
-                const quarterStart = startOfQuarter(addQuartersDateFns(yearStart, i));
+                const quarterStart = startOfQuarter(addQuarters(yearStart, i));
                 const quarterEnd = endOfQuarter(quarterStart);
                 const daysInQuarter = differenceInDays(quarterEnd, quarterStart) + 1;
                 headerData.bottomHeaderCells.push({
@@ -708,7 +708,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     switch(timeScaleView) {
         case 'day': return subMonths(prev, 1);
         case 'week': return subMonths(prev, 1);
-        case 'month': return subQuarters(prev, 1);
+        case 'month': return subMonths(prev, 1);
         case 'quarter': return subYears(prev, 1);
         default: return prev;
     }
@@ -717,7 +717,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
       switch(timeScaleView) {
         case 'day': return addMonths(prev, 1);
         case 'week': return addMonths(prev, 1);
-        case 'month': return addQuartersDateFns(prev, 1);
+        case 'month': return addMonths(prev, 1);
         case 'quarter': return addYears(prev, 1);
         default: return prev;
     }
