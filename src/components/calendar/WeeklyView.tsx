@@ -21,16 +21,21 @@ const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
     return `${hour} AM`;
 });
 
-const getPriorityColorClass = (priority?: string): string => {
-  if (!priority) return "border-gray-400 bg-gray-100 text-gray-800 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200";
-  const lowerPriority = priority.toLowerCase();
-  switch (lowerPriority) {
-    case "urgent": return "border-red-500 bg-red-50 text-red-900 dark:bg-red-900/20 dark:border-red-500/70 dark:text-red-100";
-    case "high": return "border-orange-500 bg-orange-50 text-orange-900 dark:bg-orange-900/20 dark:border-orange-500/70 dark:text-orange-100";
-    case "medium": return "border-blue-500 bg-blue-50 text-blue-900 dark:bg-blue-900/20 dark:border-blue-500/70 dark:text-blue-100";
-    case "low": return "border-green-500 bg-green-50 text-green-900 dark:bg-green-900/20 dark:border-green-500/70 dark:text-green-100";
-    default: return "border-gray-400 bg-gray-100 text-gray-800 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200";
-  }
+const getEventColorClass = (event: CalendarEvent): string => {
+    if (event.eventType === 'Out of Office') {
+        return "border-green-500 bg-green-50 text-green-900 dark:bg-green-900/20 dark:border-green-500/70 dark:text-green-100";
+    }
+    // Fallback to priority-based coloring for other events ('Busy' or undefined)
+    const priority = event.priority;
+    if (!priority) return "border-gray-400 bg-gray-100 text-gray-800 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200";
+    const lowerPriority = priority.toLowerCase();
+    switch (lowerPriority) {
+        case "urgent": return "border-red-500 bg-red-50 text-red-900 dark:bg-red-900/20 dark:border-red-500/70 dark:text-red-100";
+        case "high": return "border-orange-500 bg-orange-50 text-orange-900 dark:bg-orange-900/20 dark:border-orange-500/70 dark:text-orange-100";
+        case "medium": return "border-blue-500 bg-blue-50 text-blue-900 dark:bg-blue-900/20 dark:border-blue-500/70 dark:text-blue-100";
+        case "low": return "border-slate-500 bg-slate-50 text-slate-900 dark:bg-slate-900/20 dark:border-slate-500/70 dark:text-slate-100";
+        default: return "border-gray-400 bg-gray-100 text-gray-800 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200";
+    }
 };
 
 const NowIndicator = ({ dayColumns }: { dayColumns: Date[] }) => {
@@ -225,7 +230,7 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
                                             onClick={() => onEventClick(event)}
                                             className={cn(
                                                 "absolute p-2 rounded-md cursor-pointer transition-all shadow-sm hover:shadow-md overflow-hidden z-[5] border-l-4",
-                                                getPriorityColorClass(event.priority),
+                                                getEventColorClass(event),
                                                 event.isAllDay && "opacity-90"
                                             )}
                                             style={{ 

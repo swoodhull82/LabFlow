@@ -1,9 +1,10 @@
 
-import type { TaskStatus, TaskPriority, TaskRecurrence, TaskType } from "./types";
+import type { TaskStatus, TaskPriority, TaskRecurrence, TaskType, PersonalEventType } from "./types";
 
 export const TASK_STATUSES: TaskStatus[] = ["To Do", "In Progress", "Blocked", "Done", "Overdue"];
 export const TASK_PRIORITIES: TaskPriority[] = ["Low", "Medium", "High", "Urgent"];
 export const TASK_RECURRENCES: TaskRecurrence[] = ["None", "Daily", "Weekly", "Monthly", "Yearly"];
+export const PERSONAL_EVENT_TYPES: PersonalEventType[] = ["Busy", "Out of Office"];
 
 export const APP_NAME = "LabFlow";
 
@@ -47,4 +48,3 @@ const generateSopSubtypes = (): string[] => {
 };
 
 export const SOP_SUBTYPES: readonly string[] = generateSopSubtypes();
-

@@ -69,6 +69,7 @@ A new collection is required to store personal calendar events separately from t
 *   **`startDate`**: (Date, Required) - The start date and time of the event.
 *   **`endDate`**: (Date, Required) - The end date and time of the event.
 *   **`priority`**: (Select, Required) - Priority level. Options: "Low", "Medium", "High", "Urgent".
+*   **`eventType`**: (Select, Optional, Default: "Busy") - The type of event. Options: "Busy", "Out of Office".
 *   **`userId`**: (Relation to 'users', Required) - The ID of the user who owns this event.
 *   **`isAllDay`**: (Boolean, Optional, Default: false) - Indicates if the event is for the whole day.
 *   **`created`**: (Date, System Field) - Timestamp of creation.
