@@ -16,15 +16,24 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { createPersonalEvent } from "@/services/personalEventService";
 import { useState } from "react";
-import { format, addHours } from "date-fns";
+import { format, addHours, set, getHours } from "date-fns";
 import { TASK_PRIORITIES } from "@/lib/constants";
 import type { TaskPriority } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const quickTaskFormSchema = z.object({
   title: z.string().min(2, { message: "Title must be at least 2 characters." }),
   description: z.string().optional(),
-  dueDate: z.date({ required_error: "A date and time is required." }),
+  eventDate: z.date({ required_error: "An event date is required." }),
+  startTime: z.string({ required_error: "Start time is required."}),
+  endTime: z.string({ required_error: "End time is required."}),
   priority: z.string().min(1, { message: "Priority is required." }) as z.ZodType<TaskPriority>,
+}).refine(data => {
+    if (!data.startTime || !data.endTime) return true; // Let required check handle it
+    return data.endTime > data.startTime;
+}, {
+    message: "End time must be after start time.",
+    path: ["endTime"],
 });
 
 type QuickTaskFormData = z.infer<typeof quickTaskFormSchema>;
@@ -35,18 +44,43 @@ interface QuickTaskFormProps {
   defaultDate?: Date;
 }
 
+const generateTimeSlots = () => {
+    const slots = [];
+    for (let i = 0; i < 24; i++) {
+        slots.push(`${String(i).padStart(2, '0')}:00`);
+        slots.push(`${String(i).padStart(2, '0')}:30`);
+    }
+    return slots;
+};
+
+const formatTimeSlot = (slot: string) => {
+    const [hour, minute] = slot.split(':').map(Number);
+    const date = new Date();
+    date.setHours(hour, minute);
+    return format(date, "h:mm a");
+};
+
+const timeSlots = generateTimeSlots();
+
 export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: QuickTaskFormProps) {
   const { pbClient, user } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
-
+  
+  const defaultHour = defaultDate ? getHours(defaultDate) : 9; // 9 AM
+  const defaultStartDateWithHour = set(defaultDate || new Date(), { hours: defaultHour, minutes: 0, seconds: 0, milliseconds: 0 });
+  const defaultStartTime = format(defaultStartDateWithHour, 'HH:mm');
+  const defaultEndTime = format(addHours(defaultStartDateWithHour, 1), 'HH:mm');
+  
   const form = useForm<QuickTaskFormData>({
     resolver: zodResolver(quickTaskFormSchema),
     defaultValues: {
       title: "",
       description: "",
       priority: "Medium",
-      dueDate: defaultDate,
+      eventDate: defaultDate,
+      startTime: defaultStartTime,
+      endTime: defaultEndTime,
     },
   });
 
@@ -57,8 +91,11 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: Qui
     }
     setIsSubmitting(true);
 
-    const startDate = data.dueDate;
-    const endDate = addHours(startDate, 1); // Default 1-hour duration
+    const [startHour, startMinute] = data.startTime.split(':').map(Number);
+    const [endHour, endMinute] = data.endTime.split(':').map(Number);
+
+    const startDate = set(data.eventDate, { hours: startHour, minutes: startMinute });
+    const endDate = set(data.eventDate, { hours: endHour, minutes: endMinute });
 
     const eventPayload = {
       title: data.title,
@@ -121,38 +158,7 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: Qui
           )}
         />
         <div className="grid grid-cols-2 gap-4">
-            <FormField
-            control={form.control}
-            name="dueDate"
-            render={({ field }) => (
-                <FormItem className="flex flex-col">
-                <FormLabel>Date & Time</FormLabel>
-                <Popover>
-                    <PopoverTrigger asChild>
-                    <FormControl>
-                        <Button
-                        variant={"outline"}
-                        className={`w-full pl-3 text-left font-normal ${!field.value && "text-muted-foreground"}`}
-                        >
-                        {field.value ? format(field.value, "PPP, h:mm a") : <span>Pick a date</span>}
-                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                        </Button>
-                    </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                        mode="single"
-                        selected={field.value}
-                        onSelect={field.onChange}
-                        initialFocus
-                    />
-                    </PopoverContent>
-                </Popover>
-                <FormMessage />
-                </FormItem>
-            )}
-            />
-            <FormField
+          <FormField
             control={form.control}
             name="priority"
             render={({ field }) => (
@@ -173,8 +179,86 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: Qui
                 <FormMessage />
                 </FormItem>
             )}
+          />
+          <FormField
+            control={form.control}
+            name="eventDate"
+            render={({ field }) => (
+                <FormItem className="flex flex-col">
+                  <FormLabel>Date</FormLabel>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button
+                          variant={"outline"}
+                          className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
+                        >
+                          {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                          mode="single"
+                          selected={field.value}
+                          onSelect={field.onChange}
+                          initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <FormMessage />
+                </FormItem>
+            )}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+            <FormField
+                control={form.control}
+                name="startTime"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Start Time</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select start time" />
+                                </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                                {timeSlots.map(slot => (
+                                    <SelectItem key={`start-${slot}`} value={slot}>{formatTimeSlot(slot)}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
+            <FormField
+                control={form.control}
+                name="endTime"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>End Time</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select end time" />
+                                </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                                {timeSlots.map(slot => (
+                                    <SelectItem key={`end-${slot}`} value={slot}>{formatTimeSlot(slot)}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                    </FormItem>
+                )}
             />
         </div>
+
         <div className="flex justify-end space-x-2 pt-4">
           <Button type="button" variant="ghost" onClick={onDialogClose}>Cancel</Button>
           <Button type="submit" disabled={isSubmitting}>
