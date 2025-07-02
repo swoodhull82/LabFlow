@@ -149,9 +149,14 @@ export default function WeeklyView({ events, onHourSlotClick }: WeeklyViewProps)
                 <div className="w-20 text-sm text-right flex-shrink-0">
                      <div ref={headerRef} className="h-20" /> {/* Spacer for header */}
                      <div ref={timeGutterRef} className="overflow-hidden" style={{ height: `calc(100% - 5rem)` }}>
-                        {hours.map(hour => (
+                        {hours.map((hour, index) => (
                             <div key={hour} className="relative pr-2" style={{height: `${HOUR_HEIGHT_PX}px`}}>
-                                <span className="absolute -top-2.5 right-2 text-muted-foreground">{hour}</span>
+                                <span className={cn(
+                                    "absolute right-2 text-muted-foreground",
+                                    index === 0 ? "top-0" : "-top-2.5"
+                                )}>
+                                    {hour}
+                                </span>
                             </div>
                          ))}
                     </div>

@@ -46,9 +46,13 @@ interface QuickTaskFormProps {
 
 const generateTimeSlots = () => {
     const slots = [];
-    for (let i = 0; i < 24; i++) {
+    // From 6 AM (6) to 5 PM (17)
+    for (let i = 6; i <= 17; i++) {
         slots.push(`${String(i).padStart(2, '0')}:00`);
-        slots.push(`${String(i).padStart(2, '0')}:30`);
+        // Add the :30 slot for all hours except 5 PM
+        if (i < 17) {
+            slots.push(`${String(i).padStart(2, '0')}:30`);
+        }
     }
     return slots;
 };
