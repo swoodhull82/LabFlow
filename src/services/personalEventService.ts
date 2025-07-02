@@ -1,7 +1,7 @@
 
 'use client';
 import type { CalendarEvent, TaskPriority } from "@/lib/types";
-import type PocketBase from 'pocketbase';
+import PocketBase, { ClientResponseError } from 'pocketbase';
 import { withRetry } from '@/lib/retry';
 
 const COLLECTION_NAME = "personal_events";
@@ -45,7 +45,7 @@ export const getPersonalEvents = async (pb: PocketBase, userId: string, options?
     return records.map(pbRecordToPersonalEvent);
   } catch (error) {
     // Check if the error is because the collection doesn't exist (e.g., 404)
-    if ((error as any)?.status === 404) {
+    if (error instanceof ClientResponseError && error.status === 404) {
       console.warn(`[personalEventService] The '${COLLECTION_NAME}' collection was not found. Returning empty array. Please create it in PocketBase.`);
       return [];
     }
@@ -70,6 +70,10 @@ export const createPersonalEvent = async (
     const record = await pb.collection(COLLECTION_NAME).create(eventData);
     return pbRecordToPersonalEvent(record);
   } catch (error) {
+    if (error instanceof ClientResponseError && error.status === 404) {
+        console.error(`[personalEventService] The '${COLLECTION_NAME}' collection was not found. Cannot create event.`, error);
+        throw new Error(`Cannot create personal event: The 'personal_events' collection does not exist. Please create it in your PocketBase admin panel.`);
+    }
     console.error("Failed to create personal event:", error);
     throw error;
   }
