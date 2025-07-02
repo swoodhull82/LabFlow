@@ -313,9 +313,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     let chartEndDate: Date;
     switch(timeScaleView) {
         case 'day': {
-            chartEndDate = endOfMonth(addMonths(viewStartDate, 1));
+            chartStartDateForRender = startOfMonth(viewStartDate);
+            chartEndDate = endOfMonth(viewStartDate);
             headerData.pixelsPerDay = 35;
-            const dailyDays = eachDayOfInterval({ start: viewStartDate, end: chartEndDate });
+            const dailyDays = eachDayOfInterval({ start: chartStartDateForRender, end: chartEndDate });
             const monthSpans: { [key: string]: number } = {};
             dailyDays.forEach(day => {
                 const monthKey = format(day, 'MMM yyyy');
@@ -333,7 +334,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         }
         case 'week': {
             chartStartDateForRender = startOfMonth(viewStartDate);
-            chartEndDate = endOfMonth(chartStartDateForRender);
+            chartEndDate = endOfMonth(addMonths(chartStartDateForRender, 1));
             headerData.pixelsPerDay = 20;
             const dailyDays = eachDayOfInterval({ start: chartStartDateForRender, end: chartEndDate });
             const monthSpans: { [key: string]: number } = {};
