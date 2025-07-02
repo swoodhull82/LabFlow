@@ -212,9 +212,12 @@ export default function CalendarPage() {
     const today = startOfDay(new Date());
 
     for (const event of eventsForView) {
-      if (!event.startDate || !isValid(new Date(event.startDate))) continue;
-      const eventStartDateObj = startOfDay(new Date(event.startDate));
-      const dateKey = format(eventStartDateObj, "yyyy-MM-dd");
+      if (!event.startDate) continue;
+      const eventStartDateObj = new Date(event.startDate);
+      if (!isValid(eventStartDateObj)) continue;
+
+      const eventStartDateAtMidnight = startOfDay(eventStartDateObj);
+      const dateKey = format(eventStartDateAtMidnight, "yyyy-MM-dd");
 
       if (!tasksByDayMap.has(dateKey)) {
         tasksByDayMap.set(dateKey, []);
@@ -223,19 +226,22 @@ export default function CalendarPage() {
 
       // Only calculate status modifiers for actual tasks, not personal events.
       if (activeTab === 'task' && event.status) {
-        if (!event.endDate || !isValid(new Date(event.endDate))) continue;
-        const eventDueDateObj = startOfDay(new Date(event.endDate));
+        if (!event.endDate) continue;
+        const eventDueDateObj = new Date(event.endDate);
+        if (!isValid(eventDueDateObj)) continue;
+        
+        const eventDueDateStartOfDay = startOfDay(eventDueDateObj);
 
         if (event.status === "Done") {
-          statusModifiersMap.completed.add(eventDueDateObj.getTime());
-        } else if (isPast(eventDueDateObj) && !isSameDay(eventDueDateObj, today)) {
-          statusModifiersMap.overdue.add(eventDueDateObj.getTime());
+          statusModifiersMap.completed.add(eventDueDateStartOfDay.getTime());
+        } else if (isPast(eventDueDateStartOfDay) && !isSameDay(eventDueDateStartOfDay, today)) {
+          statusModifiersMap.overdue.add(eventDueDateStartOfDay.getTime());
         } else {
-          const diffDays = differenceInCalendarDays(eventDueDateObj, today);
+          const diffDays = differenceInCalendarDays(eventDueDateStartOfDay, today);
           if (diffDays >= 0 && diffDays < ALMOST_DUE_DAYS) {
-            statusModifiersMap.almostDue.add(eventDueDateObj.getTime());
-          } else if (isFuture(eventDueDateObj) || isSameDay(eventDueDateObj, today)) {
-            statusModifiersMap.active.add(eventDueDateObj.getTime());
+            statusModifiersMap.almostDue.add(eventDueDateStartOfDay.getTime());
+          } else if (isFuture(eventDueDateStartOfDay) || isSameDay(eventDueDateStartOfDay, today)) {
+            statusModifiersMap.active.add(eventDueDateStartOfDay.getTime());
           }
         }
       }
