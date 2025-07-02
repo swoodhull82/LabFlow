@@ -308,7 +308,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         pixelsPerDay: number;
         chartEndDate: Date;
     } = { topHeaderCells: [], bottomHeaderCells: [], totalWidth: 0, pixelsPerDay: 0, chartEndDate: viewStartDate };
-
+    
+    let chartStartDateForRender = viewStartDate;
     let chartEndDate: Date;
     switch(timeScaleView) {
         case 'day': {
@@ -331,9 +332,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             break;
         }
         case 'week': {
-            chartEndDate = endOfMonth(addMonths(viewStartDate, 2));
+            chartStartDateForRender = startOfMonth(viewStartDate);
+            chartEndDate = endOfMonth(chartStartDateForRender);
             headerData.pixelsPerDay = 20;
-            const dailyDays = eachDayOfInterval({ start: viewStartDate, end: chartEndDate });
+            const dailyDays = eachDayOfInterval({ start: chartStartDateForRender, end: chartEndDate });
             const monthSpans: { [key: string]: number } = {};
             dailyDays.forEach(day => {
                 const monthKey = format(day, 'MMM yyyy');
@@ -374,20 +376,20 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         }
         case 'quarter': {
             const yearStart = startOfYear(viewStartDate);
-            const yearEnd = endOfYear(viewStartDate);
-            chartEndDate = yearEnd;
+            chartEndDate = endOfYear(viewStartDate);
+            chartStartDateForRender = yearStart;
 
-            const totalDaysInYear = differenceInDays(yearEnd, yearStart) + 1;
+            const totalDaysInYear = differenceInDays(chartEndDate, chartStartDateForRender) + 1;
             headerData.pixelsPerDay = 4;
 
             headerData.topHeaderCells.push({
-                key: format(yearStart, 'yyyy'),
-                label: format(yearStart, 'yyyy'),
+                key: format(chartStartDateForRender, 'yyyy'),
+                label: format(chartStartDateForRender, 'yyyy'),
                 width: totalDaysInYear * headerData.pixelsPerDay
             });
             
             for (let i = 0; i < 4; i++) {
-                const quarterStart = startOfQuarter(addQuarters(yearStart, i));
+                const quarterStart = startOfQuarter(addQuarters(chartStartDateForRender, i));
                 const quarterEnd = endOfQuarter(quarterStart);
                 const daysInQuarter = differenceInDays(quarterEnd, quarterStart) + 1;
                 headerData.bottomHeaderCells.push({
@@ -405,7 +407,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     return {
       tasksToDisplay,
       tasksById,
-      chartStartDate: viewStartDate,
+      chartStartDate: chartStartDateForRender,
       ...headerData,
     };
   }, [allTasks, employees, viewStartDate, timeScaleView, collapsedTasks, filterTaskType]);
