@@ -28,7 +28,13 @@ export const getUsers = async (pb: PocketBase, options?: { signal?: AbortSignal 
       { ...options, context: "fetching all users" }
     );
     return records.map(pbRecordToUser);
-  } catch (error) {
+  } catch (error: any) {
+    const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
+    if (isCancellation) {
+        // This is an expected cancellation, not a true error. Re-throw it so the component can ignore it.
+        throw error;
+    }
+    // For all other "real" errors, log them.
     console.error("Failed to fetch users:", error);
     throw error;
   }
