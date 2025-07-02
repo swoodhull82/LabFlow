@@ -2,7 +2,7 @@
 "use client";
 
 import type { Task, Employee, TaskType } from '@/lib/types';
-import { addDays, differenceInDays, format, startOfDay, isSameDay, isWithinInterval, max, min, isValid, addMonths, subMonths, startOfMonth, endOfMonth, addYears, isBefore, getISOWeek, eachDayOfInterval, startOfQuarter, endOfQuarter, addQuarters, subQuarters, eachWeekOfInterval, eachMonthOfInterval, subYears, addQuarters as addQuartersDateFns, endOfYear, startOfYear } from 'date-fns';
+import { addDays, differenceInDays, format, startOfDay, isSameDay, isWithinInterval, max, min, isValid, addMonths, subMonths, startOfMonth, endOfMonth, addYears, isBefore, getISOWeek, eachDayOfInterval, startOfQuarter, endOfQuarter, addQuarters, subQuarters, eachWeekOfInterval, eachMonthOfInterval, subYears, endOfYear, startOfYear } from 'date-fns';
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
@@ -245,12 +245,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
 
     const projectColorMap = new Map<string, typeof PROJECT_COLORS[0]>();
     let colorIndex = 0;
-    const rootProjects = tasksToFilter.filter(t => t.isParent);
+    const rootProjects = tasksToFilter
+      .filter(t => t.isParent)
+      .sort((a, b) => new Date(a.startDate!).getTime() - new Date(b.startDate!).getTime());
+      
     rootProjects.forEach(proj => {
-      if (!projectColorMap.has(proj.id)) {
-        projectColorMap.set(proj.id, PROJECT_COLORS[colorIndex % PROJECT_COLORS.length]);
-        colorIndex++;
-      }
+      projectColorMap.set(proj.id, PROJECT_COLORS[colorIndex % PROJECT_COLORS.length]);
+      colorIndex++;
     });
 
     const getProjectRootId = (taskId: string, allTasksMap: Map<string, any>, visited = new Set<string>()): string | null => {
@@ -308,12 +309,19 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         chartEndDate: Date;
     } = { topHeaderCells: [], bottomHeaderCells: [], totalWidth: 0, pixelsPerDay: 0, chartEndDate: viewStartDate };
 
+    const TARGET_TOTAL_WIDTH = 2000; // A large, consistent width for the scrollable area
+
+    let chartStartDateForRender = viewStartDate;
     let chartEndDate: Date;
+
     switch(timeScaleView) {
         case 'day': {
-            chartEndDate = endOfMonth(addMonths(viewStartDate, 1));
-            headerData.pixelsPerDay = 35;
-            const dailyDays = eachDayOfInterval({ start: viewStartDate, end: chartEndDate });
+            chartStartDateForRender = startOfMonth(viewStartDate);
+            chartEndDate = endOfMonth(viewStartDate);
+            const totalDaysInView = differenceInDays(chartEndDate, chartStartDateForRender) + 1;
+            headerData.pixelsPerDay = TARGET_TOTAL_WIDTH / totalDaysInView;
+
+            const dailyDays = eachDayOfInterval({ start: chartStartDateForRender, end: chartEndDate });
             const monthSpans: { [key: string]: number } = {};
             dailyDays.forEach(day => {
                 const monthKey = format(day, 'MMM yyyy');
@@ -330,9 +338,12 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             break;
         }
         case 'week': {
-            chartEndDate = endOfMonth(addMonths(viewStartDate, 2));
-            headerData.pixelsPerDay = 20;
-            const dailyDays = eachDayOfInterval({ start: viewStartDate, end: chartEndDate });
+            chartStartDateForRender = startOfMonth(viewStartDate);
+            chartEndDate = endOfMonth(addMonths(chartStartDateForRender, 1));
+            const totalDaysInView = differenceInDays(chartEndDate, chartStartDateForRender) + 1;
+            headerData.pixelsPerDay = TARGET_TOTAL_WIDTH / totalDaysInView;
+
+            const dailyDays = eachDayOfInterval({ start: chartStartDateForRender, end: chartEndDate });
             const monthSpans: { [key: string]: number } = {};
             dailyDays.forEach(day => {
                 const monthKey = format(day, 'MMM yyyy');
@@ -349,56 +360,64 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             break;
         }
         case 'month': {
+            chartStartDateForRender = startOfYear(viewStartDate);
             chartEndDate = endOfYear(viewStartDate);
-            headerData.pixelsPerDay = 4;
-            const weeklyIntervals = eachWeekOfInterval({ start: startOfMonth(viewStartDate), end: chartEndDate }, { weekStartsOn: 1 });
-            const monthSpans: { [key: string]: number } = {};
-            weeklyIntervals.forEach(weekStart => {
-                const monthKey = format(weekStart, 'MMM yyyy');
-                const daysInWeek = 7;
-                monthSpans[monthKey] = (monthSpans[monthKey] || 0) + daysInWeek;
-                headerData.bottomHeaderCells.push({
-                    key: format(weekStart, 'yyyy-MM-dd'),
-                    label: `W${getISOWeek(weekStart)}`,
-                    width: daysInWeek * headerData.pixelsPerDay,
-                });
+            const totalDaysInView = differenceInDays(chartEndDate, chartStartDateForRender) + 1;
+            headerData.pixelsPerDay = TARGET_TOTAL_WIDTH / totalDaysInView;
+
+            const monthIntervals = eachMonthOfInterval({ start: chartStartDateForRender, end: chartEndDate });
+            headerData.topHeaderCells.push({
+                key: format(chartStartDateForRender, 'yyyy'),
+                label: format(chartStartDateForRender, 'yyyy'),
+                width: TARGET_TOTAL_WIDTH
             });
-            Object.entries(monthSpans).forEach(([name, daysInMonth]) => {
-                const actualWidth = headerData.bottomHeaderCells
-                    .filter(c => format(new Date(c.key), 'MMM yyyy') === name)
-                    .reduce((sum, c) => sum + c.width, 0);
-                headerData.topHeaderCells.push({ key: name, label: name, width: actualWidth });
+            monthIntervals.forEach(monthStart => {
+                const monthEnd = endOfMonth(monthStart);
+                const daysInMonth = differenceInDays(monthEnd, monthStart) + 1;
+                headerData.bottomHeaderCells.push({
+                    key: format(monthStart, 'yyyy-MM'),
+                    label: format(monthStart, 'MMMM'),
+                    width: daysInMonth * headerData.pixelsPerDay,
+                });
             });
             break;
         }
         case 'quarter': {
-            chartEndDate = endOfYear(addYears(viewStartDate, 1));
-            headerData.pixelsPerDay = 2;
-            const monthlyIntervals = eachMonthOfInterval({ start: startOfYear(viewStartDate), end: chartEndDate });
-            const quarterSpans: { [key: string]: number } = {};
-             monthlyIntervals.forEach(monthStart => {
-                const quarterKey = `${format(monthStart, 'yyyy')} Q${format(monthStart, 'q')}`;
-                const daysInMonth = differenceInDays(endOfMonth(monthStart), monthStart) + 1;
-                quarterSpans[quarterKey] = (quarterSpans[quarterKey] || 0) + daysInMonth;
+            const yearStart = startOfYear(viewStartDate);
+            chartEndDate = endOfYear(viewStartDate);
+            chartStartDateForRender = yearStart;
+
+            const totalDaysInYear = differenceInDays(chartEndDate, chartStartDateForRender) + 1;
+            headerData.pixelsPerDay = TARGET_TOTAL_WIDTH / totalDaysInYear;
+
+            headerData.topHeaderCells.push({
+                key: format(chartStartDateForRender, 'yyyy'),
+                label: format(chartStartDateForRender, 'yyyy'),
+                width: TARGET_TOTAL_WIDTH
+            });
+            
+            for (let i = 0; i < 4; i++) {
+                const quarterStart = startOfQuarter(addQuarters(chartStartDateForRender, i));
+                const quarterEnd = endOfQuarter(quarterStart);
+                const daysInQuarter = differenceInDays(quarterEnd, quarterStart) + 1;
                 headerData.bottomHeaderCells.push({
-                    key: format(monthStart, 'yyyy-MM'),
-                    label: format(monthStart, 'MMM'),
-                    width: daysInMonth * headerData.pixelsPerDay
+                    key: `${format(quarterStart, 'yyyy')}-Q${i+1}`,
+                    label: `Q${i+1}`,
+                    width: daysInQuarter * headerData.pixelsPerDay
                 });
-            });
-            Object.entries(quarterSpans).forEach(([name, daysInQuarter]) => {
-                 headerData.topHeaderCells.push({ key: name, label: name.split(' ')[1], width: daysInQuarter * headerData.pixelsPerDay });
-            });
+            }
             break;
         }
     }
     headerData.chartEndDate = chartEndDate;
-    headerData.totalWidth = headerData.bottomHeaderCells.reduce((acc, cell) => acc + cell.width, 0);
+    // Use the target width to ensure consistency
+    headerData.totalWidth = TARGET_TOTAL_WIDTH;
+
 
     return {
       tasksToDisplay,
       tasksById,
-      chartStartDate: viewStartDate,
+      chartStartDate: chartStartDateForRender,
       ...headerData,
     };
   }, [allTasks, employees, viewStartDate, timeScaleView, collapsedTasks, filterTaskType]);
@@ -701,7 +720,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     switch(timeScaleView) {
         case 'day': return subMonths(prev, 1);
         case 'week': return subMonths(prev, 1);
-        case 'month': return subQuartersDateFns(prev, 1);
+        case 'month': return subYears(prev, 1);
         case 'quarter': return subYears(prev, 1);
         default: return prev;
     }
@@ -710,7 +729,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
       switch(timeScaleView) {
         case 'day': return addMonths(prev, 1);
         case 'week': return addMonths(prev, 1);
-        case 'month': return addQuartersDateFns(prev, 1);
+        case 'month': return addYears(prev, 1);
         case 'quarter': return addYears(prev, 1);
         default: return prev;
     }
@@ -836,21 +855,41 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                                 <ChevronDown className={cn("h-4 w-4 transition-transform", !collapsedTasks.has(task.id) && "rotate-[-90deg]")} />
                             </Button>
                         )}
-                        <span className="font-medium truncate" title={task.title}>{task.title}</span>
-                        {task.isParent && (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    router.push(`/tasks/new?defaultType=VALIDATION_STEP&dependsOnValidationProject=${task.id}`);
-                                }}
-                                title="Add a step to this project"
-                            >
-                                <PlusCircle className="h-4 w-4" />
-                            </Button>
-                        )}
+                        <span className="font-medium truncate flex-1" title={task.title}>{task.title}</span>
+                         <div className="flex items-center flex-shrink-0">
+                            {task.isParent && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        router.push(`/tasks/new?defaultType=VALIDATION_STEP&dependsOnValidationProject=${task.id}`);
+                                    }}
+                                    title="Add a step to this project"
+                                >
+                                    <PlusCircle className="h-4 w-4" />
+                                </Button>
+                            )}
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6"><MoreHorizontal className="h-4 w-4"/></Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => { setQuickEditTask(task); setIsQuickEditPopoverOpen(true); }}>Edit</DropdownMenuItem>
+                                    {task.isParent && <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/tasks/new?defaultType=VALIDATION_STEP&dependsOnValidationProject=${task.id}`); }}>Add Step</DropdownMenuItem>}
+                                    <DropdownMenuItem className="text-destructive" onClick={() => { setTaskToDelete(task); setIsDeleteDialogOpen(true); }}>Delete</DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                            {quickEditTask?.id === task.id && (
+                                <Popover open={isQuickEditPopoverOpen} onOpenChange={(isOpen) => handlePopoverOpenChange(isOpen, task)}>
+                                    <PopoverTrigger asChild><span/></PopoverTrigger>
+                                    <PopoverContent className="w-96 p-4" side="bottom" align="start">
+                                        <QuickEditForm task={quickEditTask} onSave={handleTaskUpdate} onClose={() => setIsQuickEditPopoverOpen(false)} />
+                                    </PopoverContent>
+                                </Popover>
+                            )}
+                        </div>
                     </div>
                     <div className="flex items-center justify-center">
                         {task.assignee ? (
@@ -867,26 +906,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                     <span className={cn("text-center text-xs", isBefore(task.dueDate, today) && task.status !== 'Done' ? 'text-destructive' : 'text-muted-foreground')}>
                         {format(task.dueDate, 'MMM dd')}
                     </span>
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-6 w-6"><MoreHorizontal className="h-4 w-4"/></Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => { setQuickEditTask(task); setIsQuickEditPopoverOpen(true); }}>Edit</DropdownMenuItem>
-                                {task.isParent && <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/tasks/new?defaultType=VALIDATION_STEP&dependsOnValidationProject=${task.id}`); }}>Add Step</DropdownMenuItem>}
-                                <DropdownMenuItem className="text-destructive" onClick={() => { setTaskToDelete(task); setIsDeleteDialogOpen(true); }}>Delete</DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                        {quickEditTask?.id === task.id && (
-                             <Popover open={isQuickEditPopoverOpen} onOpenChange={(isOpen) => handlePopoverOpenChange(isOpen, task)}>
-                                <PopoverTrigger asChild><span/></PopoverTrigger>
-                                <PopoverContent className="w-96 p-4" side="bottom" align="start">
-                                    <QuickEditForm task={quickEditTask} onSave={handleTaskUpdate} onClose={() => setIsQuickEditPopoverOpen(false)} />
-                                </PopoverContent>
-                            </Popover>
-                        )}
-                    </div>
                 </div>
             ))}
           </div>
@@ -1127,3 +1146,5 @@ const buttonVariants = cva(
     defaultVariants: { variant: "default", size: "default" },
   }
 );
+
+    

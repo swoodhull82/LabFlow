@@ -18,6 +18,7 @@ import { format, isPast, isToday, addDays, startOfDay, getQuarter, getYear, addY
 import type PocketBase from "pocketbase";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TASK_TYPES } from "@/lib/constants";
+import { useRouter } from "next/navigation";
 
 interface TaskSummaryItem {
   title: string;
@@ -150,6 +151,7 @@ const SkeletonChartCard = () => (
 export default function DashboardPage() {
   const { pbClient } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
 
   const [taskSummaryData, setTaskSummaryData] = useState<TaskSummaryItem[]>(initialTaskSummaryData);
   const [taskDistributionData, setTaskDistributionData] = useState<{ status: string; count: number; fill: string; }[]>([]);
@@ -472,7 +474,16 @@ export default function DashboardPage() {
                             <YAxis dataKey="status" type="category" tickLine={false} axisLine={false} width={80} />
                             <RechartsTooltip cursor={{fill: 'hsl(var(--muted))'}} content={<ChartTooltipContent hideLabel />} />
                             <Legend />
-                            <Bar dataKey="count" radius={4} />
+                            <Bar
+                              dataKey="count"
+                              radius={4}
+                              style={{ cursor: 'pointer' }}
+                              onClick={(data) => {
+                                if (data && data.status) {
+                                  router.push(`/tasks?status=${encodeURIComponent(data.status)}`);
+                                }
+                              }}
+                            />
                           </RechartsBarChart>
                         </ChartContainer>
                       ) : (
@@ -643,3 +654,4 @@ export default function DashboardPage() {
 
 
     
+

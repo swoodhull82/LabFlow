@@ -44,7 +44,8 @@ export interface Task {
 export interface CalendarEvent {
   id: string;
   title: string;
-  eventDate: Date | string; 
+  startDate: Date | string;
+  endDate: Date | string;
   description?: string;
   status?: TaskStatus; 
   userId?: string; 
@@ -53,6 +54,9 @@ export interface CalendarEvent {
   collectionId?: string;
   collectionName?: string; 
   expand?: any;
+  assignedTo_text?: string;
+  priority?: TaskPriority;
+  progress?: number;
 }
 
 export interface Employee {

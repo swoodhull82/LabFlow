@@ -147,45 +147,9 @@ export default function NewEmployeePage() {
       toast({ title: "Success", description: "New employee added successfully!" });
       router.push("/employees");
     } catch (error: any) {
-      console.error("Failed to create employee (full error object):", error);
-      let detailedMessage = "Failed to add employee. Please try again.";
-
-      if (error.data && typeof error.data === 'object') {
-        let mainErrorMessage = "";
-        if (error.data.message && typeof error.data.message === 'string') {
-          mainErrorMessage = error.data.message;
-        }
-
-        let fieldErrorString = "";
-        if (error.data.data && typeof error.data.data === 'object' && Object.keys(error.data.data).length > 0) {
-          fieldErrorString = Object.entries(error.data.data)
-            .map(([key, val]: [string, any]) => {
-              const message = val && val.message ? val.message : 'Invalid value';
-              return `${key}: ${message}`;
-            })
-            .join("; ");
-        }
-
-        if (mainErrorMessage && fieldErrorString) {
-          detailedMessage = `${mainErrorMessage}. Details: ${fieldErrorString}`;
-        } else if (mainErrorMessage) {
-          detailedMessage = mainErrorMessage;
-        } else if (fieldErrorString) {
-          detailedMessage = `Validation errors: ${fieldErrorString}`;
-        } else if (Object.keys(error.data).length > 0 && detailedMessage === "Failed to add employee. Please try again.") {
-            try {
-                detailedMessage = `PocketBase error: ${JSON.stringify(error.data)}`;
-            } catch (e) {
-                detailedMessage = `PocketBase error: Could not stringify error data.`;
-            }
-        }
-      } else if (error.message && typeof error.message === 'string') {
-        detailedMessage = error.message;
-      }
-      
       toast({
         title: "Error Creating Employee",
-        description: detailedMessage,
+        description: error.message || "An unexpected error occurred. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -348,7 +312,3 @@ export default function NewEmployeePage() {
     </div>
   );
 }
-    
-
-    
-

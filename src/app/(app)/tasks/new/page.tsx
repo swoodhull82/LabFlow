@@ -112,6 +112,11 @@ export default function NewTaskPage() {
   
   const [availableMethods, setAvailableMethods] = useState<readonly string[]>([]);
 
+  const isValidationCreationMode = useMemo(() => (
+    initialTaskType === "VALIDATION_PROJECT" || 
+    (initialTaskType === "VALIDATION_STEP" && !!dependsOnValidationProjectQuery)
+  ), [initialTaskType, dependsOnValidationProjectQuery]);
+
   const availableTaskTypesToDisplay = useMemo(() => {
     if (initialTaskType === "VALIDATION_PROJECT") {
       return TASK_TYPES.filter(t => t === "VALIDATION_PROJECT");
@@ -391,45 +396,9 @@ export default function NewTaskPage() {
         router.push("/tasks");
       }
     } catch (err: any) {
-      console.error("Failed to create task (full error object):", err); 
-      let detailedMessage = "Failed to create task. Please try again.";
-      
-      if (err.data && typeof err.data === 'object') {
-        let mainErrorMessage = "";
-        if (err.data.message && typeof err.data.message === 'string') {
-          mainErrorMessage = err.data.message;
-        }
-
-        let fieldErrorString = "";
-        if (err.data.data && typeof err.data.data === 'object' && Object.keys(err.data.data).length > 0) {
-          fieldErrorString = Object.entries(err.data.data)
-            .map(([key, val]: [string, any]) => {
-              const message = val && val.message ? val.message : 'Invalid value';
-              return `${key}: ${message}`;
-            })
-            .join("; ");
-        }
-
-        if (mainErrorMessage && fieldErrorString) {
-          detailedMessage = `${mainErrorMessage}. Details: ${fieldErrorString}`;
-        } else if (mainErrorMessage) {
-          detailedMessage = mainErrorMessage;
-        } else if (fieldErrorString) {
-          detailedMessage = `Validation errors: ${fieldErrorString}`;
-        } else if (Object.keys(err.data).length > 0 && detailedMessage.startsWith("Failed to create task.")) {
-            try {
-                detailedMessage = `PocketBase error: ${JSON.stringify(err.data)}.`;
-            } catch (e) {
-                detailedMessage = `PocketBase error: Could not stringify error data.`;
-            }
-        }
-      } else if (err.message && typeof err.message === 'string') { 
-        detailedMessage = err.message;
-      }
-      
       toast({
         title: "Error Creating Task",
-        description: detailedMessage,
+        description: err.message || "An unexpected error occurred. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -512,28 +481,29 @@ export default function NewTaskPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <Label htmlFor="task_type_select">Task Type</Label>
-              <Select 
-                value={taskType} 
-                onValueChange={(value: TaskType) => {
-                  setTaskType(value);
-                  if (value !== "VALIDATION_PROJECT") {
-                    setCustomProjectName(""); // Clear custom name if not a VP
-                  }
-                }}
-                disabled={ (initialTaskType === "VALIDATION_PROJECT" || (initialTaskType === "VALIDATION_STEP" && !!dependsOnValidationProjectQuery))}
-              >
-                <SelectTrigger id="task_type_select">
-                  <SelectValue placeholder="Select task type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableTaskTypesToDisplay.map(tt => (
-                    <SelectItem key={tt} value={tt}>{tt.replace(/_/g, ' ')}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {!isValidationCreationMode && (
+              <div>
+                <Label htmlFor="task_type_select">Task Type</Label>
+                <Select
+                  value={taskType}
+                  onValueChange={(value: TaskType) => {
+                    setTaskType(value);
+                    if (value !== "VALIDATION_PROJECT") {
+                      setCustomProjectName(""); // Clear custom name if not a VP
+                    }
+                  }}
+                >
+                  <SelectTrigger id="task_type_select">
+                    <SelectValue placeholder="Select task type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableTaskTypesToDisplay.map(tt => (
+                      <SelectItem key={tt} value={tt}>{tt.replace(/_/g, ' ')}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {taskType === "VALIDATION_PROJECT" && (
               <div>
@@ -809,4 +779,3 @@ export default function NewTaskPage() {
     </div>
   );
 }
-

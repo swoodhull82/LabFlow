@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -28,7 +29,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 import type { Task, TaskStatus, TaskPriority, TaskRecurrence, Employee, TaskType } from "@/lib/types";
 import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon, Milestone } from "lucide-react";
-import { format } from "date-fns";
+import { format, isValid } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { deleteTask, getTasks, updateTask } from "@/services/taskService";
@@ -220,17 +221,19 @@ const taskEditFormSchema = z.object({
 
 type TaskEditFormData = z.infer<typeof taskEditFormSchema>;
 type FilterStatusOption = 'incomplete' | 'complete' | 'all';
+type FilterValue = FilterStatusOption | TaskStatus;
 
 let allTasksForSelection: Task[] = [];
 
 export default function TasksPage() {
   const { pbClient, user } = useAuth();
   const { toast } = useToast();
+  const searchParams = useSearchParams();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryStatusMessage, setRetryStatusMessage] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState<FilterStatusOption>('incomplete');
+  const [filterStatus, setFilterStatus] = useState<FilterValue>('incomplete');
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
@@ -347,6 +350,8 @@ export default function TasksPage() {
       pbFilter += ' && status != "Done"';
     } else if (filterStatus === 'complete') {
       pbFilter += ' && status = "Done"';
+    } else if (filterStatus !== 'all') {
+      pbFilter += ` && status = "${filterStatus}"`;
     }
 
     try {
@@ -464,6 +469,10 @@ export default function TasksPage() {
   useEffect(() => {
     const controller = new AbortController();
     if (pbClient) {
+      const statusFromQuery = searchParams.get('status');
+      if (statusFromQuery && (TASK_STATUSES as readonly string[]).includes(statusFromQuery)) {
+        setFilterStatus(statusFromQuery as TaskStatus);
+      }
       fetchTasksCallback(pbClient, controller.signal);
       fetchAndSetEmployees(pbClient, controller.signal);
     } else {
@@ -473,7 +482,7 @@ export default function TasksPage() {
     return () => {
       controller.abort();
     };
-  }, [pbClient, fetchTasksCallback, fetchAndSetEmployees, filterStatus]);
+  }, [pbClient, fetchTasksCallback, fetchAndSetEmployees, searchParams]);
 
   useEffect(() => {
     if (isEditDialogOpen && editingTask && pbClient && editingTask.task_type !== "VALIDATION_STEP") {
@@ -498,8 +507,8 @@ export default function TasksPage() {
         description: editingTask.description || "",
         status: editingTask.status,
         priority: editingTask.priority,
-        startDate: editingTask.startDate ? new Date(editingTask.startDate) : undefined,
-        dueDate: editingTask.dueDate ? new Date(editingTask.dueDate) : undefined,
+        startDate: editingTask.startDate && isValid(new Date(editingTask.startDate)) ? new Date(editingTask.startDate) : undefined,
+        dueDate: editingTask.dueDate && isValid(new Date(editingTask.dueDate)) ? new Date(editingTask.dueDate) : undefined,
         recurrence: editingTask.recurrence,
         assignedTo_text: editingTask.assignedTo_text || "",
         dependencies: Array.isArray(editingTask.dependencies) ? editingTask.dependencies : [],
@@ -685,7 +694,7 @@ export default function TasksPage() {
               <DropdownMenuSeparator />
               <DropdownMenuRadioGroup
                 value={filterStatus}
-                onValueChange={(value) => setFilterStatus(value as FilterStatusOption)}
+                onValueChange={(value) => setFilterStatus(value as FilterValue)}
               >
                 <DropdownMenuRadioItem value="incomplete">Incomplete</DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="complete">Complete</DropdownMenuRadioItem>
@@ -1200,4 +1209,7 @@ export default function TasksPage() {
     </div>
   );
 }
+
+
+
 
