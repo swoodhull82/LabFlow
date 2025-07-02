@@ -308,14 +308,19 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         pixelsPerDay: number;
         chartEndDate: Date;
     } = { topHeaderCells: [], bottomHeaderCells: [], totalWidth: 0, pixelsPerDay: 0, chartEndDate: viewStartDate };
-    
+
+    const TARGET_TOTAL_WIDTH = 4000; // A large, consistent width for the scrollable area
+
     let chartStartDateForRender = viewStartDate;
     let chartEndDate: Date;
+
     switch(timeScaleView) {
         case 'day': {
             chartStartDateForRender = startOfMonth(viewStartDate);
             chartEndDate = endOfMonth(viewStartDate);
-            headerData.pixelsPerDay = 35;
+            const totalDaysInView = differenceInDays(chartEndDate, chartStartDateForRender) + 1;
+            headerData.pixelsPerDay = TARGET_TOTAL_WIDTH / totalDaysInView;
+
             const dailyDays = eachDayOfInterval({ start: chartStartDateForRender, end: chartEndDate });
             const monthSpans: { [key: string]: number } = {};
             dailyDays.forEach(day => {
@@ -335,7 +340,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         case 'week': {
             chartStartDateForRender = startOfMonth(viewStartDate);
             chartEndDate = endOfMonth(addMonths(chartStartDateForRender, 1));
-            headerData.pixelsPerDay = 20;
+            const totalDaysInView = differenceInDays(chartEndDate, chartStartDateForRender) + 1;
+            headerData.pixelsPerDay = TARGET_TOTAL_WIDTH / totalDaysInView;
+
             const dailyDays = eachDayOfInterval({ start: chartStartDateForRender, end: chartEndDate });
             const monthSpans: { [key: string]: number } = {};
             dailyDays.forEach(day => {
@@ -353,25 +360,25 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             break;
         }
         case 'month': {
-            chartEndDate = endOfMonth(addMonths(viewStartDate, 1));
-            headerData.pixelsPerDay = 15;
-            const weeklyIntervals = eachWeekOfInterval({ start: startOfMonth(viewStartDate), end: chartEndDate }, { weekStartsOn: 1 });
-            const monthSpans: { [key: string]: number } = {};
-            weeklyIntervals.forEach(weekStart => {
-                const monthKey = format(weekStart, 'MMM yyyy');
-                const daysInWeek = 7;
-                monthSpans[monthKey] = (monthSpans[monthKey] || 0) + daysInWeek;
-                headerData.bottomHeaderCells.push({
-                    key: format(weekStart, 'yyyy-MM-dd'),
-                    label: `W${getISOWeek(weekStart)}`,
-                    width: daysInWeek * headerData.pixelsPerDay,
-                });
+            chartStartDateForRender = startOfYear(viewStartDate);
+            chartEndDate = endOfYear(viewStartDate);
+            const totalDaysInView = differenceInDays(chartEndDate, chartStartDateForRender) + 1;
+            headerData.pixelsPerDay = TARGET_TOTAL_WIDTH / totalDaysInView;
+
+            const monthIntervals = eachMonthOfInterval({ start: chartStartDateForRender, end: chartEndDate });
+            headerData.topHeaderCells.push({
+                key: format(chartStartDateForRender, 'yyyy'),
+                label: format(chartStartDateForRender, 'yyyy'),
+                width: TARGET_TOTAL_WIDTH
             });
-            Object.entries(monthSpans).forEach(([name, daysInMonth]) => {
-                const actualWidth = headerData.bottomHeaderCells
-                    .filter(c => format(new Date(c.key), 'MMM yyyy') === name)
-                    .reduce((sum, c) => sum + c.width, 0);
-                headerData.topHeaderCells.push({ key: name, label: name, width: actualWidth });
+            monthIntervals.forEach(monthStart => {
+                const monthEnd = endOfMonth(monthStart);
+                const daysInMonth = differenceInDays(monthEnd, monthStart) + 1;
+                headerData.bottomHeaderCells.push({
+                    key: format(monthStart, 'yyyy-MM'),
+                    label: format(monthStart, 'MMMM'),
+                    width: daysInMonth * headerData.pixelsPerDay,
+                });
             });
             break;
         }
@@ -381,12 +388,12 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             chartStartDateForRender = yearStart;
 
             const totalDaysInYear = differenceInDays(chartEndDate, chartStartDateForRender) + 1;
-            headerData.pixelsPerDay = 4;
+            headerData.pixelsPerDay = TARGET_TOTAL_WIDTH / totalDaysInYear;
 
             headerData.topHeaderCells.push({
                 key: format(chartStartDateForRender, 'yyyy'),
                 label: format(chartStartDateForRender, 'yyyy'),
-                width: totalDaysInYear * headerData.pixelsPerDay
+                width: TARGET_TOTAL_WIDTH
             });
             
             for (let i = 0; i < 4; i++) {
@@ -403,7 +410,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         }
     }
     headerData.chartEndDate = chartEndDate;
-    headerData.totalWidth = headerData.bottomHeaderCells.reduce((acc, cell) => acc + cell.width, 0);
+    // Use the target width to ensure consistency
+    headerData.totalWidth = TARGET_TOTAL_WIDTH;
+
 
     return {
       tasksToDisplay,
@@ -711,7 +720,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     switch(timeScaleView) {
         case 'day': return subMonths(prev, 1);
         case 'week': return subMonths(prev, 1);
-        case 'month': return subMonths(prev, 1);
+        case 'month': return subYears(prev, 1);
         case 'quarter': return subYears(prev, 1);
         default: return prev;
     }
@@ -720,7 +729,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
       switch(timeScaleView) {
         case 'day': return addMonths(prev, 1);
         case 'week': return addMonths(prev, 1);
-        case 'month': return addMonths(prev, 1);
+        case 'month': return addYears(prev, 1);
         case 'quarter': return addYears(prev, 1);
         default: return prev;
     }
