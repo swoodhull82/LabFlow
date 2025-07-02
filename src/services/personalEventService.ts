@@ -41,7 +41,7 @@ export const getPersonalEvents = async (pb: PocketBase, userId: string, options?
   try {
     const { signal, ...otherOptions } = options || {};
     const requestParams = {
-      filter: `userId = "${pb.realtime.encode(userId)}"`,
+      filter: `userId = "${userId}"`,
       sort: 'startDate',
       ...otherOptions,
     };

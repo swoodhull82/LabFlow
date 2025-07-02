@@ -351,7 +351,7 @@ export default function TasksPage() {
     } else if (filterStatus === 'complete') {
       pbFilter += ' && status = "Done"';
     } else if (filterStatus !== 'all') {
-      pbFilter += ` && status = "${pb.realtime.encode(filterStatus)}"`;
+      pbFilter += ` && status = "${filterStatus}"`;
     }
 
     try {
@@ -1209,6 +1209,7 @@ export default function TasksPage() {
     </div>
   );
 }
+
 
 
 
