@@ -18,8 +18,8 @@ import { useToast } from "@/hooks/use-toast";
 import { createPersonalEvent, updatePersonalEvent, type PersonalEventUpdateData } from "@/services/personalEventService";
 import { useState } from "react";
 import { format, addHours, set, getHours } from "date-fns";
-import { TASK_PRIORITIES, PERSONAL_EVENT_TYPES } from "@/lib/constants";
-import type { CalendarEvent, TaskPriority, PersonalEventType } from "@/lib/types";
+import { PERSONAL_EVENT_TYPES } from "@/lib/constants";
+import type { CalendarEvent, PersonalEventType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const quickTaskFormSchema = z.object({
@@ -29,7 +29,6 @@ const quickTaskFormSchema = z.object({
   isAllDay: z.boolean().optional(),
   startTime: z.string().optional(),
   endTime: z.string().optional(),
-  priority: z.string().min(1, { message: "Priority is required." }) as z.ZodType<TaskPriority>,
   eventType: z.string().default('Busy') as z.ZodType<PersonalEventType>,
 }).superRefine((data, ctx) => {
     if (!data.isAllDay) {
@@ -94,7 +93,6 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
     defaultValues: {
       title: eventToEdit?.title || "",
       description: eventToEdit?.description || "",
-      priority: eventToEdit?.priority || "Medium",
       eventType: eventToEdit?.eventType || "Busy",
       eventDate: eventToEdit ? new Date(eventToEdit.startDate) : defaultDate,
       isAllDay: eventToEdit?.isAllDay || false,
@@ -133,7 +131,6 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
           description: data.description,
           startDate,
           endDate,
-          priority: data.priority,
           isAllDay: data.isAllDay,
           eventType: data.eventType,
         };
@@ -145,7 +142,6 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
           description: data.description,
           startDate,
           endDate,
-          priority: data.priority,
           userId: user.id,
           isAllDay: data.isAllDay,
           eventType: data.eventType,
@@ -195,52 +191,28 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
             </FormItem>
           )}
         />
-        <div className="grid grid-cols-2 gap-4">
-            <FormField
-                control={form.control}
-                name="eventType"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Show As</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select event type" />
-                        </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                        {PERSONAL_EVENT_TYPES.map(type => (
-                            <SelectItem key={type} value={type}>{type}</SelectItem>
-                        ))}
-                        </SelectContent>
-                    </Select>
-                    <FormMessage />
-                    </FormItem>
-                )}
-            />
-            <FormField
-                control={form.control}
-                name="priority"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Priority</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select priority" />
-                        </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                        {TASK_PRIORITIES.map(p => (
-                            <SelectItem key={p} value={p}>{p}</SelectItem>
-                        ))}
-                        </SelectContent>
-                    </Select>
-                    <FormMessage />
-                    </FormItem>
-                )}
-            />
-        </div>
+        <FormField
+            control={form.control}
+            name="eventType"
+            render={({ field }) => (
+                <FormItem>
+                <FormLabel>Show As</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                    <SelectTrigger>
+                        <SelectValue placeholder="Select event type" />
+                    </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                    {PERSONAL_EVENT_TYPES.map(type => (
+                        <SelectItem key={type} value={type}>{type}</SelectItem>
+                    ))}
+                    </SelectContent>
+                </Select>
+                <FormMessage />
+                </FormItem>
+            )}
+        />
         <FormField
           control={form.control}
           name="eventDate"

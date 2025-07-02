@@ -1,6 +1,6 @@
 
 'use client';
-import type { CalendarEvent, PersonalEventType, TaskPriority } from "@/lib/types";
+import type { CalendarEvent, PersonalEventType } from "@/lib/types";
 import PocketBase, { ClientResponseError } from 'pocketbase';
 import { withRetry } from '@/lib/retry';
 import { isValid } from 'date-fns';
@@ -47,7 +47,6 @@ const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
     startDate: startDate,
     endDate: endDate,
     description: record.description,
-    priority: record.priority,
     userId: record.userId,
     isAllDay: record.isAllDay || false,
     eventType: record.eventType || 'Busy',
@@ -100,7 +99,6 @@ interface PersonalEventCreationData {
     description?: string;
     startDate: Date;
     endDate: Date;
-    priority: TaskPriority;
     userId: string;
     isAllDay?: boolean;
     eventType?: PersonalEventType;
@@ -129,7 +127,6 @@ export interface PersonalEventUpdateData {
     description?: string;
     startDate?: Date;
     endDate?: Date;
-    priority?: TaskPriority;
     isAllDay?: boolean;
     eventType?: PersonalEventType;
 }
