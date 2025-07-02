@@ -114,14 +114,14 @@ export default function CalendarPage() {
 
 
   const handleDayMouseDown = (day: Date, modifiers: DayModifiers) => {
-    if (modifiers.disabled) return;
+    // if (modifiers.disabled) return; // This was preventing selection of past dates
     setIsDragging(true);
     dragStartDayRef.current = day;
     setRange({ from: day, to: day });
   };
 
   const handleDayMouseEnter = (day: Date, modifiers: DayModifiers) => {
-    if (isDragging && dragStartDayRef.current && !modifiers.disabled) {
+    if (isDragging && dragStartDayRef.current) { // Removed !modifiers.disabled
       const start = dragStartDayRef.current;
       if (start <= day) {
         setRange({ from: start, to: day });
@@ -132,7 +132,7 @@ export default function CalendarPage() {
   };
   
   const handleDayClick = (day: Date, modifiers: DayModifiers) => {
-    if (modifiers.disabled) return;
+    // if (modifiers.disabled) return; // This was preventing selection of past dates
     setRange({ from: day, to: day });
   };
 
@@ -293,14 +293,17 @@ export default function CalendarPage() {
     const from = startOfDay(range.from);
     const to = range.to ? startOfDay(range.to) : from;
 
-    const events: CalendarEvent[] = [];
+    const uniqueEvents = new Map<string, CalendarEvent>();
     for (let day = from; day <= to; day = addDays(day, 1)) {
       const dateKey = format(day, "yyyy-MM-dd");
       if (tasksByDay.has(dateKey)) {
-        events.push(...tasksByDay.get(dateKey)!);
+        tasksByDay.get(dateKey)!.forEach(event => {
+          uniqueEvents.set(event.id, event);
+        });
       }
     }
-    return events.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+    return Array.from(uniqueEvents.values())
+        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
   }, [range, tasksByDay]);
 
   const refetchEvents = () => {
