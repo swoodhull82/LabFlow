@@ -15,7 +15,7 @@ export type TaskType = "MDL" | "SOP" | "IA" | "iDOC" | "oDOC" | "VALIDATION_PROJ
 export type TaskStatus = "To Do" | "In Progress" | "Blocked" | "Done" | "Overdue";
 export type TaskPriority = "Low" | "Medium" | "High" | "Urgent";
 export type TaskRecurrence = "None" | "Daily" | "Weekly" | "Monthly" | "Yearly";
-export type PersonalEventType = 'Busy' | 'Out of Office';
+export type PersonalEventType = 'Available' | 'Busy' | 'Out of Office';
 
 export interface Task {
   id: string;

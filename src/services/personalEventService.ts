@@ -49,7 +49,7 @@ const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
     description: record.description,
     userId: record.userId,
     isAllDay: record.isAllDay || false,
-    eventType: record.eventType || 'Busy',
+    eventType: record.eventType || 'Available',
     created: new Date(record.created),
     updated: new Date(record.updated),
     collectionId: record.collectionId,

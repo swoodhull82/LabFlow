@@ -22,11 +22,15 @@ const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
 });
 
 const getEventColorClass = (event: CalendarEvent): string => {
-    if (event.eventType === 'Out of Office') {
-        return "border-green-500 bg-green-50 text-green-900 dark:bg-green-900/20 dark:border-green-500/70 dark:text-green-100";
+    switch (event.eventType) {
+        case 'Out of Office':
+            return "border-green-500 bg-green-50 text-green-900 dark:bg-green-900/20 dark:border-green-500/70 dark:text-green-100";
+        case 'Busy':
+            return "border-orange-500 bg-orange-50 text-orange-900 dark:bg-orange-900/20 dark:border-orange-500/70 dark:text-orange-100";
+        case 'Available':
+        default:
+            return "border-blue-500 bg-blue-50 text-blue-900 dark:bg-blue-900/20 dark:border-blue-500/70 dark:text-blue-100";
     }
-    // Default color for 'Busy' events is now orange
-    return "border-orange-500 bg-orange-50 text-orange-900 dark:bg-orange-900/20 dark:border-orange-500/70 dark:text-orange-100";
 };
 
 const NowIndicator = ({ dayColumns }: { dayColumns: Date[] }) => {

@@ -29,7 +29,7 @@ const quickTaskFormSchema = z.object({
   isAllDay: z.boolean().optional(),
   startTime: z.string().optional(),
   endTime: z.string().optional(),
-  eventType: z.string().default('Busy') as z.ZodType<PersonalEventType>,
+  eventType: z.string().default('Available') as z.ZodType<PersonalEventType>,
 }).superRefine((data, ctx) => {
     if (!data.isAllDay) {
         if (!data.startTime) {
@@ -93,7 +93,7 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
     defaultValues: {
       title: eventToEdit?.title || "",
       description: eventToEdit?.description || "",
-      eventType: eventToEdit?.eventType || "Busy",
+      eventType: eventToEdit?.eventType || "Available",
       eventDate: eventToEdit ? new Date(eventToEdit.startDate) : defaultDate,
       isAllDay: eventToEdit?.isAllDay || false,
       startTime: eventToEdit && !eventToEdit.isAllDay ? format(new Date(eventToEdit.startDate), 'HH:mm') : defaultStartTime,

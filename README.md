@@ -68,7 +68,7 @@ A new collection is required to store personal calendar events separately from t
 *   **`description`**: (Text, Optional) - A longer description for the event.
 *   **`startDate`**: (Date, Required) - The start date and time of the event.
 *   **`endDate`**: (Date, Required) - The end date and time of the event.
-*   **`eventType`**: (Select, Optional, Default: "Busy") - The type of event. Options: "Busy", "Out of Office".
+*   **`eventType`**: (Select, Optional, Default: "Available") - The type of event. Options: "Available", "Busy", "Out of Office".
 *   **`userId`**: (Relation to 'users', Required) - The ID of the user who owns this event.
 *   **`isAllDay`**: (Boolean, Optional, Default: false) - Indicates if the event is for the whole day.
 *   **`created`**: (Date, System Field) - Timestamp of creation.
