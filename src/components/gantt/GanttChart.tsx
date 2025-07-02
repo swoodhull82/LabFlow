@@ -247,7 +247,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     let colorIndex = 0;
     const rootProjects = tasksToFilter
       .filter(t => t.isParent)
-      .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+      .sort((a, b) => new Date(a.startDate!).getTime() - new Date(b.startDate!).getTime());
       
     rootProjects.forEach(proj => {
       projectColorMap.set(proj.id, PROJECT_COLORS[colorIndex % PROJECT_COLORS.length]);
@@ -708,7 +708,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     switch(timeScaleView) {
         case 'day': return subMonths(prev, 1);
         case 'week': return subMonths(prev, 1);
-        case 'month': return subQuartersDateFns(prev, 1);
+        case 'month': return subQuarters(prev, 1);
         case 'quarter': return subYears(prev, 1);
         default: return prev;
     }
