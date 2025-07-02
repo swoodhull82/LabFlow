@@ -4,7 +4,7 @@
 import { Calendar as ShadcnCalendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { format, isPast, isSameDay, isFuture, differenceInCalendarDays, startOfDay, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isValid, addYears } from "date-fns";
+import { format, isPast, isSameDay, isFuture, differenceInCalendarDays, startOfDay, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isValid, addYears, isBefore } from "date-fns";
 import type { CalendarEvent, TaskPriority, TaskStatus } from "@/lib/types"; 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
@@ -294,6 +294,13 @@ export default function CalendarPage() {
     return `${format(range.from, "PPP")} - ${format(range.to, "PPP")}`;
   }, [range]);
 
+  const isDateDisabled = (date: Date) => {
+    if (!isValid(date)) {
+      return false;
+    }
+    return isBefore(date, startOfDay(new Date()));
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -366,7 +373,7 @@ export default function CalendarPage() {
                         onDayMouseEnter={handleDayMouseEnter}
                         onDayClick={handleDayClick}
                         onSelect={undefined} 
-                        disabled={isPast}
+                        disabled={isDateDisabled}
                         numberOfMonths={2}
                         className="p-0"
                         classNames={{
