@@ -836,21 +836,41 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                                 <ChevronDown className={cn("h-4 w-4 transition-transform", !collapsedTasks.has(task.id) && "rotate-[-90deg]")} />
                             </Button>
                         )}
-                        <span className="font-medium truncate" title={task.title}>{task.title}</span>
-                        {task.isParent && (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    router.push(`/tasks/new?defaultType=VALIDATION_STEP&dependsOnValidationProject=${task.id}`);
-                                }}
-                                title="Add a step to this project"
-                            >
-                                <PlusCircle className="h-4 w-4" />
-                            </Button>
-                        )}
+                        <span className="font-medium truncate flex-1" title={task.title}>{task.title}</span>
+                         <div className="flex items-center flex-shrink-0">
+                            {task.isParent && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        router.push(`/tasks/new?defaultType=VALIDATION_STEP&dependsOnValidationProject=${task.id}`);
+                                    }}
+                                    title="Add a step to this project"
+                                >
+                                    <PlusCircle className="h-4 w-4" />
+                                </Button>
+                            )}
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6"><MoreHorizontal className="h-4 w-4"/></Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => { setQuickEditTask(task); setIsQuickEditPopoverOpen(true); }}>Edit</DropdownMenuItem>
+                                    {task.isParent && <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/tasks/new?defaultType=VALIDATION_STEP&dependsOnValidationProject=${task.id}`); }}>Add Step</DropdownMenuItem>}
+                                    <DropdownMenuItem className="text-destructive" onClick={() => { setTaskToDelete(task); setIsDeleteDialogOpen(true); }}>Delete</DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                            {quickEditTask?.id === task.id && (
+                                <Popover open={isQuickEditPopoverOpen} onOpenChange={(isOpen) => handlePopoverOpenChange(isOpen, task)}>
+                                    <PopoverTrigger asChild><span/></PopoverTrigger>
+                                    <PopoverContent className="w-96 p-4" side="bottom" align="start">
+                                        <QuickEditForm task={quickEditTask} onSave={handleTaskUpdate} onClose={() => setIsQuickEditPopoverOpen(false)} />
+                                    </PopoverContent>
+                                </Popover>
+                            )}
+                        </div>
                     </div>
                     <div className="flex items-center justify-center">
                         {task.assignee ? (
@@ -867,26 +887,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                     <span className={cn("text-center text-xs", isBefore(task.dueDate, today) && task.status !== 'Done' ? 'text-destructive' : 'text-muted-foreground')}>
                         {format(task.dueDate, 'MMM dd')}
                     </span>
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-6 w-6"><MoreHorizontal className="h-4 w-4"/></Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => { setQuickEditTask(task); setIsQuickEditPopoverOpen(true); }}>Edit</DropdownMenuItem>
-                                {task.isParent && <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/tasks/new?defaultType=VALIDATION_STEP&dependsOnValidationProject=${task.id}`); }}>Add Step</DropdownMenuItem>}
-                                <DropdownMenuItem className="text-destructive" onClick={() => { setTaskToDelete(task); setIsDeleteDialogOpen(true); }}>Delete</DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                        {quickEditTask?.id === task.id && (
-                             <Popover open={isQuickEditPopoverOpen} onOpenChange={(isOpen) => handlePopoverOpenChange(isOpen, task)}>
-                                <PopoverTrigger asChild><span/></PopoverTrigger>
-                                <PopoverContent className="w-96 p-4" side="bottom" align="start">
-                                    <QuickEditForm task={quickEditTask} onSave={handleTaskUpdate} onClose={() => setIsQuickEditPopoverOpen(false)} />
-                                </PopoverContent>
-                            </Popover>
-                        )}
-                    </div>
                 </div>
             ))}
           </div>
@@ -1127,5 +1127,3 @@ const buttonVariants = cva(
     defaultVariants: { variant: "default", size: "default" },
   }
 );
-
-    
