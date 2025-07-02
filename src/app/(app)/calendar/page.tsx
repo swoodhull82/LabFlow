@@ -65,9 +65,9 @@ function CalendarDayContent({ date, tasksForDay }: { date: Date; tasksForDay: Ca
     <div className="relative h-full w-full flex flex-col items-center justify-center">
       <span>{dayNumber}</span>
       {dotCount > 0 && (
-        <div className="absolute bottom-0 flex items-center justify-center">
+        <div className="absolute -bottom-1 flex items-center justify-center">
           {Array.from({ length: dotCount }).map((_, i) => (
-            <Dot key={i} className="h-4 w-4 -mx-1.5 text-primary" />
+            <Dot key={i} className="h-6 w-6 -mx-2 text-primary opacity-100" />
           ))}
         </div>
       )}
@@ -354,10 +354,6 @@ export default function CalendarPage() {
     return `${format(range.from, "PPP")} - ${format(range.to, "PPP")}`;
   }, [range]);
 
-  const isDateDisabled = (date: Date) => {
-    return isBefore(date, startOfDay(new Date()));
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -440,8 +436,7 @@ export default function CalendarPage() {
                         onDayMouseDown={handleDayMouseDown}
                         onDayMouseEnter={handleDayMouseEnter}
                         onDayClick={handleDayClick}
-                        onSelect={undefined} 
-                        disabled={isDateDisabled}
+                        onSelect={undefined}
                         numberOfMonths={2}
                         className="p-0"
                         classNames={{
