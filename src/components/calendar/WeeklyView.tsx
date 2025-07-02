@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardHeader } from '@/components/ui/card';
 import type { CalendarEvent } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { User } from 'lucide-react';
 
 // Constants for the view
 const START_HOUR = 7; // 7 AM
@@ -238,6 +239,11 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
                                         >
                                             <p className="font-semibold text-xs truncate">{event.title}</p>
                                             {!event.isAllDay && <p className="text-[10px] opacity-80">{format(startDate, 'h:mm a')} - {format(endDate, 'h:mm a')}</p>}
+                                            {event.ownerName && (
+                                                <div className="flex items-center text-[10px] opacity-70 italic mt-1">
+                                                    <User className="w-2.5 h-2.5 mr-1"/> {event.ownerName}
+                                                </div>
+                                            )}
                                         </div>
                                     )
                                 })

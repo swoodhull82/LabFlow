@@ -32,7 +32,7 @@ const handleCreateError = (error: any, collectionName: string) => {
 
 
 // Helper to convert PocketBase record to a CalendarEvent-compatible object
-const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
+const pbRecordToPersonalEvent = (record: any, currentUserId: string): CalendarEvent | null => {
   const startDate = record.startDate ? new Date(record.startDate) : null;
   const endDate = record.endDate ? new Date(record.endDate) : null;
 
@@ -41,6 +41,9 @@ const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
     return null;
   }
   
+  const owner = record.expand?.userId;
+  const isOwner = !owner || owner.id === currentUserId;
+
   return {
     id: record.id,
     title: record.title,
@@ -54,6 +57,8 @@ const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
     updated: new Date(record.updated),
     collectionId: record.collectionId,
     collectionName: record.collectionName,
+    ownerId: owner?.id,
+    ownerName: isOwner ? undefined : owner?.name,
   } as CalendarEvent;
 };
 
@@ -68,10 +73,23 @@ export const getPersonalEvents = async (pb: PocketBase, userId: string, options?
     return [];
   }
   try {
+     // 1. Find users who are sharing their calendar with the current user.
+    const usersSharingWithMe = await withRetry(() =>
+      pb.collection('users').getFullList({ filter: `sharesPersonalCalendarWith ~ '${userId}'`, fields: 'id' }),
+      { ...options, context: "fetching sharing users" }
+    );
+    const sharingUserIds = usersSharingWithMe.map(u => u.id);
+
+    // 2. Create a filter for all visible user IDs (current user + sharing users)
+    const allVisibleUserIds = [userId, ...sharingUserIds];
+    const filterString = `(${allVisibleUserIds.map(id => `userId = "${id}"`).join(' || ')})`;
+    
+    // 3. Fetch personal events with the combined filter and expand user info
     const { signal, ...otherOptions } = options || {};
     const requestParams = {
-      filter: `userId = "${userId}"`,
+      filter: filterString,
       sort: 'startDate',
+      expand: 'userId', // expand the user relation
       ...otherOptions,
     };
 
@@ -82,7 +100,7 @@ export const getPersonalEvents = async (pb: PocketBase, userId: string, options?
     
     // Map and filter out any records that are invalid
     return records
-      .map(pbRecordToPersonalEvent)
+      .map(record => pbRecordToPersonalEvent(record, userId))
       .filter((event): event is CalendarEvent => event !== null);
 
   } catch (error) {
@@ -110,7 +128,8 @@ export const createPersonalEvent = async (
 ): Promise<CalendarEvent> => {
   try {
     const record = await pb.collection(COLLECTION_NAME).create(eventData);
-    const personalEvent = pbRecordToPersonalEvent(record);
+    // For a newly created event, the owner is always the creator.
+    const personalEvent = pbRecordToPersonalEvent(record, eventData.userId);
     if (!personalEvent) {
         throw new Error("Failed to process the created event record.");
     }
@@ -141,7 +160,8 @@ export const updatePersonalEvent = async (
         pb.collection(COLLECTION_NAME).update(eventId, eventData),
         { context: `updating personal event ${eventId}` }
     );
-    const personalEvent = pbRecordToPersonalEvent(record);
+    // We don't know the current user ID here, but for an update, it must be the owner.
+    const personalEvent = pbRecordToPersonalEvent(record, record.userId);
     if (!personalEvent) {
         throw new Error("Failed to process the updated event record.");
     }

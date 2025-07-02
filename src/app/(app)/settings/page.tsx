@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +20,12 @@ import {
 } from "@/components/ui/select";
 import { useTheme } from "next-themes";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Loader2, ImageUp, Trash2 } from "lucide-react";
+import { Save, Loader2, ImageUp, Trash2, UserCheck } from "lucide-react";
+import { getUsers } from "@/services/userService";
+import type { User } from "@/lib/types";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
 
 const LOCAL_STORAGE_KEYS = {
   emailNotifications: "labflow-emailNotificationsEnabled",
@@ -28,7 +33,7 @@ const LOCAL_STORAGE_KEYS = {
 };
 
 export default function SettingsPage() {
-  const { user, updateUserAvatar, updateUserSelectedIcon, clearAvatarAndSelection } = useAuth();
+  const { user, pbClient, updateUserAvatar, updateUserSelectedIcon, clearAvatarAndSelection } = useAuth();
   const { theme, setTheme } = useTheme(); 
   const { toast } = useToast();
 
@@ -40,6 +45,13 @@ export default function SettingsPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isAvatarDialogOpen, setIsAvatarDialogOpen] = useState(false);
 
+  // State for calendar sharing
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
+  const [sharedWithUserIds, setSharedWithUserIds] = useState<Set<string>>(new Set());
+  const [isSavingSharing, setIsSavingSharing] = useState(false);
+
+
   useEffect(() => {
     setMounted(true);
     const storedEmailPref = localStorage.getItem(LOCAL_STORAGE_KEYS.emailNotifications);
@@ -50,7 +62,35 @@ export default function SettingsPage() {
     if (storedPushPref !== null) {
       setPushNotificationsEnabled(JSON.parse(storedPushPref));
     }
-  }, []);
+
+    if (pbClient) {
+      setIsLoadingUsers(true);
+      getUsers(pbClient)
+        .then(users => {
+          // Filter out the current user from the list of people to share with
+          setAllUsers(users.filter(u => u.id !== user?.id));
+        })
+        .catch(err => {
+          console.error("Failed to load users for sharing:", err);
+          toast({
+            title: "Error Loading Users",
+            description: "Could not fetch the list of users for calendar sharing.",
+            variant: "destructive",
+          });
+        })
+        .finally(() => {
+          setIsLoadingUsers(false);
+        });
+    }
+
+  }, [pbClient, toast, user?.id]);
+
+  useEffect(() => {
+    if (user?.sharesPersonalCalendarWith) {
+      setSharedWithUserIds(new Set(user.sharesPersonalCalendarWith));
+    }
+  }, [user?.sharesPersonalCalendarWith]);
+
 
   const handleSavePreferences = () => {
     localStorage.setItem(LOCAL_STORAGE_KEYS.emailNotifications, JSON.stringify(emailNotificationsEnabled));
@@ -111,6 +151,41 @@ export default function SettingsPage() {
     }
   };
   
+  const handleShareUserToggle = (userId: string) => {
+    setSharedWithUserIds(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(userId)) {
+            newSet.delete(userId);
+        } else {
+            newSet.add(userId);
+        }
+        return newSet;
+    });
+  };
+
+  const handleSaveSharing = async () => {
+    if (!pbClient || !user) {
+        toast({ title: "Error", description: "Not authenticated. Cannot save sharing settings.", variant: "destructive" });
+        return;
+    }
+    setIsSavingSharing(true);
+    try {
+        await pbClient.collection('users').update(user.id, {
+            sharesPersonalCalendarWith: Array.from(sharedWithUserIds)
+        });
+        toast({ title: "Sharing Settings Saved", description: "Your calendar sharing preferences have been updated." });
+    } catch (error: any) {
+        console.error("Failed to save sharing settings:", error);
+        toast({
+            title: "Error Saving Settings",
+            description: error.message || "An unexpected error occurred.",
+            variant: "destructive"
+        });
+    } finally {
+        setIsSavingSharing(false);
+    }
+  };
+
   if (!mounted) {
     return null; 
   }
@@ -279,9 +354,49 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          <Card className="shadow-md">
+              <CardHeader>
+                  <CardTitle className="text-xl md:text-2xl font-headline">Calendar Sharing</CardTitle>
+                  <CardDescription>Select users you want to share your personal calendar with.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                  {isLoadingUsers ? (
+                      <div className="flex items-center justify-center h-48">
+                          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                          <p className="ml-2 text-muted-foreground">Loading users...</p>
+                      </div>
+                  ) : (
+                      <ScrollArea className="h-48 rounded-md border p-4">
+                          <div className="space-y-2">
+                            {allUsers.length > 0 ? allUsers.map(u => (
+                                <div key={u.id} className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id={`share-${u.id}`}
+                                        checked={sharedWithUserIds.has(u.id)}
+                                        onCheckedChange={() => handleShareUserToggle(u.id)}
+                                    />
+                                    <Label htmlFor={`share-${u.id}`} className="font-normal cursor-pointer">
+                                        {u.name} ({u.email})
+                                    </Label>
+                                </div>
+                            )) : (
+                               <p className="text-sm text-muted-foreground text-center">No other users available to share with.</p>
+                            )}
+                          </div>
+                      </ScrollArea>
+                  )}
+              </CardContent>
+              <CardFooter className="flex justify-end">
+                  <Button onClick={handleSaveSharing} disabled={isSavingSharing || isLoadingUsers}>
+                      {isSavingSharing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserCheck className="mr-2 h-4 w-4" />}
+                      Save Sharing Settings
+                  </Button>
+              </CardFooter>
+          </Card>
+
         </div>
       </div>
     </div>
   );
 }
-

@@ -9,6 +9,7 @@ export interface User {
   avatarUrl?: string | null;
   lucideIconComponent?: React.ElementType; // To store the Lucide icon component
   selected_lucide_icon?: string; // Stores the name of the user-selected Lucide icon
+  sharesPersonalCalendarWith?: string[];
 }
 
 export type TaskType = "MDL" | "SOP" | "IA" | "iDOC" | "oDOC" | "VALIDATION_PROJECT" | "VALIDATION_STEP";
@@ -61,6 +62,8 @@ export interface CalendarEvent {
   progress?: number;
   isAllDay?: boolean;
   eventType?: PersonalEventType;
+  ownerId?: string;
+  ownerName?: string;
 }
 
 export interface Employee {

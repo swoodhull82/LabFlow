@@ -66,6 +66,7 @@ const createUserFromModel = (pbUserModel: any): User | null => {
     avatarUrl: null,
     lucideIconComponent: undefined,
     selected_lucide_icon: (pbUserModel as any).selected_lucide_icon || undefined,
+    sharesPersonalCalendarWith: (pbUserModel as any).sharesPersonalCalendarWith || [],
   };
 
   if ((pbUserModel as any).avatar && (pbUserModel as any).avatar !== "") {
@@ -290,4 +291,3 @@ export const useAuth = () => {
   }
   return context;
 };
-

@@ -22,6 +22,7 @@ Based on the application's frontend code, the 'users' collection in PocketBase i
 *   **`role`**: (Text or Select, Optional) - User's role (e.g., "Supervisor", "Team Lead", "Chem I", "Chem II").
 *   **`avatar`**: (File, Optional, Max 1 file) - For uploaded profile pictures.
 *   **`selected_lucide_icon`**: (Text, Optional) - Name of the selected Lucide icon for the profile.
+*   **`sharesPersonalCalendarWith`**: (Relation, `users` collection, Multiple) - A list of user IDs that this user is sharing their personal calendar with.
 
 ## PocketBase 'tasks' Collection Schema (Inferred from Frontend)
 
@@ -76,17 +77,17 @@ A new collection is required to store personal calendar events separately from t
 
 ### Securing Personal Events in PocketBase
 
-For personal calendar events to be truly private and visible only to the user who created them, you must set API rules on the `personal_events` collection in your PocketBase Admin UI. While the application code filters events on the client-side, these server-side rules are essential for security.
+For personal calendar events to be private (or shared with specific users), you must set API rules on the `personal_events` collection in your PocketBase Admin UI.
 
-Navigate to your PocketBase admin dashboard, select the `personal_events` collection, and go to the **"API Rules"** tab. Set the rules as follows:
+Navigate to your PocketBase admin dashboard, select the `personal_events` collection, and go to the **"API Rules"** tab. The `user` field in the rules below refers to the `userId` relation field on the `personal_events` collection.
 
--   **List Rule**: `userId = @request.auth.id`
--   **View Rule**: `userId = @request.auth.id`
+-   **List Rule**: `userId = @request.auth.id || @request.auth.id IN user.sharesPersonalCalendarWith`
+-   **View Rule**: `userId = @request.auth.id || @request.auth.id IN user.sharesPersonalCalendarWith`
 -   **Create Rule**: `userId = @request.auth.id`
 -   **Update Rule**: `userId = @request.auth.id`
 -   **Delete Rule**: `userId = @request.auth.id`
 
-These rules ensure that a logged-in user can only interact with their own personal events.
+These rules ensure that a user can only interact with their own personal events, but can view events from users who have explicitly shared their calendar with them.
 
 ## Deployment Troubleshooting (GitHub Pages & PocketBase)
 
