@@ -9,7 +9,7 @@ import type { CalendarEvent, TaskPriority, TaskStatus } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { getCalendarEvents } from "@/services/calendarEventService"; 
-import { getPersonalEvents } from "@/services/personalEventService";
+import { getPersonalEvents, deletePersonalEvent } from "@/services/personalEventService";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertTriangle, Dot, ChevronLeft, ChevronRight, PlusCircle, Filter } from "lucide-react";
 import type PocketBase from "pocketbase";
@@ -105,6 +105,8 @@ export default function CalendarPage() {
   const [newTaskDate, setNewTaskDate] = useState<Date | undefined>();
   const [filterPriority, setFilterPriority] = useState<TaskPriority | "all">("all");
   const [filterStatus, setFilterStatus] = useState<TaskStatus | "all">("all");
+
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
 
 
   const handleDayMouseDown = (day: Date, modifiers: DayModifiers) => {
@@ -226,7 +228,9 @@ export default function CalendarPage() {
 
       // Only calculate status modifiers for actual tasks, not personal events.
       if (activeTab === 'task' && event.status) {
-        if (!event.endDate) continue;
+        if (!event.endDate || !isValid(new Date(event.endDate))) {
+            continue;
+        }
         const eventDueDateObj = new Date(event.endDate);
         if (!isValid(eventDueDateObj)) continue;
         
@@ -279,7 +283,7 @@ export default function CalendarPage() {
     }
   };
 
-  const handleTaskCreated = () => {
+  const handleDataChanged = () => {
     refetchEvents();
   };
   
@@ -289,6 +293,26 @@ export default function CalendarPage() {
   
   const closeNewTaskDialog = () => {
     setNewTaskDate(undefined);
+  };
+
+  const handleEventClick = (event: CalendarEvent) => {
+    setEditingEvent(event);
+  };
+
+  const closeEditDialog = () => {
+    setEditingEvent(null);
+  };
+
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!pbClient) return;
+    try {
+      await deletePersonalEvent(pbClient, eventId);
+      toast({ title: "Event Deleted", description: "The event has been removed from your calendar." });
+      refetchEvents();
+      closeEditDialog();
+    } catch (error: any) {
+      toast({ title: "Error Deleting Event", description: getDetailedErrorMessage(error), variant: "destructive" });
+    }
   };
 
   const handlePrevMonth = () => {
@@ -330,9 +354,23 @@ export default function CalendarPage() {
                         <DialogTitle>Add a New Personal Event</DialogTitle>
                       </DialogHeader>
                       <QuickTaskForm
-                        onTaskCreated={handleTaskCreated}
+                        onTaskCreated={handleDataChanged}
                         onDialogClose={closeNewTaskDialog}
                         defaultDate={newTaskDate}
+                      />
+                    </DialogContent>
+                  </Dialog>
+                  {/* Edit Dialog */}
+                  <Dialog open={!!editingEvent} onOpenChange={(isOpen) => !isOpen && closeEditDialog()}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Edit Personal Event</DialogTitle>
+                      </DialogHeader>
+                      <QuickTaskForm
+                        eventToEdit={editingEvent!}
+                        onTaskCreated={handleDataChanged}
+                        onDialogClose={closeEditDialog}
+                        onDelete={handleDeleteEvent}
                       />
                     </DialogContent>
                   </Dialog>
@@ -477,7 +515,11 @@ export default function CalendarPage() {
             )}
 
             {activeTab === 'personal' && (
-                 <WeeklyView events={eventsForView} onHourSlotClick={handleHourSlotClick} />
+                 <WeeklyView
+                    events={eventsForView}
+                    onHourSlotClick={handleHourSlotClick}
+                    onEventClick={handleEventClick}
+                 />
             )}
         </>
       )}

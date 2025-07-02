@@ -71,9 +71,10 @@ const NowIndicator = ({ dayColumns }: { dayColumns: Date[] }) => {
 interface WeeklyViewProps {
     events: CalendarEvent[];
     onHourSlotClick: (date: Date) => void;
+    onEventClick: (event: CalendarEvent) => void;
 }
 
-export default function WeeklyView({ events, onHourSlotClick }: WeeklyViewProps) {
+export default function WeeklyView({ events, onHourSlotClick, onEventClick }: WeeklyViewProps) {
     const [currentDate, setCurrentDate] = useState(new Date());
     const containerRef = useRef<HTMLDivElement>(null);
     const headerRef = useRef<HTMLDivElement>(null);
@@ -221,6 +222,7 @@ export default function WeeklyView({ events, onHourSlotClick }: WeeklyViewProps)
                                     return (
                                         <div 
                                             key={event.id}
+                                            onClick={() => onEventClick(event)}
                                             className={cn(
                                                 "absolute p-2 rounded-md cursor-pointer transition-all shadow-sm hover:shadow-md overflow-hidden z-[5] border-l-4",
                                                 getPriorityColorClass(event.priority)

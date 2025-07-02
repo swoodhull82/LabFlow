@@ -11,14 +11,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon, Loader2, Save } from "lucide-react";
+import { CalendarIcon, Loader2, Save, Trash2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { createPersonalEvent } from "@/services/personalEventService";
+import { createPersonalEvent, updatePersonalEvent, type PersonalEventUpdateData } from "@/services/personalEventService";
 import { useState } from "react";
 import { format, addHours, set, getHours } from "date-fns";
 import { TASK_PRIORITIES } from "@/lib/constants";
-import type { TaskPriority } from "@/lib/types";
+import type { CalendarEvent, TaskPriority } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const quickTaskFormSchema = z.object({
@@ -41,7 +41,9 @@ type QuickTaskFormData = z.infer<typeof quickTaskFormSchema>;
 interface QuickTaskFormProps {
   onTaskCreated: () => void;
   onDialogClose: () => void;
+  onDelete?: (eventId: string) => void;
   defaultDate?: Date;
+  eventToEdit?: CalendarEvent;
 }
 
 const generateTimeSlots = () => {
@@ -66,11 +68,13 @@ const formatTimeSlot = (slot: string) => {
 
 const timeSlots = generateTimeSlots();
 
-export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: QuickTaskFormProps) {
+export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultDate, eventToEdit }: QuickTaskFormProps) {
   const { pbClient, user } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   
+  const isEditMode = !!eventToEdit;
+
   const defaultHour = defaultDate ? getHours(defaultDate) : 9; // 9 AM
   const defaultStartDateWithHour = set(defaultDate || new Date(), { hours: defaultHour, minutes: 0, seconds: 0, milliseconds: 0 });
   const defaultStartTime = format(defaultStartDateWithHour, 'HH:mm');
@@ -79,18 +83,18 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: Qui
   const form = useForm<QuickTaskFormData>({
     resolver: zodResolver(quickTaskFormSchema),
     defaultValues: {
-      title: "",
-      description: "",
-      priority: "Medium",
-      eventDate: defaultDate,
-      startTime: defaultStartTime,
-      endTime: defaultEndTime,
+      title: eventToEdit?.title || "",
+      description: eventToEdit?.description || "",
+      priority: eventToEdit?.priority || "Medium",
+      eventDate: eventToEdit ? new Date(eventToEdit.startDate) : defaultDate,
+      startTime: eventToEdit ? format(new Date(eventToEdit.startDate), 'HH:mm') : defaultStartTime,
+      endTime: eventToEdit ? format(new Date(eventToEdit.endDate), 'HH:mm') : defaultEndTime,
     },
   });
 
   async function onSubmit(data: QuickTaskFormData) {
     if (!pbClient || !user) {
-      toast({ title: "Error", description: "You must be logged in to create an event.", variant: "destructive" });
+      toast({ title: "Error", description: "You must be logged in.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
@@ -101,23 +105,34 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: Qui
     const startDate = set(data.eventDate, { hours: startHour, minutes: startMinute });
     const endDate = set(data.eventDate, { hours: endHour, minutes: endMinute });
 
-    const eventPayload = {
-      title: data.title,
-      description: data.description,
-      startDate,
-      endDate,
-      priority: data.priority,
-      userId: user.id,
-    };
-
     try {
-      await createPersonalEvent(pbClient, eventPayload);
-      toast({ title: "Success", description: "Personal event added to your calendar." });
+      if (isEditMode) {
+        const eventPayload: PersonalEventUpdateData = {
+          title: data.title,
+          description: data.description,
+          startDate,
+          endDate,
+          priority: data.priority,
+        };
+        await updatePersonalEvent(pbClient, eventToEdit.id, eventPayload);
+        toast({ title: "Success", description: "Personal event updated." });
+      } else {
+        const eventPayload = {
+          title: data.title,
+          description: data.description,
+          startDate,
+          endDate,
+          priority: data.priority,
+          userId: user.id,
+        };
+        await createPersonalEvent(pbClient, eventPayload);
+        toast({ title: "Success", description: "Personal event added to your calendar." });
+      }
       onTaskCreated();
       onDialogClose();
     } catch (err: any) {
       toast({
-        title: "Error Creating Event",
+        title: `Error ${isEditMode ? 'Updating' : 'Creating'} Event`,
         description: err.message || "An unexpected error occurred. Please try again.",
         variant: "destructive",
       });
@@ -257,12 +272,21 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: Qui
             />
         </div>
 
-        <div className="flex justify-end space-x-2 pt-4">
-          <Button type="button" variant="ghost" onClick={onDialogClose}>Cancel</Button>
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-            Save Event
-          </Button>
+        <div className="flex justify-between items-center pt-4">
+          <div>
+            {isEditMode && onDelete && (
+              <Button type="button" variant="destructive" onClick={() => onDelete(eventToEdit.id)} disabled={isSubmitting}>
+                  <Trash2 className="mr-2 h-4 w-4" /> Delete
+              </Button>
+            )}
+          </div>
+          <div className="flex space-x-2">
+            <Button type="button" variant="ghost" onClick={onDialogClose}>Cancel</Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              {isEditMode ? "Save Changes" : "Save Event"}
+            </Button>
+          </div>
         </div>
       </form>
     </Form>

@@ -104,10 +104,63 @@ export const createPersonalEvent = async (
 ): Promise<CalendarEvent> => {
   try {
     const record = await pb.collection(COLLECTION_NAME).create(eventData);
-    return pbRecordToPersonalEvent(record) as CalendarEvent;
+    const personalEvent = pbRecordToPersonalEvent(record);
+    if (!personalEvent) {
+        throw new Error("Failed to process the created event record.");
+    }
+    return personalEvent;
   } catch (error) {
     handleCreateError(error, COLLECTION_NAME);
     // The line below is for TypeScript's benefit, as handleCreateError always throws.
+    throw error;
+  }
+};
+
+export interface PersonalEventUpdateData {
+    title?: string;
+    description?: string;
+    startDate?: Date;
+    endDate?: Date;
+    priority?: TaskPriority;
+}
+
+export const updatePersonalEvent = async (
+  pb: PocketBase,
+  eventId: string,
+  eventData: PersonalEventUpdateData
+): Promise<CalendarEvent> => {
+  try {
+    const record = await withRetry(() =>
+        pb.collection(COLLECTION_NAME).update(eventId, eventData),
+        { context: `updating personal event ${eventId}` }
+    );
+    const personalEvent = pbRecordToPersonalEvent(record);
+    if (!personalEvent) {
+        throw new Error("Failed to process the updated event record.");
+    }
+    return personalEvent;
+  } catch (error) {
+    console.error(`Failed to update personal event ${eventId}:`, error);
+    handleCreateError(error, COLLECTION_NAME); // Re-use create error handler as it covers validation
+    throw error;
+  }
+};
+
+export const deletePersonalEvent = async (
+  pb: PocketBase,
+  eventId: string,
+): Promise<void> => {
+  try {
+     await withRetry(() =>
+        pb.collection(COLLECTION_NAME).delete(eventId),
+        { context: `deleting personal event ${eventId}` }
+    );
+  } catch (error) {
+    console.error(`Failed to delete personal event ${eventId}:`, error);
+    if (error instanceof ClientResponseError && error.status === 404) {
+      console.warn(`Attempted to delete non-existent personal event ${eventId}`);
+      return;
+    }
     throw error;
   }
 };
