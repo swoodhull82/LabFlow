@@ -3,16 +3,25 @@
 import type { CalendarEvent, TaskPriority } from "@/lib/types";
 import PocketBase, { ClientResponseError } from 'pocketbase';
 import { withRetry } from '@/lib/retry';
+import { isValid } from 'date-fns';
 
 const COLLECTION_NAME = "personal_events";
 
 // Helper to convert PocketBase record to a CalendarEvent-compatible object
-const pbRecordToPersonalEvent = (record: any): CalendarEvent => {
+const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
+  const startDate = record.startDate ? new Date(record.startDate) : null;
+  const endDate = record.endDate ? new Date(record.endDate) : null;
+
+  if (!startDate || !endDate || !isValid(startDate) || !isValid(endDate)) {
+    console.warn(`[personalEventService] Skipping event with ID ${record.id} due to missing or invalid dates.`);
+    return null;
+  }
+  
   return {
     id: record.id,
     title: record.title,
-    startDate: record.startDate ? new Date(record.startDate) : new Date(),
-    endDate: record.endDate ? new Date(record.endDate) : new Date(),
+    startDate: startDate,
+    endDate: endDate,
     description: record.description,
     priority: record.priority,
     userId: record.userId,
@@ -42,9 +51,12 @@ export const getPersonalEvents = async (pb: PocketBase, userId: string, options?
       { ...options, context: "fetching personal events" }
     );
     
-    return records.map(pbRecordToPersonalEvent);
+    // Map and filter out any records that are invalid
+    return records
+      .map(pbRecordToPersonalEvent)
+      .filter((event): event is CalendarEvent => event !== null);
+
   } catch (error) {
-    // Check if the error is because the collection doesn't exist (e.g., 404)
     if (error instanceof ClientResponseError && error.status === 404) {
       console.warn(`[personalEventService] The '${COLLECTION_NAME}' collection was not found. Returning empty array. Please create it in PocketBase.`);
       return [];
@@ -68,7 +80,7 @@ export const createPersonalEvent = async (
 ): Promise<CalendarEvent> => {
   try {
     const record = await pb.collection(COLLECTION_NAME).create(eventData);
-    return pbRecordToPersonalEvent(record);
+    return pbRecordToPersonalEvent(record) as CalendarEvent; // We can assert not null as we just created it with valid data
   } catch (error) {
     if (error instanceof ClientResponseError && error.status === 404) {
         console.error(`[personalEventService] The '${COLLECTION_NAME}' collection was not found. Cannot create event.`, error);
