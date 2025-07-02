@@ -49,6 +49,7 @@ const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
     description: record.description,
     priority: record.priority,
     userId: record.userId,
+    isAllDay: record.isAllDay || false,
     created: new Date(record.created),
     updated: new Date(record.updated),
     collectionId: record.collectionId,
@@ -96,6 +97,7 @@ interface PersonalEventCreationData {
     endDate: Date;
     priority: TaskPriority;
     userId: string;
+    isAllDay?: boolean;
 }
 
 export const createPersonalEvent = async (
@@ -122,6 +124,7 @@ export interface PersonalEventUpdateData {
     startDate?: Date;
     endDate?: Date;
     priority?: TaskPriority;
+    isAllDay?: boolean;
 }
 
 export const updatePersonalEvent = async (

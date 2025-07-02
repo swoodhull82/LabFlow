@@ -57,6 +57,7 @@ export interface CalendarEvent {
   assignedTo_text?: string;
   priority?: TaskPriority;
   progress?: number;
+  isAllDay?: boolean;
 }
 
 export interface Employee {

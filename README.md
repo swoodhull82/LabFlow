@@ -70,6 +70,7 @@ A new collection is required to store personal calendar events separately from t
 *   **`endDate`**: (Date, Required) - The end date and time of the event.
 *   **`priority`**: (Select, Required) - Priority level. Options: "Low", "Medium", "High", "Urgent".
 *   **`userId`**: (Relation to 'users', Required) - The ID of the user who owns this event.
+*   **`isAllDay`**: (Boolean, Optional, Default: false) - Indicates if the event is for the whole day.
 *   **`created`**: (Date, System Field) - Timestamp of creation.
 *   **`updated`**: (Date, System Field) - Timestamp of last update.
 
@@ -109,4 +110,3 @@ While less likely to cause "works locally, fails deployed" if the same user is t
 Verify that `POCKETBASE_URL` in `src/context/AuthContext.tsx` (currently `https://swoodhu.pockethost.io/`) is correct and publicly accessible.
 
 By systematically checking these points, you can usually identify why data fetching fails on deployment.
-

@@ -225,7 +225,8 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
                                             onClick={() => onEventClick(event)}
                                             className={cn(
                                                 "absolute p-2 rounded-md cursor-pointer transition-all shadow-sm hover:shadow-md overflow-hidden z-[5] border-l-4",
-                                                getPriorityColorClass(event.priority)
+                                                getPriorityColorClass(event.priority),
+                                                event.isAllDay && "opacity-90"
                                             )}
                                             style={{ 
                                               top: `${top}px`, 
@@ -233,10 +234,10 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
                                               left: `calc(${dayIndex * 20}% + 4px)`, // 20% width per column
                                               width: 'calc(20% - 8px)',
                                             }}
-                                            title={`${event.title} - ${format(startDate, 'h:mm a')}`}
+                                            title={`${event.title}${event.isAllDay ? ' (All-day)' : ` - ${format(startDate, 'h:mm a')}`}`}
                                         >
                                             <p className="font-semibold text-xs truncate">{event.title}</p>
-                                            <p className="text-[10px] opacity-80">{format(startDate, 'h:mm a')} - {format(endDate, 'h:mm a')}</p>
+                                            {!event.isAllDay && <p className="text-[10px] opacity-80">{format(startDate, 'h:mm a')} - {format(endDate, 'h:mm a')}</p>}
                                         </div>
                                     )
                                 })

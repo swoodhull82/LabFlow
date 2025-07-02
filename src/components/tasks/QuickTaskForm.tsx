@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
 import { CalendarIcon, Loader2, Save, Trash2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -25,15 +26,22 @@ const quickTaskFormSchema = z.object({
   title: z.string().min(2, { message: "Title must be at least 2 characters." }),
   description: z.string().optional(),
   eventDate: z.date({ required_error: "An event date is required." }),
-  startTime: z.string({ required_error: "Start time is required."}),
-  endTime: z.string({ required_error: "End time is required."}),
+  isAllDay: z.boolean().optional(),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
   priority: z.string().min(1, { message: "Priority is required." }) as z.ZodType<TaskPriority>,
-}).refine(data => {
-    if (!data.startTime || !data.endTime) return true; // Let required check handle it
-    return data.endTime > data.startTime;
-}, {
-    message: "End time must be after start time.",
-    path: ["endTime"],
+}).superRefine((data, ctx) => {
+    if (!data.isAllDay) {
+        if (!data.startTime) {
+            ctx.addIssue({ code: 'custom', message: 'Start time is required for timed events.', path: ['startTime'] });
+        }
+        if (!data.endTime) {
+            ctx.addIssue({ code: 'custom', message: 'End time is required for timed events.', path: ['endTime'] });
+        }
+        if (data.startTime && data.endTime && data.endTime <= data.startTime) {
+            ctx.addIssue({ code: 'custom', message: 'End time must be after start time.', path: ['endTime'] });
+        }
+    }
 });
 
 type QuickTaskFormData = z.infer<typeof quickTaskFormSchema>;
@@ -87,10 +95,13 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
       description: eventToEdit?.description || "",
       priority: eventToEdit?.priority || "Medium",
       eventDate: eventToEdit ? new Date(eventToEdit.startDate) : defaultDate,
-      startTime: eventToEdit ? format(new Date(eventToEdit.startDate), 'HH:mm') : defaultStartTime,
-      endTime: eventToEdit ? format(new Date(eventToEdit.endDate), 'HH:mm') : defaultEndTime,
+      isAllDay: eventToEdit?.isAllDay || false,
+      startTime: eventToEdit && !eventToEdit.isAllDay ? format(new Date(eventToEdit.startDate), 'HH:mm') : defaultStartTime,
+      endTime: eventToEdit && !eventToEdit.isAllDay ? format(new Date(eventToEdit.endDate), 'HH:mm') : defaultEndTime,
     },
   });
+  
+  const isAllDay = form.watch("isAllDay");
 
   async function onSubmit(data: QuickTaskFormData) {
     if (!pbClient || !user) {
@@ -99,11 +110,19 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
     }
     setIsSubmitting(true);
 
-    const [startHour, startMinute] = data.startTime.split(':').map(Number);
-    const [endHour, endMinute] = data.endTime.split(':').map(Number);
+    let startDate, endDate;
 
-    const startDate = set(data.eventDate, { hours: startHour, minutes: startMinute });
-    const endDate = set(data.eventDate, { hours: endHour, minutes: endMinute });
+    if (data.isAllDay) {
+        // Set to span the visible calendar hours (6 AM to 6 PM)
+        startDate = set(data.eventDate, { hours: 6, minutes: 0, seconds: 0 });
+        endDate = set(data.eventDate, { hours: 18, minutes: 0, seconds: 0 });
+    } else {
+        const [startHour, startMinute] = data.startTime!.split(':').map(Number);
+        const [endHour, endMinute] = data.endTime!.split(':').map(Number);
+
+        startDate = set(data.eventDate, { hours: startHour, minutes: startMinute, seconds: 0 });
+        endDate = set(data.eventDate, { hours: endHour, minutes: endMinute, seconds: 0 });
+    }
 
     try {
       if (isEditMode) {
@@ -113,6 +132,7 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
           startDate,
           endDate,
           priority: data.priority,
+          isAllDay: data.isAllDay,
         };
         await updatePersonalEvent(pbClient, eventToEdit.id, eventPayload);
         toast({ title: "Success", description: "Personal event updated." });
@@ -124,6 +144,7 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
           endDate,
           priority: data.priority,
           userId: user.id,
+          isAllDay: data.isAllDay,
         };
         await createPersonalEvent(pbClient, eventPayload);
         toast({ title: "Success", description: "Personal event added to your calendar." });
@@ -225,52 +246,73 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
             )}
           />
         </div>
-        <div className="grid grid-cols-2 gap-4">
-            <FormField
-                control={form.control}
-                name="startTime"
-                render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Start Time</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select start time" />
-                                </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                                {timeSlots.map(slot => (
-                                    <SelectItem key={`start-${slot}`} value={slot}>{formatTimeSlot(slot)}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <FormMessage />
-                    </FormItem>
-                )}
-            />
-            <FormField
-                control={form.control}
-                name="endTime"
-                render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>End Time</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select end time" />
-                                </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                                {timeSlots.map(slot => (
-                                    <SelectItem key={`end-${slot}`} value={slot}>{formatTimeSlot(slot)}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <FormMessage />
-                    </FormItem>
-                )}
-            />
-        </div>
+        <FormField
+            control={form.control}
+            name="isAllDay"
+            render={({ field }) => (
+                <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm">
+                <FormControl>
+                    <Checkbox
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    />
+                </FormControl>
+                <div className="space-y-1 leading-none">
+                    <FormLabel className="cursor-pointer">
+                      All-day event
+                    </FormLabel>
+                </div>
+                </FormItem>
+            )}
+        />
+        {!isAllDay && (
+            <div className="grid grid-cols-2 gap-4">
+                <FormField
+                    control={form.control}
+                    name="startTime"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Start Time</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select start time" />
+                                    </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                    {timeSlots.map(slot => (
+                                        <SelectItem key={`start-${slot}`} value={slot}>{formatTimeSlot(slot)}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+                <FormField
+                    control={form.control}
+                    name="endTime"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>End Time</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select end time" />
+                                    </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                    {timeSlots.map(slot => (
+                                        <SelectItem key={`end-${slot}`} value={slot}>{formatTimeSlot(slot)}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+            </div>
+        )}
 
         <div className="flex justify-between items-center pt-4">
           <div>
