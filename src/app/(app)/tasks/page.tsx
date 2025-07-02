@@ -29,7 +29,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 import type { Task, TaskStatus, TaskPriority, TaskRecurrence, Employee, TaskType } from "@/lib/types";
 import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon, Milestone } from "lucide-react";
-import { format } from "date-fns";
+import { format, isValid } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { deleteTask, getTasks, updateTask } from "@/services/taskService";
@@ -351,7 +351,7 @@ export default function TasksPage() {
     } else if (filterStatus === 'complete') {
       pbFilter += ' && status = "Done"';
     } else if (filterStatus !== 'all') {
-      pbFilter += ` && status = "${pb.client.realtime.encode(filterStatus)}"`;
+      pbFilter += ` && status = "${pb.realtime.encode(filterStatus)}"`;
     }
 
     try {
@@ -507,8 +507,8 @@ export default function TasksPage() {
         description: editingTask.description || "",
         status: editingTask.status,
         priority: editingTask.priority,
-        startDate: editingTask.startDate ? new Date(editingTask.startDate) : undefined,
-        dueDate: editingTask.dueDate ? new Date(editingTask.dueDate) : undefined,
+        startDate: editingTask.startDate && isValid(new Date(editingTask.startDate)) ? new Date(editingTask.startDate) : undefined,
+        dueDate: editingTask.dueDate && isValid(new Date(editingTask.dueDate)) ? new Date(editingTask.dueDate) : undefined,
         recurrence: editingTask.recurrence,
         assignedTo_text: editingTask.assignedTo_text || "",
         dependencies: Array.isArray(editingTask.dependencies) ? editingTask.dependencies : [],
@@ -1209,5 +1209,6 @@ export default function TasksPage() {
     </div>
   );
 }
+
 
 
