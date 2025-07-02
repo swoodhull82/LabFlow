@@ -59,6 +59,20 @@ Based on the application's frontend code, the 'tasks' collection in PocketBase i
 *   **`created`**: (Date, System Field) - Timestamp of creation.
 *   **`updated`**: (Date, System Field) - Timestamp of last update.
 
+## PocketBase 'personal_events' Collection Schema (New)
+
+A new collection is required to store personal calendar events separately from the main tasks.
+
+*   **`id`**: (Text, System Field) - Unique identifier.
+*   **`title`**: (Text, Required) - The name or description of the personal event.
+*   **`description`**: (Text, Optional) - A longer description for the event.
+*   **`startDate`**: (Date, Required) - The start date and time of the event.
+*   **`endDate`**: (Date, Required) - The end date and time of the event.
+*   **`priority`**: (Select, Required) - Priority level. Options: "Low", "Medium", "High", "Urgent".
+*   **`userId`**: (Relation to 'users', Required) - The ID of the user who owns this event.
+*   **`created`**: (Date, System Field) - Timestamp of creation.
+*   **`updated`**: (Date, System Field) - Timestamp of last update.
+
 
 ## Deployment Troubleshooting (GitHub Pages & PocketBase)
 
@@ -95,3 +109,4 @@ While less likely to cause "works locally, fails deployed" if the same user is t
 Verify that `POCKETBASE_URL` in `src/context/AuthContext.tsx` (currently `https://swoodhu.pockethost.io/`) is correct and publicly accessible.
 
 By systematically checking these points, you can usually identify why data fetching fails on deployment.
+

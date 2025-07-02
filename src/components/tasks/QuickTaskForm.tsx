@@ -14,16 +14,16 @@ import { Calendar } from "@/components/ui/calendar";
 import { CalendarIcon, Loader2, Save } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { createTask } from "@/services/taskService";
+import { createPersonalEvent } from "@/services/personalEventService";
 import { useState } from "react";
-import { format } from "date-fns";
-import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/constants";
-import type { TaskPriority, TaskStatus } from "@/lib/types";
+import { format, addHours } from "date-fns";
+import { TASK_PRIORITIES } from "@/lib/constants";
+import type { TaskPriority } from "@/lib/types";
 
 const quickTaskFormSchema = z.object({
   title: z.string().min(2, { message: "Title must be at least 2 characters." }),
   description: z.string().optional(),
-  dueDate: z.date({ required_error: "A due date is required." }),
+  dueDate: z.date({ required_error: "A date and time is required." }),
   priority: z.string().min(1, { message: "Priority is required." }) as z.ZodType<TaskPriority>,
 });
 
@@ -52,45 +52,37 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: Qui
 
   async function onSubmit(data: QuickTaskFormData) {
     if (!pbClient || !user) {
-      toast({ title: "Error", description: "You must be logged in to create a task.", variant: "destructive" });
+      toast({ title: "Error", description: "You must be logged in to create an event.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
 
-    const formData = new FormData();
-    formData.append("title", data.title);
-    formData.append("task_type", "oDOC"); // Using a generic, non-complex type for personal tasks
-    formData.append("status", "To Do" as TaskStatus);
-    formData.append("priority", data.priority);
-    formData.append("recurrence", "None");
-    formData.append("userId", user.id);
+    const startDate = data.dueDate;
+    const endDate = addHours(startDate, 1); // Default 1-hour duration
 
-    if (data.description) {
-      formData.append("description", data.description);
-    }
-    if (data.dueDate) {
-      // For a quick personal task, let's make start and end date the same by default
-      formData.append("startDate", data.dueDate.toISOString());
-      formData.append("dueDate", data.dueDate.toISOString());
-    }
-    if (user.name) {
-      formData.append("assignedTo_text", user.name);
-    }
+    const eventPayload = {
+      title: data.title,
+      description: data.description,
+      startDate,
+      endDate,
+      priority: data.priority,
+      userId: user.id,
+    };
 
     try {
-      await createTask(pbClient, formData);
-      toast({ title: "Success", description: "Personal task added to your calendar." });
+      await createPersonalEvent(pbClient, eventPayload);
+      toast({ title: "Success", description: "Personal event added to your calendar." });
       onTaskCreated();
       onDialogClose();
     } catch (err: any) {
-      let detailedMessage = "Failed to create task. Please try again.";
+      let detailedMessage = "Failed to create event. Please try again.";
       if (err.data?.message) {
         detailedMessage = err.data.message;
       } else if (err.message) {
         detailedMessage = err.message;
       }
       toast({
-        title: "Error Creating Task",
+        title: "Error Creating Event",
         description: detailedMessage,
         variant: "destructive",
       });
@@ -107,9 +99,9 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: Qui
           name="title"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Task Title</FormLabel>
+              <FormLabel>Event Title</FormLabel>
               <FormControl>
-                <Input placeholder="e.g., Review quarterly report" {...field} />
+                <Input placeholder="e.g., Team sync meeting" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -187,7 +179,7 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, defaultDate }: Qui
           <Button type="button" variant="ghost" onClick={onDialogClose}>Cancel</Button>
           <Button type="submit" disabled={isSubmitting}>
             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-            Save Task
+            Save Event
           </Button>
         </div>
       </form>

@@ -9,6 +9,7 @@ import type { CalendarEvent, TaskPriority, TaskStatus } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { getCalendarEvents } from "@/services/calendarEventService"; 
+import { getPersonalEvents } from "@/services/personalEventService";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertTriangle, Dot, ChevronLeft, ChevronRight, PlusCircle, Filter } from "lucide-react";
 import type PocketBase from "pocketbase";
@@ -25,10 +26,10 @@ import WeeklyView from '@/components/calendar/WeeklyView';
 
 
 const getDetailedErrorMessage = (error: any): string => {
-  let message = "An unexpected error occurred while fetching tasks for the calendar.";
+  let message = "An unexpected error occurred while fetching items for the calendar.";
   if (error && typeof error === 'object') {
     if ('status' in error && error.status === 0) {
-      message = "Failed to load calendar tasks: Could not connect to the server. Please check your internet connection and try again.";
+      message = "Failed to load calendar items: Could not connect to the server. Please check your internet connection and try again.";
     } else if (error.data && typeof error.data === 'object') {
       if (error.data.message && typeof error.data.message === 'string') {
         message = error.data.message;
@@ -39,8 +40,8 @@ const getDetailedErrorMessage = (error: any): string => {
 
     if ('status' in error && error.status !== 0) {
       const status = error.status;
-      if (status === 404) message = `The 'tasks' collection was not found (404).`;
-      else if (status === 403) message = `You do not have permission to view tasks for the calendar (403).`;
+      if (status === 404) message = `A required data collection was not found (404).`;
+      else if (status === 403) message = `You do not have permission to view items for the calendar (403).`;
     }
   } else if (typeof error === 'string') {
     message = error;
@@ -85,7 +86,7 @@ const getPriorityBadgeVariant = (priority?: string) => {
 export default function CalendarPage() {
   const { pbClient, user } = useAuth();
   const { toast } = useToast();
-  const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]); 
+  const [displayedEvents, setDisplayedEvents] = useState<CalendarEvent[]>([]); 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("task");
@@ -140,7 +141,7 @@ export default function CalendarPage() {
     };
   }, [handleMouseUp]);
 
-  const fetchEvents = useCallback(async (pb: PocketBase | null, signal?: AbortSignal) => {
+  const fetchCalendarData = useCallback(async (pb: PocketBase | null, tab: string, currentUserId: string, signal?: AbortSignal) => {
     if (!pb) {
       setIsLoading(true); 
       return;
@@ -148,18 +149,23 @@ export default function CalendarPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const projectionHorizon = addYears(new Date(), 2);
-      const fetchedEvents = await getCalendarEvents(pb, { signal, projectionHorizon }); 
-      setAllEvents(fetchedEvents);
+      let fetchedEvents: CalendarEvent[] = [];
+       if (tab === 'personal') {
+          fetchedEvents = await getPersonalEvents(pb, currentUserId, { signal });
+      } else { // 'task' tab
+          const projectionHorizon = addYears(new Date(), 2);
+          fetchedEvents = await getCalendarEvents(pb, { signal, projectionHorizon }); 
+      }
+      setDisplayedEvents(fetchedEvents);
     } catch (err: any) {
       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       if (isAutocancel) {
-        console.warn(`Calendar events (tasks) fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
+        console.warn(`Calendar data fetch request was ${err?.isAbort ? 'aborted' : 'autocancelled'}.`, err);
       } else {
         const detailedError = getDetailedErrorMessage(err);
         setError(detailedError);
         toast({ title: "Error Loading Calendar Data", description: detailedError, variant: "destructive" });
-        console.warn("Error fetching tasks for calendar (after retries):", detailedError, err); 
+        console.warn("Error fetching data for calendar (after retries):", detailedError, err); 
       }
     } finally {
       setIsLoading(false);
@@ -168,32 +174,30 @@ export default function CalendarPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    if (pbClient) {
-      fetchEvents(pbClient, controller.signal);
+    if (pbClient && user) {
+      fetchCalendarData(pbClient, activeTab, user.id, controller.signal);
     } else {
       setIsLoading(true); 
     }
     return () => {
       controller.abort();
     };
-  }, [pbClient, fetchEvents]);
+  }, [pbClient, user, activeTab, fetchCalendarData]);
+
 
   const eventsForView = useMemo(() => {
-    let filtered = allEvents;
-    if (activeTab === 'personal' && user) {
-      filtered = allEvents.filter(event => event.assignedTo_text === user.name);
-    }
+    let filtered = displayedEvents;
     
     if (filterPriority !== "all") {
         filtered = filtered.filter(event => event.priority === filterPriority);
     }
 
-    if (filterStatus !== "all") {
+    if (activeTab === 'task' && filterStatus !== "all") {
         filtered = filtered.filter(event => event.status === filterStatus);
     }
 
     return filtered;
-  }, [activeTab, allEvents, user, filterPriority, filterStatus]);
+  }, [displayedEvents, activeTab, filterPriority, filterStatus]);
 
   const { tasksByDay, statusModifiers } = useMemo(() => {
     const tasksByDayMap = new Map<string, CalendarEvent[]>();
@@ -260,8 +264,8 @@ export default function CalendarPage() {
   }, [range, tasksByDay]);
 
   const refetchEvents = () => {
-    if (pbClient) {
-      fetchEvents(pbClient);
+    if (pbClient && user) {
+      fetchCalendarData(pbClient, activeTab, user.id);
     }
   };
 
@@ -304,12 +308,12 @@ export default function CalendarPage() {
              {activeTab === 'personal' && (
                 <>
                   <Button onClick={() => handleHourSlotClick(new Date())}>
-                    <PlusCircle className="mr-2 h-4 w-4" /> New Personal Task
+                    <PlusCircle className="mr-2 h-4 w-4" /> New Personal Event
                   </Button>
                   <Dialog open={!!newTaskDate} onOpenChange={(isOpen) => !isOpen && closeNewTaskDialog()}>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Add a New Personal Task</DialogTitle>
+                        <DialogTitle>Add a New Personal Event</DialogTitle>
                       </DialogHeader>
                       <QuickTaskForm
                         onTaskCreated={handleTaskCreated}
@@ -406,15 +410,17 @@ export default function CalendarPage() {
                                         {TASK_PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
-                                <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as TaskStatus | 'all')}>
-                                    <SelectTrigger className="w-[140px]">
-                                        <SelectValue placeholder="Filter by status" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">All Statuses</SelectItem>
-                                        {TASK_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
+                                {activeTab === 'task' && (
+                                    <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as TaskStatus | 'all')}>
+                                        <SelectTrigger className="w-[140px]">
+                                            <SelectValue placeholder="Filter by status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All Statuses</SelectItem>
+                                            {TASK_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                )}
                             </div>
                         </div>
                     </CardHeader>
