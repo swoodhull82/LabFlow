@@ -89,6 +89,20 @@ Navigate to your PocketBase admin dashboard, select the `personal_events` collec
 
 These rules ensure that a user can only interact with their own personal events, but can view events from users who have explicitly shared their calendar with them via the `sharesPersonalCalendarWith` field on the event owner's user record.
 
+### Securing the `users` Collection for Sharing
+
+To allow users to find and share their calendars with others, you must adjust the API rules on the `users` collection. By default, users can only see their own records, which will prevent the sharing list from populating.
+
+1.  Navigate to your PocketBase admin dashboard.
+2.  Select the `users` collection and go to the **"API Rules"** tab.
+3.  Find the **"List Rule"** field. It is likely empty or restricted.
+4.  Set the **"List Rule"** to the following:
+    ```
+    @request.auth.id != ""
+    ```
+
+This rule ensures that any authenticated user (`@request.auth.id != ""`) can see the list of other users, which is necessary for the sharing feature to work. The application only requests non-sensitive fields (`id`, `name`, `email`) for this purpose.
+
 ## Deployment Troubleshooting (GitHub Pages & PocketBase)
 
 If your application works locally but fails to fetch data (e.g., employees, tasks) when deployed to GitHub Pages, consider these common issues:
