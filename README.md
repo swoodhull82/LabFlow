@@ -79,15 +79,15 @@ A new collection is required to store personal calendar events separately from t
 
 For personal calendar events to be private (or shared with specific users), you must set API rules on the `personal_events` collection in your PocketBase Admin UI.
 
-Navigate to your PocketBase admin dashboard, select the `personal_events` collection, and go to the **"API Rules"** tab. The `user` field in the rules below refers to the `userId` relation field on the `personal_events` collection.
+Navigate to your PocketBase admin dashboard, select the `personal_events` collection, and go to the **"API Rules"** tab. In these rules, `@request.auth.id` refers to the currently logged-in user, and `userId` refers to the relation field on the `personal_events` record itself.
 
--   **List Rule**: `userId = @request.auth.id || @request.auth.id IN user.sharesPersonalCalendarWith`
--   **View Rule**: `userId = @request.auth.id || @request.auth.id IN user.sharesPersonalCalendarWith`
+-   **List Rule**: `userId = @request.auth.id || @request.auth.id IN userId.sharesPersonalCalendarWith`
+-   **View Rule**: `userId = @request.auth.id || @request.auth.id IN userId.sharesPersonalCalendarWith`
 -   **Create Rule**: `userId = @request.auth.id`
 -   **Update Rule**: `userId = @request.auth.id`
 -   **Delete Rule**: `userId = @request.auth.id`
 
-These rules ensure that a user can only interact with their own personal events, but can view events from users who have explicitly shared their calendar with them.
+These rules ensure that a user can only interact with their own personal events, but can view events from users who have explicitly shared their calendar with them via the `sharesPersonalCalendarWith` field on their own user record.
 
 ## Deployment Troubleshooting (GitHub Pages & PocketBase)
 
