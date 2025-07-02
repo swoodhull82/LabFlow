@@ -112,6 +112,11 @@ export default function NewTaskPage() {
   
   const [availableMethods, setAvailableMethods] = useState<readonly string[]>([]);
 
+  const isValidationCreationMode = useMemo(() => (
+    initialTaskType === "VALIDATION_PROJECT" || 
+    (initialTaskType === "VALIDATION_STEP" && !!dependsOnValidationProjectQuery)
+  ), [initialTaskType, dependsOnValidationProjectQuery]);
+
   const availableTaskTypesToDisplay = useMemo(() => {
     if (initialTaskType === "VALIDATION_PROJECT") {
       return TASK_TYPES.filter(t => t === "VALIDATION_PROJECT");
@@ -476,28 +481,29 @@ export default function NewTaskPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <Label htmlFor="task_type_select">Task Type</Label>
-              <Select 
-                value={taskType} 
-                onValueChange={(value: TaskType) => {
-                  setTaskType(value);
-                  if (value !== "VALIDATION_PROJECT") {
-                    setCustomProjectName(""); // Clear custom name if not a VP
-                  }
-                }}
-                disabled={ (initialTaskType === "VALIDATION_PROJECT" || (initialTaskType === "VALIDATION_STEP" && !!dependsOnValidationProjectQuery))}
-              >
-                <SelectTrigger id="task_type_select">
-                  <SelectValue placeholder="Select task type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableTaskTypesToDisplay.map(tt => (
-                    <SelectItem key={tt} value={tt}>{tt.replace(/_/g, ' ')}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {!isValidationCreationMode && (
+              <div>
+                <Label htmlFor="task_type_select">Task Type</Label>
+                <Select
+                  value={taskType}
+                  onValueChange={(value: TaskType) => {
+                    setTaskType(value);
+                    if (value !== "VALIDATION_PROJECT") {
+                      setCustomProjectName(""); // Clear custom name if not a VP
+                    }
+                  }}
+                >
+                  <SelectTrigger id="task_type_select">
+                    <SelectValue placeholder="Select task type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableTaskTypesToDisplay.map(tt => (
+                      <SelectItem key={tt} value={tt}>{tt.replace(/_/g, ' ')}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {taskType === "VALIDATION_PROJECT" && (
               <div>
