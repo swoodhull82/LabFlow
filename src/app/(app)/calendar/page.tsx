@@ -65,9 +65,9 @@ function CalendarDayContent({ date, tasksForDay }: { date: Date; tasksForDay: Ca
     <div className="relative h-full w-full flex flex-col items-center justify-center">
       <span>{dayNumber}</span>
       {dotCount > 0 && (
-        <div className="absolute bottom-1 flex items-center justify-center">
+        <div className="absolute bottom-0 flex items-center justify-center">
           {Array.from({ length: dotCount }).map((_, i) => (
-            <Dot key={i} className="h-3 w-3 -mx-1 text-primary/70" />
+            <Dot key={i} className="h-4 w-4 -mx-1.5 text-primary" />
           ))}
         </div>
       )}
