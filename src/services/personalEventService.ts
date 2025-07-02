@@ -73,31 +73,20 @@ export const getPersonalEvents = async (pb: PocketBase, userId: string, options?
     return [];
   }
   try {
-     // 1. Find users who are sharing their calendar with the current user.
-    const usersSharingWithMe = await withRetry(() =>
-      pb.collection('users').getFullList({ filter: `sharesPersonalCalendarWith ~ '${userId}'`, fields: 'id' }),
-      { ...options, context: "fetching sharing users" }
-    );
-    const sharingUserIds = usersSharingWithMe.map(u => u.id);
-
-    // 2. Create a filter for all visible user IDs (current user + sharing users)
-    const allVisibleUserIds = [userId, ...sharingUserIds];
-    const filterString = `(${allVisibleUserIds.map(id => `userId = "${id}"`).join(' || ')})`;
-    
-    // 3. Fetch personal events with the combined filter and expand user info
+    // With correct API rules, we no longer need to manually build the filter.
+    // PocketBase will automatically filter the results based on the logged-in user's auth context.
     const { signal, ...otherOptions } = options || {};
     const requestParams = {
-      filter: filterString,
       sort: 'startDate',
-      expand: 'userId', // expand the user relation
+      expand: 'userId', // expand the user relation to get owner info
       ...otherOptions,
     };
 
-    const records = await withRetry(() => 
+    const records = await withRetry(() =>
       pb.collection(COLLECTION_NAME).getFullList(requestParams, { signal }),
       { ...options, context: "fetching personal events" }
     );
-    
+
     // Map and filter out any records that are invalid
     return records
       .map(record => pbRecordToPersonalEvent(record, userId))
