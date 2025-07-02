@@ -21,6 +21,7 @@ const pbTaskToCalendarEvent = (taskRecord: Task): CalendarEvent => {
     description: taskRecord.description,
     status: taskRecord.status as TaskStatus, 
     userId: taskRecord.userId, 
+    task_type: taskRecord.task_type,
     created: taskRecord.created ? new Date(taskRecord.created) : new Date(),
     updated: taskRecord.updated ? new Date(taskRecord.updated) : new Date(),
     collectionId: taskRecord.collectionId,

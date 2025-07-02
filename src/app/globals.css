@@ -33,6 +33,8 @@ body {
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
     --radius: 0.5rem;
+    --validation: 280 80% 90%;
+    --validation-foreground: 280 80% 30%;
 
     /* Sidebar specific vars for light theme */
     --sidebar-background: 207 80% 97%; /* Slightly off-white blue */
@@ -70,6 +72,8 @@ body {
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+    --validation: 280 50% 30%;
+    --validation-foreground: 280 80% 85%;
 
     /* Sidebar specific vars for dark theme */
     --sidebar-background: 210 30% 10%; /* Even darker for sidebar */

@@ -46,6 +46,7 @@ export interface CalendarEvent {
   title: string;
   startDate: Date | string;
   endDate: Date | string;
+  task_type?: TaskType;
   description?: string;
   status?: TaskStatus; 
   userId?: string; 
