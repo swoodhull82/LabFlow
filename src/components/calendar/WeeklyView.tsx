@@ -8,10 +8,11 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardHeader } from '@/components/ui/card';
 import type { CalendarEvent } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { User } from 'lucide-react';
 
 // Constants for the view
-const START_HOUR = 6; // 6 AM
-const END_HOUR = 18; // Ends at 6 PM (18:00)
+const START_HOUR = 7; // 7 AM
+const END_HOUR = 16; // Ends at 4 PM (16:00)
 const HOUR_HEIGHT_PX = 60; // Height of one hour slot in pixels
 
 const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
@@ -21,16 +22,16 @@ const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
     return `${hour} AM`;
 });
 
-const getPriorityColorClass = (priority?: string): string => {
-  if (!priority) return "border-gray-400 bg-gray-100 text-gray-800 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200";
-  const lowerPriority = priority.toLowerCase();
-  switch (lowerPriority) {
-    case "urgent": return "border-red-500 bg-red-50 text-red-900 dark:bg-red-900/20 dark:border-red-500/70 dark:text-red-100";
-    case "high": return "border-orange-500 bg-orange-50 text-orange-900 dark:bg-orange-900/20 dark:border-orange-500/70 dark:text-orange-100";
-    case "medium": return "border-blue-500 bg-blue-50 text-blue-900 dark:bg-blue-900/20 dark:border-blue-500/70 dark:text-blue-100";
-    case "low": return "border-green-500 bg-green-50 text-green-900 dark:bg-green-900/20 dark:border-green-500/70 dark:text-green-100";
-    default: return "border-gray-400 bg-gray-100 text-gray-800 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200";
-  }
+const getEventColorClass = (event: CalendarEvent): string => {
+    switch (event.eventType) {
+        case 'Out of Office':
+            return "border-green-500 bg-green-50 text-green-900 dark:bg-green-900/20 dark:border-green-500/70 dark:text-green-100";
+        case 'Busy':
+            return "border-orange-500 bg-orange-50 text-orange-900 dark:bg-orange-900/20 dark:border-orange-500/70 dark:text-orange-100";
+        case 'Available':
+        default:
+            return "border-blue-500 bg-blue-50 text-blue-900 dark:bg-blue-900/20 dark:border-blue-500/70 dark:text-blue-100";
+    }
 };
 
 const NowIndicator = ({ dayColumns }: { dayColumns: Date[] }) => {
@@ -225,7 +226,8 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
                                             onClick={() => onEventClick(event)}
                                             className={cn(
                                                 "absolute p-2 rounded-md cursor-pointer transition-all shadow-sm hover:shadow-md overflow-hidden z-[5] border-l-4",
-                                                getPriorityColorClass(event.priority)
+                                                getEventColorClass(event),
+                                                event.isAllDay && "opacity-90"
                                             )}
                                             style={{ 
                                               top: `${top}px`, 
@@ -233,10 +235,15 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
                                               left: `calc(${dayIndex * 20}% + 4px)`, // 20% width per column
                                               width: 'calc(20% - 8px)',
                                             }}
-                                            title={`${event.title} - ${format(startDate, 'h:mm a')}`}
+                                            title={`${event.title}${event.isAllDay ? ' (All-day)' : ` - ${format(startDate, 'h:mm a')}`}`}
                                         >
                                             <p className="font-semibold text-xs truncate">{event.title}</p>
-                                            <p className="text-[10px] opacity-80">{format(startDate, 'h:mm a')} - {format(endDate, 'h:mm a')}</p>
+                                            {!event.isAllDay && <p className="text-[10px] opacity-80">{format(startDate, 'h:mm a')} - {format(endDate, 'h:mm a')}</p>}
+                                            {event.ownerName && (
+                                                <div className="flex items-center text-[10px] opacity-70 italic mt-1">
+                                                    <User className="w-2.5 h-2.5 mr-1"/> {event.ownerName}
+                                                </div>
+                                            )}
                                         </div>
                                     )
                                 })

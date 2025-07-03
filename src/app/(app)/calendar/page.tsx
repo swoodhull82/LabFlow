@@ -11,7 +11,7 @@ import { useAuth } from "@/context/AuthContext";
 import { getCalendarEvents } from "@/services/calendarEventService"; 
 import { getPersonalEvents, deletePersonalEvent } from "@/services/personalEventService";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, Dot, ChevronLeft, ChevronRight, PlusCircle, Filter } from "lucide-react";
+import { Loader2, AlertTriangle, Dot, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 import type PocketBase from "pocketbase";
 import { type DateRange, type DayModifiers } from "react-day-picker";
 import { cn } from "@/lib/utils";
@@ -54,16 +54,20 @@ const ALMOST_DUE_DAYS = 3;
 
 function CalendarDayContent({ date, tasksForDay }: { date: Date; tasksForDay: CalendarEvent[] }) {
   const dayNumber = format(date, "d");
+  
+  // Only show dots for tasks that actually start on this day to avoid clutter
+  const tasksStartingOnDay = tasksForDay.filter(task => isSameDay(new Date(task.startDate), date));
+  
   const maxDots = 4;
-  const dotCount = Math.min(tasksForDay.length, maxDots);
+  const dotCount = Math.min(tasksStartingOnDay.length, maxDots);
 
   return (
     <div className="relative h-full w-full flex flex-col items-center justify-center">
       <span>{dayNumber}</span>
       {dotCount > 0 && (
-        <div className="absolute bottom-1 flex items-center justify-center">
+        <div className="absolute -bottom-1 flex items-center justify-center">
           {Array.from({ length: dotCount }).map((_, i) => (
-            <Dot key={i} className="h-3 w-3 -mx-1 text-primary/70" />
+            <Dot key={i} className="h-6 w-6 -mx-2 text-primary opacity-100" />
           ))}
         </div>
       )}
@@ -90,7 +94,7 @@ export default function CalendarPage() {
   const [displayedEvents, setDisplayedEvents] = useState<CalendarEvent[]>([]); 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("task");
+  const [activeTab, setActiveTab] = useState("personal");
   
   const [month, setMonth] = useState(new Date());
 
@@ -110,14 +114,14 @@ export default function CalendarPage() {
 
 
   const handleDayMouseDown = (day: Date, modifiers: DayModifiers) => {
-    if (modifiers.disabled) return;
+    // if (modifiers.disabled) return; // This was preventing selection of past dates
     setIsDragging(true);
     dragStartDayRef.current = day;
     setRange({ from: day, to: day });
   };
 
   const handleDayMouseEnter = (day: Date, modifiers: DayModifiers) => {
-    if (isDragging && dragStartDayRef.current && !modifiers.disabled) {
+    if (isDragging && dragStartDayRef.current) { // Removed !modifiers.disabled
       const start = dragStartDayRef.current;
       if (start <= day) {
         setRange({ from: start, to: day });
@@ -128,7 +132,7 @@ export default function CalendarPage() {
   };
   
   const handleDayClick = (day: Date, modifiers: DayModifiers) => {
-    if (modifiers.disabled) return;
+    // if (modifiers.disabled) return; // This was preventing selection of past dates
     setRange({ from: day, to: day });
   };
 
@@ -209,6 +213,7 @@ export default function CalendarPage() {
       overdue: new Set<number>(),
       almostDue: new Set<number>(),
       active: new Set<number>(),
+      validation: new Set<number>(),
     };
 
     const today = startOfDay(new Date());
@@ -218,34 +223,54 @@ export default function CalendarPage() {
       const eventStartDateObj = new Date(event.startDate);
       if (!isValid(eventStartDateObj)) continue;
 
-      const eventStartDateAtMidnight = startOfDay(eventStartDateObj);
-      const dateKey = format(eventStartDateAtMidnight, "yyyy-MM-dd");
+      const isValidationTask = event.task_type === 'VALIDATION_PROJECT' || event.task_type === 'VALIDATION_STEP';
 
-      if (!tasksByDayMap.has(dateKey)) {
-        tasksByDayMap.set(dateKey, []);
-      }
-      tasksByDayMap.get(dateKey)!.push(event);
+      if (isValidationTask && event.endDate && isValid(new Date(event.endDate))) {
+        const eventEndDateObj = new Date(event.endDate);
+        const start = startOfDay(eventStartDateObj);
+        const end = startOfDay(eventEndDateObj);
 
-      // Only calculate status modifiers for actual tasks, not personal events.
-      if (activeTab === 'task' && event.status) {
-        if (!event.endDate || !isValid(new Date(event.endDate))) {
-            continue;
+        for (let day = start; day <= end; day = addDays(day, 1)) {
+            const dateKey = format(day, "yyyy-MM-dd");
+            if (!tasksByDayMap.has(dateKey)) {
+                tasksByDayMap.set(dateKey, []);
+            }
+            if (!tasksByDayMap.get(dateKey)!.find(e => e.id === event.id)) {
+              tasksByDayMap.get(dateKey)!.push(event);
+            }
+            statusModifiersMap.validation.add(day.getTime());
         }
-        const eventDueDateObj = new Date(event.endDate);
-        if (!isValid(eventDueDateObj)) continue;
-        
-        const eventDueDateStartOfDay = startOfDay(eventDueDateObj);
+      } else {
+        const eventStartDateAtMidnight = startOfDay(eventStartDateObj);
+        const dateKey = format(eventStartDateAtMidnight, "yyyy-MM-dd");
 
-        if (event.status === "Done") {
-          statusModifiersMap.completed.add(eventDueDateStartOfDay.getTime());
-        } else if (isPast(eventDueDateStartOfDay) && !isSameDay(eventDueDateStartOfDay, today)) {
-          statusModifiersMap.overdue.add(eventDueDateStartOfDay.getTime());
-        } else {
-          const diffDays = differenceInCalendarDays(eventDueDateStartOfDay, today);
-          if (diffDays >= 0 && diffDays < ALMOST_DUE_DAYS) {
-            statusModifiersMap.almostDue.add(eventDueDateStartOfDay.getTime());
-          } else if (isFuture(eventDueDateStartOfDay) || isSameDay(eventDueDateStartOfDay, today)) {
-            statusModifiersMap.active.add(eventDueDateStartOfDay.getTime());
+        if (!tasksByDayMap.has(dateKey)) {
+          tasksByDayMap.set(dateKey, []);
+        }
+        if (!tasksByDayMap.get(dateKey)!.find(e => e.id === event.id)) {
+            tasksByDayMap.get(dateKey)!.push(event);
+        }
+        
+        if (activeTab === 'task' && event.status) {
+          if (!event.endDate || !isValid(new Date(event.endDate))) {
+              continue;
+          }
+          const eventDueDateObj = new Date(event.endDate);
+          if (!isValid(eventDueDateObj)) continue;
+          
+          const eventDueDateStartOfDay = startOfDay(eventDueDateObj);
+
+          if (event.status === "Done") {
+            statusModifiersMap.completed.add(eventDueDateStartOfDay.getTime());
+          } else if (isPast(eventDueDateStartOfDay) && !isSameDay(eventDueDateStartOfDay, today)) {
+            statusModifiersMap.overdue.add(eventDueDateStartOfDay.getTime());
+          } else {
+            const diffDays = differenceInCalendarDays(eventDueDateStartOfDay, today);
+            if (diffDays >= 0 && diffDays < ALMOST_DUE_DAYS) {
+              statusModifiersMap.almostDue.add(eventDueDateStartOfDay.getTime());
+            } else if (isFuture(eventDueDateStartOfDay) || isSameDay(eventDueDateStartOfDay, today)) {
+              statusModifiersMap.active.add(eventDueDateStartOfDay.getTime());
+            }
           }
         }
       }
@@ -258,6 +283,7 @@ export default function CalendarPage() {
         overdue: Array.from(statusModifiersMap.overdue).map(t => new Date(t)),
         almostDue: Array.from(statusModifiersMap.almostDue).map(t => new Date(t)),
         active: Array.from(statusModifiersMap.active).map(t => new Date(t)),
+        validation: Array.from(statusModifiersMap.validation).map(t => new Date(t)),
       },
     };
   }, [eventsForView, activeTab]);
@@ -267,14 +293,17 @@ export default function CalendarPage() {
     const from = startOfDay(range.from);
     const to = range.to ? startOfDay(range.to) : from;
 
-    const events: CalendarEvent[] = [];
+    const uniqueEvents = new Map<string, CalendarEvent>();
     for (let day = from; day <= to; day = addDays(day, 1)) {
       const dateKey = format(day, "yyyy-MM-dd");
       if (tasksByDay.has(dateKey)) {
-        events.push(...tasksByDay.get(dateKey)!);
+        tasksByDay.get(dateKey)!.forEach(event => {
+          uniqueEvents.set(event.id, event);
+        });
       }
     }
-    return events.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+    return Array.from(uniqueEvents.values())
+        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
   }, [range, tasksByDay]);
 
   const refetchEvents = () => {
@@ -328,10 +357,6 @@ export default function CalendarPage() {
     return `${format(range.from, "PPP")} - ${format(range.to, "PPP")}`;
   }, [range]);
 
-  const isDateDisabled = (date: Date) => {
-    return isBefore(date, startOfDay(new Date()));
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -339,15 +364,12 @@ export default function CalendarPage() {
         <div className="flex items-center gap-2">
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList>
-                <TabsTrigger value="task">Task Calendar</TabsTrigger>
                 <TabsTrigger value="personal">Personal Calendar</TabsTrigger>
+                <TabsTrigger value="task">Task Calendar</TabsTrigger>
               </TabsList>
             </Tabs>
              {activeTab === 'personal' && (
                 <>
-                  <Button onClick={() => handleHourSlotClick(new Date())}>
-                    <PlusCircle className="mr-2 h-4 w-4" /> New Personal Event
-                  </Button>
                   <Dialog open={!!newTaskDate} onOpenChange={(isOpen) => !isOpen && closeNewTaskDialog()}>
                     <DialogContent>
                       <DialogHeader>
@@ -417,8 +439,7 @@ export default function CalendarPage() {
                         onDayMouseDown={handleDayMouseDown}
                         onDayMouseEnter={handleDayMouseEnter}
                         onDayClick={handleDayClick}
-                        onSelect={undefined} 
-                        disabled={isDateDisabled}
+                        onSelect={undefined}
                         numberOfMonths={2}
                         className="p-0"
                         classNames={{
@@ -434,6 +455,7 @@ export default function CalendarPage() {
                         overdue: "!bg-red-100 dark:!bg-red-900/50",
                         almostDue: "!bg-yellow-100 dark:!bg-yellow-800/50",
                         active: "!bg-blue-100 dark:!bg-blue-900/50",
+                        validation: "bg-validation",
                         }} 
                         components={{
                         DayContent: (props) => <CalendarDayContent date={props.date} tasksForDay={tasksByDay.get(format(props.date, "yyyy-MM-dd")) || []} />

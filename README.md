@@ -22,6 +22,7 @@ Based on the application's frontend code, the 'users' collection in PocketBase i
 *   **`role`**: (Text or Select, Optional) - User's role (e.g., "Supervisor", "Team Lead", "Chem I", "Chem II").
 *   **`avatar`**: (File, Optional, Max 1 file) - For uploaded profile pictures.
 *   **`selected_lucide_icon`**: (Text, Optional) - Name of the selected Lucide icon for the profile.
+*   **`sharesPersonalCalendarWith`**: (Relation, `users` collection, Multiple) - A list of user IDs that this user is sharing their personal calendar with.
 
 ## PocketBase 'tasks' Collection Schema (Inferred from Frontend)
 
@@ -68,11 +69,39 @@ A new collection is required to store personal calendar events separately from t
 *   **`description`**: (Text, Optional) - A longer description for the event.
 *   **`startDate`**: (Date, Required) - The start date and time of the event.
 *   **`endDate`**: (Date, Required) - The end date and time of the event.
-*   **`priority`**: (Select, Required) - Priority level. Options: "Low", "Medium", "High", "Urgent".
+*   **`eventType`**: (Select, Optional, Default: "Available") - The type of event. Options: "Available", "Busy", "Out of Office".
 *   **`userId`**: (Relation to 'users', Required) - The ID of the user who owns this event.
+*   **`isAllDay`**: (Boolean, Optional, Default: false) - Indicates if the event is for the whole day.
 *   **`created`**: (Date, System Field) - Timestamp of creation.
 *   **`updated`**: (Date, System Field) - Timestamp of last update.
 
+### Securing Personal Events in PocketBase
+
+For personal calendar events to be private (or shared with specific users), you must set API rules on the `personal_events` collection in your PocketBase Admin UI.
+
+Navigate to your PocketBase admin dashboard, select the `personal_events` collection, and go to the **"API Rules"** tab. In these rules, `@request.auth.id` refers to the currently logged-in user, and `userId` refers to the relation field on the `personal_events` record itself.
+
+-   **List Rule**: `userId = @request.auth.id || userId.sharesPersonalCalendarWith ~ @request.auth.id`
+-   **View Rule**: `userId = @request.auth.id || userId.sharesPersonalCalendarWith ~ @request.auth.id`
+-   **Create Rule**: `userId = @request.auth.id`
+-   **Update Rule**: `userId = @request.auth.id`
+-   **Delete Rule**: `userId = @request.auth.id`
+
+These rules ensure that a user can only interact with their own personal events, but can view events from users who have explicitly shared their calendar with them via the `sharesPersonalCalendarWith` field on the event owner's user record.
+
+### Securing the `users` Collection for Sharing
+
+To allow users to find and share their calendars with others, you must adjust the API rules on the `users` collection. By default, users can only see their own records, which will prevent the sharing list from populating.
+
+1.  Navigate to your PocketBase admin dashboard.
+2.  Select the `users` collection and go to the **"API Rules"** tab.
+3.  Find the **"List Rule"** field. It is likely empty or restricted.
+4.  Set the **"List Rule"** to the following:
+    ```
+    @request.auth.id != ""
+    ```
+
+This rule ensures that any authenticated user (`@request.auth.id != ""`) can see the list of other users, which is necessary for the sharing feature to work. The application only requests non-sensitive fields (`id`, `name`, `email`) for this purpose.
 
 ## Deployment Troubleshooting (GitHub Pages & PocketBase)
 
@@ -109,4 +138,3 @@ While less likely to cause "works locally, fails deployed" if the same user is t
 Verify that `POCKETBASE_URL` in `src/context/AuthContext.tsx` (currently `https://swoodhu.pockethost.io/`) is correct and publicly accessible.
 
 By systematically checking these points, you can usually identify why data fetching fails on deployment.
-

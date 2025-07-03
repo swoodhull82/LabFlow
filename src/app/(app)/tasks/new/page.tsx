@@ -123,7 +123,8 @@ export default function NewTaskPage() {
     } else if (initialTaskType === "VALIDATION_STEP" && dependsOnValidationProjectQuery) {
       return TASK_TYPES.filter(t => t === "VALIDATION_STEP");
     } else {
-      return TASK_TYPES.filter(t => t !== "VALIDATION_PROJECT"); // Exclude VP if not specifically for it
+      // Exclude both VP and VS from the general new task page
+      return TASK_TYPES.filter(t => t !== "VALIDATION_PROJECT" && t !== "VALIDATION_STEP");
     }
   }, [initialTaskType, dependsOnValidationProjectQuery]);
 

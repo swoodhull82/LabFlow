@@ -1,6 +1,6 @@
 
 'use client';
-import type { CalendarEvent, TaskPriority } from "@/lib/types";
+import type { CalendarEvent, PersonalEventType } from "@/lib/types";
 import PocketBase, { ClientResponseError } from 'pocketbase';
 import { withRetry } from '@/lib/retry';
 import { isValid } from 'date-fns';
@@ -32,7 +32,7 @@ const handleCreateError = (error: any, collectionName: string) => {
 
 
 // Helper to convert PocketBase record to a CalendarEvent-compatible object
-const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
+const pbRecordToPersonalEvent = (record: any, currentUserId: string): CalendarEvent | null => {
   const startDate = record.startDate ? new Date(record.startDate) : null;
   const endDate = record.endDate ? new Date(record.endDate) : null;
 
@@ -41,18 +41,24 @@ const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
     return null;
   }
   
+  const owner = record.expand?.userId;
+  const isOwner = !owner || owner.id === currentUserId;
+
   return {
     id: record.id,
     title: record.title,
     startDate: startDate,
     endDate: endDate,
     description: record.description,
-    priority: record.priority,
     userId: record.userId,
+    isAllDay: record.isAllDay || false,
+    eventType: record.eventType || 'Available',
     created: new Date(record.created),
     updated: new Date(record.updated),
     collectionId: record.collectionId,
     collectionName: record.collectionName,
+    ownerId: owner?.id,
+    ownerName: isOwner ? undefined : owner?.name,
   } as CalendarEvent;
 };
 
@@ -62,22 +68,28 @@ interface PocketBaseRequestOptions {
 }
 
 export const getPersonalEvents = async (pb: PocketBase, userId: string, options?: PocketBaseRequestOptions): Promise<CalendarEvent[]> => {
+  if (!userId) {
+    console.warn("[personalEventService] getPersonalEvents called without a userId. Returning empty array to protect privacy.");
+    return [];
+  }
   try {
+    // With correct API rules, we no longer need to manually build the filter.
+    // PocketBase will automatically filter the results based on the logged-in user's auth context.
     const { signal, ...otherOptions } = options || {};
     const requestParams = {
-      filter: `userId = "${userId}"`,
       sort: 'startDate',
+      expand: 'userId', // expand the user relation to get owner info
       ...otherOptions,
     };
 
-    const records = await withRetry(() => 
+    const records = await withRetry(() =>
       pb.collection(COLLECTION_NAME).getFullList(requestParams, { signal }),
       { ...options, context: "fetching personal events" }
     );
-    
+
     // Map and filter out any records that are invalid
     return records
-      .map(pbRecordToPersonalEvent)
+      .map(record => pbRecordToPersonalEvent(record, userId))
       .filter((event): event is CalendarEvent => event !== null);
 
   } catch (error) {
@@ -94,8 +106,9 @@ interface PersonalEventCreationData {
     description?: string;
     startDate: Date;
     endDate: Date;
-    priority: TaskPriority;
     userId: string;
+    isAllDay?: boolean;
+    eventType?: PersonalEventType;
 }
 
 export const createPersonalEvent = async (
@@ -104,7 +117,8 @@ export const createPersonalEvent = async (
 ): Promise<CalendarEvent> => {
   try {
     const record = await pb.collection(COLLECTION_NAME).create(eventData);
-    const personalEvent = pbRecordToPersonalEvent(record);
+    // For a newly created event, the owner is always the creator.
+    const personalEvent = pbRecordToPersonalEvent(record, eventData.userId);
     if (!personalEvent) {
         throw new Error("Failed to process the created event record.");
     }
@@ -121,7 +135,8 @@ export interface PersonalEventUpdateData {
     description?: string;
     startDate?: Date;
     endDate?: Date;
-    priority?: TaskPriority;
+    isAllDay?: boolean;
+    eventType?: PersonalEventType;
 }
 
 export const updatePersonalEvent = async (
@@ -134,7 +149,8 @@ export const updatePersonalEvent = async (
         pb.collection(COLLECTION_NAME).update(eventId, eventData),
         { context: `updating personal event ${eventId}` }
     );
-    const personalEvent = pbRecordToPersonalEvent(record);
+    // We don't know the current user ID here, but for an update, it must be the owner.
+    const personalEvent = pbRecordToPersonalEvent(record, record.userId);
     if (!personalEvent) {
         throw new Error("Failed to process the updated event record.");
     }
