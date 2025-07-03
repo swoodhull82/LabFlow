@@ -875,7 +875,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                                     <Button variant="ghost" size="icon" className="h-6 w-6"><MoreHorizontal className="h-4 w-4"/></Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => { setQuickEditTask(task); setIsQuickEditPopoverOpen(true); }}>Edit</DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={(e) => { e.preventDefault(); setQuickEditTask(task); setIsQuickEditPopoverOpen(true); }}>Edit</DropdownMenuItem>
                                     {task.isParent && <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/tasks/new?defaultType=VALIDATION_STEP&dependsOnValidationProject=${task.id}`); }}>Add Step</DropdownMenuItem>}
                                     <DropdownMenuItem className="text-destructive" onClick={() => { setTaskToDelete(task); setIsDeleteDialogOpen(true); }}>Delete</DropdownMenuItem>
                                 </DropdownMenuContent>
@@ -1161,5 +1161,4 @@ const buttonVariants = cva(
     defaultVariants: { variant: "default", size: "default" },
   }
 );
-
     
