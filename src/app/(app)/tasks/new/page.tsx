@@ -69,7 +69,7 @@ export default function NewTaskPage() {
   const dependsOnValidationProjectQuery = searchParams.get("dependsOnValidationProject");
 
   const [taskType, setTaskType] = useState<TaskType>(initialTaskType);
-  const [customProjectName, setCustomProjectName] = useState<string>(""); 
+  const [customTaskName, setCustomTaskName] = useState<string>(""); 
   const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
   const [method, setMethod] = useState<string | undefined>();
   const [description, setDescription] = useState("");
@@ -183,6 +183,7 @@ export default function NewTaskPage() {
     
     if (taskType !== "VALIDATION_PROJECT" && taskType !== "VALIDATION_STEP") {
       setIsMilestone(false);
+      setCustomTaskName("");
     }
 
     if (taskType === "VALIDATION_STEP") {
@@ -301,12 +302,18 @@ export default function NewTaskPage() {
       return;
     }
     
-    const finalTitle = taskType === "VALIDATION_PROJECT" ? customProjectName.trim() : taskType;
+    const finalTitle = (taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP")
+      ? customTaskName.trim()
+      : taskType;
 
     if (!finalTitle) {
-      toast({ title: "Validation Error", description: taskType === "VALIDATION_PROJECT" ? "Project Name is required." : "Task Type (which serves as Name) is required.", variant: "destructive" });
+      let errorMsg = "Task Type (which serves as Name) is required.";
+      if (taskType === "VALIDATION_PROJECT") errorMsg = "Project Name is required.";
+      if (taskType === "VALIDATION_STEP") errorMsg = "Step Name is required.";
+      toast({ title: "Validation Error", description: errorMsg, variant: "destructive" });
       return;
     }
+
     if (taskType === "MDL" && !instrumentSubtype) {
       toast({ title: "Validation Error", description: `Instrument Subtype is required for ${taskType} tasks.`, variant: "destructive" });
       return;
@@ -489,8 +496,8 @@ export default function NewTaskPage() {
                   value={taskType}
                   onValueChange={(value: TaskType) => {
                     setTaskType(value);
-                    if (value !== "VALIDATION_PROJECT") {
-                      setCustomProjectName(""); // Clear custom name if not a VP
+                    if (value !== "VALIDATION_PROJECT" && value !== "VALIDATION_STEP") {
+                      setCustomTaskName(""); // Clear custom name if not a VP or VS
                     }
                   }}
                 >
@@ -506,14 +513,16 @@ export default function NewTaskPage() {
               </div>
             )}
 
-            {taskType === "VALIDATION_PROJECT" && (
+            {(taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && (
               <div>
-                <Label htmlFor="customProjectName">Project Name</Label>
+                <Label htmlFor="customTaskName">
+                  {taskType === "VALIDATION_PROJECT" ? "Project Name" : "Step Name"}
+                </Label>
                 <Input 
-                  id="customProjectName" 
-                  placeholder="Enter the project name" 
-                  value={customProjectName} 
-                  onChange={(e) => setCustomProjectName(e.target.value)} 
+                  id="customTaskName" 
+                  placeholder={taskType === "VALIDATION_PROJECT" ? "Enter the project name" : "Enter the step name"}
+                  value={customTaskName} 
+                  onChange={(e) => setCustomTaskName(e.target.value)} 
                 />
               </div>
             )}

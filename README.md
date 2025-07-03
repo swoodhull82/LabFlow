@@ -29,7 +29,7 @@ Based on the application's frontend code, the 'users' collection in PocketBase i
 Based on the application's frontend code, the 'tasks' collection in PocketBase is expected to have the following schema:
 
 *   **`id`**: (Text, System Field) - Unique identifier.
-*   **`title`**: (Text, Required) - The custom name or main description of the task/project.
+*   **`title`**: (Text, Required) - For `VALIDATION_PROJECT` and `VALIDATION_STEP` tasks, this stores the custom user-provided name. For all other task types, this stores the `task_type` value (e.g., "MDL", "SOP").
 *   **`task_type`**: (Select, Required) - The specific type of task. Options: "MDL", "SOP", "IA", "iDOC", "oDOC", "VALIDATION_PROJECT", "VALIDATION_STEP".
 *   **`instrument_subtype`**: (Text, Optional) - Specific instrument for "MDL" tasks (e.g., "nexiON", "agilent 7900") or SOP code for "SOP" tasks.
 *   **`method`**: (Text, Optional) - The analytical method associated with the task, particularly for MDL tasks.
