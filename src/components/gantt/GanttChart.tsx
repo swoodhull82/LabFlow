@@ -10,6 +10,7 @@ import { getTasks, updateTask as updateTaskService, deleteTask as deleteTaskServ
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, PlusCircle, Trash2, Save, CalendarIcon, XCircle, MoreHorizontal, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
