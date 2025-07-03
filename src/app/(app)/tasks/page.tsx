@@ -26,9 +26,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
 
 import type { Task, TaskStatus, TaskPriority, TaskRecurrence, Employee, TaskType } from "@/lib/types";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon, Milestone } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Edit, Trash2, Filter, Loader2, AlertTriangle, CheckCircle2, Circle, CalendarIcon, Save, Link as LinkIcon, Milestone, UserPlus } from "lucide-react";
 import { format, isValid } from "date-fns";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -41,6 +44,15 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { TASK_STATUSES, TASK_PRIORITIES, TASK_RECURRENCES, TASK_TYPES, INSTRUMENT_SUBTYPES, SOP_SUBTYPES, MDL_INSTRUMENTS_WITH_METHODS } from "@/lib/constants";
 import type { DateRange } from "react-day-picker";
+
+const getInitials = (name: string = ""): string => {
+    return name
+        .split(' ')
+        .map(n => n[0])
+        .filter((_, i, arr) => i === 0 || i === arr.length - 1)
+        .join('')
+        .toUpperCase();
+};
 
 const getPriorityBadgeVariant = (priority?: string) => {
   if (!priority) return "default";
@@ -136,7 +148,7 @@ const taskEditFormSchema = z.object({
   startDate: z.date().optional(),
   dueDate: z.date().optional(),
   recurrence: z.enum(TASK_RECURRENCES as [TaskRecurrence, ...TaskRecurrence[]]),
-  assignedTo_text: z.string().optional(),
+  assignedTo: z.array(z.string()).optional(),
   dependencies: z.array(z.string()).optional(),
   isMilestone: z.boolean().optional(),
 }).superRefine((data, ctx) => {
@@ -246,7 +258,7 @@ export default function TasksPage() {
   const [dependenciesRetryMessage, setDependenciesRetryMessage] = useState<string | null>(null);
   const [isDependenciesPopoverOpenEdit, setIsDependenciesPopoverOpenEdit] = useState(false);
   const [isDatePickerOpenEdit, setIsDatePickerOpenEdit] = useState(false);
-
+  const [isAssigneePopoverOpenEdit, setIsAssigneePopoverOpenEdit] = useState(false);
 
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -259,6 +271,7 @@ export default function TasksPage() {
       task_type: TASK_TYPES.find(t => t !== "VALIDATION_PROJECT" && t!== "VALIDATION_STEP") || TASK_TYPES[0],
       instrument_subtype: undefined,
       method: undefined,
+      assignedTo: [],
       dependencies: [],
       isMilestone: false,
       recurrence: "Daily", // Default to daily for non-validation on initial form setup
@@ -270,6 +283,7 @@ export default function TasksPage() {
   const watchedIsMilestone = form.watch("isMilestone");
   const watchedFormStartDate = form.watch("startDate");
   const watchedFormDueDate = form.watch("dueDate");
+  const watchedAssignedTo = form.watch("assignedTo");
 
 
   useEffect(() => {
@@ -510,7 +524,7 @@ export default function TasksPage() {
         startDate: editingTask.startDate && isValid(new Date(editingTask.startDate)) ? new Date(editingTask.startDate) : undefined,
         dueDate: editingTask.dueDate && isValid(new Date(editingTask.dueDate)) ? new Date(editingTask.dueDate) : undefined,
         recurrence: editingTask.recurrence,
-        assignedTo_text: editingTask.assignedTo_text || "",
+        assignedTo: editingTask.assignedTo || [],
         dependencies: Array.isArray(editingTask.dependencies) ? editingTask.dependencies : [],
         isMilestone: (editingTask.task_type === "VALIDATION_PROJECT" || editingTask.task_type === "VALIDATION_STEP") ? (editingTask.isMilestone || false) : false,
       });
@@ -597,7 +611,7 @@ export default function TasksPage() {
       startDate: data.startDate,
       dueDate: ((data.task_type === "VALIDATION_PROJECT" || data.task_type === "VALIDATION_STEP") && data.isMilestone && data.startDate) ? data.startDate : data.dueDate,
       recurrence: data.recurrence, 
-      assignedTo_text: data.assignedTo_text === "__NONE__" || !data.assignedTo_text ? undefined : data.assignedTo_text,
+      assignedTo: data.assignedTo,
       isMilestone: (data.task_type === "VALIDATION_PROJECT" || data.task_type === "VALIDATION_STEP") ? data.isMilestone : false,
       dependencies: data.task_type === "VALIDATION_STEP" ? editingTask.dependencies : (data.dependencies || []),
       userId: user.id,
@@ -676,6 +690,12 @@ export default function TasksPage() {
     }
     return [];
   }, [watchedTaskType, watchedInstrumentSubtype]);
+
+  const assigneeButtonTextEdit = !watchedAssignedTo || watchedAssignedTo.length === 0
+    ? "Select employees (Optional)"
+    : watchedAssignedTo.length === 1
+    ? employees.find(e => e.id === watchedAssignedTo[0])?.name || "1 employee selected"
+    : `${watchedAssignedTo.length} employees selected`;
 
 
   return (
@@ -781,7 +801,36 @@ export default function TasksPage() {
                         <span className="block text-xs text-muted-foreground">Repeats: {task.recurrence}</span>
                       )}
                     </TableCell>
-                    <TableCell>{task.assignedTo_text || "-"}</TableCell>
+                    <TableCell>
+                      {task.expand?.assignedTo && task.expand.assignedTo.length > 0 ? (
+                        <TooltipProvider>
+                          <div className="flex -space-x-2">
+                            {task.expand.assignedTo.slice(0, 3).map(assignee => (
+                              <Tooltip key={assignee.id}>
+                                <TooltipTrigger asChild>
+                                  <Avatar className="h-7 w-7 border-2 border-background">
+                                    <AvatarFallback>{getInitials(assignee.name)}</AvatarFallback>
+                                  </Avatar>
+                                </TooltipTrigger>
+                                <TooltipContent>{assignee.name}</TooltipContent>
+                              </Tooltip>
+                            ))}
+                            {task.expand.assignedTo.length > 3 && (
+                               <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Avatar className="h-7 w-7 border-2 border-background">
+                                    <AvatarFallback>+{task.expand.assignedTo.length - 3}</AvatarFallback>
+                                  </Avatar>
+                                </TooltipTrigger>
+                                <TooltipContent>And {task.expand.assignedTo.length - 3} more</TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                        </TooltipProvider>
+                      ) : (
+                        "-"
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -1087,27 +1136,47 @@ export default function TasksPage() {
                     )}
                     <FormField
                         control={form.control}
-                        name="assignedTo_text"
+                        name="assignedTo"
                         render={({ field }) => (
                         <FormItem className={(watchedTaskType === "VALIDATION_PROJECT" || watchedTaskType === "VALIDATION_STEP" || (watchedTaskType === "MDL" && availableMethodsForEdit.length > 0) || (watchedTaskType !== "VALIDATION_PROJECT" && watchedTaskType !== "VALIDATION_STEP") ) ? "md:col-span-2" : ""}>
-                            <FormLabel>Assigned To (Optional)</FormLabel>
-                            <Select
-                              onValueChange={field.onChange}
-                              value={field.value || "__NONE__"}
-                              disabled={isLoadingEmployees || !!fetchEmployeesError}
-                            >
-                            <FormControl>
-                                <SelectTrigger>
-                                <SelectValue placeholder={isLoadingEmployees ? "Loading..." : (fetchEmployeesError ? "Error" : "Select employee")} />
-                                </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                                <SelectItem value="__NONE__">None</SelectItem>
-                                {employees.map(emp => (
-                                <SelectItem key={emp.id} value={emp.name}>{emp.name} ({emp.role})</SelectItem>
-                                ))}
-                            </SelectContent>
-                            </Select>
+                            <FormLabel>Assigned To</FormLabel>
+                            <Popover open={isAssigneePopoverOpenEdit} onOpenChange={setIsAssigneePopoverOpenEdit}>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant={"outline"}
+                                    className="w-full justify-start text-left font-normal"
+                                    disabled={isLoadingEmployees || !!fetchEmployeesError}
+                                  >
+                                    <UserPlus className="mr-2 h-4 w-4" />
+                                    {isLoadingEmployees ? "Loading..." : 
+                                      fetchEmployeesError ? "Error" :
+                                      assigneeButtonTextEdit}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                                  <ScrollArea className="h-48">
+                                    <div className="p-4 space-y-2">
+                                      {employees.map(employee => (
+                                        <div key={employee.id} className="flex items-center space-x-2">
+                                          <Checkbox
+                                            id={`edit-assignee-${employee.id}`}
+                                            checked={field.value?.includes(employee.id)}
+                                            onCheckedChange={(checked) => {
+                                              const currentAssigned = field.value || [];
+                                              return checked
+                                                ? field.onChange([...currentAssigned, employee.id])
+                                                : field.onChange(currentAssigned.filter(id => id !== employee.id));
+                                            }}
+                                          />
+                                          <Label htmlFor={`edit-assignee-${employee.id}`} className="font-normal cursor-pointer">
+                                            {employee.name} ({employee.role})
+                                          </Label>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </ScrollArea>
+                                </PopoverContent>
+                            </Popover>
                             {fetchEmployeesError && !isLoadingEmployees && (
                               <p className="text-sm text-destructive mt-1 flex items-center">
                                 <AlertTriangle className="h-4 w-4 mr-1" /> {fetchEmployeesError}
@@ -1209,6 +1278,7 @@ export default function TasksPage() {
     </div>
   );
 }
+
 
 
 

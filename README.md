@@ -38,7 +38,7 @@ Based on the application's frontend code, the 'tasks' collection in PocketBase i
 *   **`priority`**: (Text or Select, Required) - Priority level (e.g., "Low", "Medium", "High", "Urgent").
 *   **`startDate`**: (Date, Optional) - The start date of the task.
 *   **`dueDate`**: (Date, Optional) - The due date for the task.
-*   **`assignedTo_text`**: (Text, Optional) - Name of the employee the task is assigned to. *(Note: Consider using a Relation field to 'employees' collection for better data integrity).*
+*   **`assignedTo`**: (Relation, `employees` collection, Multiple) - A list of employee IDs that this task is assigned to.
 *   **`recurrence`**: (Text or Select, Required for non-VALIDATION_PROJECT/VALIDATION_STEP types) - Recurrence pattern (e.g., "None", "Daily", "Weekly"). "None" for "VALIDATION_PROJECT" and "VALIDATION_STEP".
 *   **`attachments`**: (File, Optional, Multiple files allowed) - Files attached to the task.
 *   **`userId`**: (Relation to 'users', Required) - The ID of the user who created or is primarily associated with the task.

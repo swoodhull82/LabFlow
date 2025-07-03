@@ -27,7 +27,7 @@ export interface Task {
   priority: TaskPriority;
   startDate?: Date | string;
   dueDate?: Date | string;
-  assignedTo_text?: string;
+  assignedTo?: string[]; // Array of employee IDs
   recurrence: TaskRecurrence;
   attachments?: File[] | string[];
   userId: string;
@@ -35,7 +35,10 @@ export interface Task {
   updated: Date | string;
   collectionId?: string;
   collectionName?: string;
-  expand?: any;
+  expand?: {
+    assignedTo?: Employee[];
+    [key: string]: any;
+  };
   progress?: number; 
   isMilestone?: boolean; 
   dependencies?: string[]; 
@@ -56,8 +59,11 @@ export interface CalendarEvent {
   updated: Date | string;
   collectionId?: string;
   collectionName?: string; 
-  expand?: any;
-  assignedTo_text?: string;
+  expand?: {
+    assignedTo?: Employee[];
+    [key: string]: any;
+  };
+  assignedTo?: string[];
   priority?: TaskPriority;
   progress?: number;
   isAllDay?: boolean;

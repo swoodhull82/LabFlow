@@ -7,14 +7,12 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { cn } from '@/lib/utils';
 import { useAuth } from "@/context/AuthContext";
 import { getTasks, updateTask as updateTaskService, deleteTask as deleteTaskService } from "@/services/taskService";
-import { getEmployees } from "@/services/employeeService";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, PlusCircle, Trash2, Save, CalendarIcon, XCircle, MoreHorizontal, ChevronDown, CornerDownRight } from "lucide-react";
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, PlusCircle, Trash2, Save, CalendarIcon, XCircle, MoreHorizontal, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -132,7 +130,6 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
   const { toast } = useToast();
   const router = useRouter();
   const [allTasks, setAllTasks] = useState<Task[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewStartDate, setViewStartDate] = useState<Date>(startOfMonth(new Date()));
@@ -163,19 +160,14 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
     try {
       const projectionHorizon = addYears(new Date(), 5);
       const taskFetchOptions: any = { signal, projectionHorizon };
-      const employeeFetchOptions: any = { signal };
 
-      const [fetchedTasks, fetchedEmployees] = await Promise.all([
-        getTasks(pb, taskFetchOptions),
-        getEmployees(pb, employeeFetchOptions)
-      ]);
+      const fetchedTasks = await getTasks(pb, taskFetchOptions);
 
       const validRawTasks = fetchedTasks.filter(task =>
         task.startDate && task.dueDate &&
         isValid(new Date(task.startDate)) && isValid(new Date(task.dueDate))
       );
       setAllTasks(validRawTasks);
-      setEmployees(fetchedEmployees);
 
       if (validRawTasks.length > 0) {
          const firstDate = min(validRawTasks.map(t => new Date(t.startDate!)));
@@ -230,7 +222,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         isParent: isParent,
         dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
         children,
-        assignee: employees.find(e => e.name === task.assignedTo_text)
+        assignees: task.expand?.assignedTo || []
       };
     });
 
@@ -293,7 +285,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
             });
             childrenWithColor.sort((a,b) => a.startDate.getTime() - b.startDate.getTime()).forEach(child => {
                 const childTask = tasksById.get(child.id);
-                if(childTask) addTask(child, level + 1);
+                if(childTask) addTask(child as any, level + 1);
             });
         }
     }
@@ -420,7 +412,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
       chartStartDate: chartStartDateForRender,
       ...headerData,
     };
-  }, [allTasks, employees, viewStartDate, timeScaleView, collapsedTasks, filterTaskType]);
+  }, [allTasks, viewStartDate, timeScaleView, collapsedTasks, filterTaskType]);
 
 
   const { tasksToDisplay, tasksById, chartStartDate, chartEndDate, totalWidth, pixelsPerDay, topHeaderCells, bottomHeaderCells } = chartData;
@@ -542,7 +534,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         if (!originalTask) {
             return;
         }
-
+        
+        // This is tricky. Optimistic update for expand field requires manual construction
         const updatedTask = { ...originalTask, ...updates };
 
         // Optimistically update UI
@@ -551,7 +544,12 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
         );
 
         try {
-            await updateTaskService(pbClient, taskId, updates);
+            const updatedRecord = await updateTaskService(pbClient, taskId, updates);
+            // After successful update, replace the optimistic task with the real one from server
+            setAllTasks(currentTasks => 
+                currentTasks.map(t => t.id === taskId ? updatedRecord : t)
+            );
+
             toast({
                 title: "Task Updated",
                 description: `Task "${updatedTask.title}" was successfully updated.`,
@@ -892,15 +890,29 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                         </div>
                     </div>
                     <div className="flex items-center justify-center">
-                        {task.assignee ? (
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Avatar className="h-6 w-6">
-                                    <AvatarFallback>{getInitials(task.assignee.name)}</AvatarFallback>
-                                </Avatar>
-                            </TooltipTrigger>
-                            <TooltipContent>{task.assignee.name}</TooltipContent>
-                        </Tooltip>
+                        {task.assignees && task.assignees.length > 0 ? (
+                           <div className="flex -space-x-2">
+                             {task.assignees.slice(0, 2).map((assignee: Employee) => (
+                               <Tooltip key={assignee.id}>
+                                 <TooltipTrigger asChild>
+                                   <Avatar className="h-6 w-6 border-2 border-background">
+                                     <AvatarFallback>{getInitials(assignee.name)}</AvatarFallback>
+                                   </Avatar>
+                                 </TooltipTrigger>
+                                 <TooltipContent>{assignee.name}</TooltipContent>
+                               </Tooltip>
+                             ))}
+                             {task.assignees.length > 2 && (
+                               <Tooltip>
+                                 <TooltipTrigger asChild>
+                                   <Avatar className="h-6 w-6 border-2 border-background">
+                                     <AvatarFallback>+{task.assignees.length - 2}</AvatarFallback>
+                                   </Avatar>
+                                 </TooltipTrigger>
+                                 <TooltipContent>And {task.assignees.length - 2} more</TooltipContent>
+                               </Tooltip>
+                             )}
+                           </div>
                         ) : (<div className="h-6 w-6"/>)}
                     </div>
                     <span className={cn("text-center text-xs", isBefore(task.dueDate, today) && task.status !== 'Done' ? 'text-destructive' : 'text-muted-foreground')}>
@@ -1015,7 +1027,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ filterTaskType = "ALL_EXCEPT_VA
                             <p className="font-semibold text-sm">{task.title}</p>
                             <p className="text-xs text-muted-foreground">Type: <span className="font-medium text-foreground">{task.task_type.replace(/_/g, ' ')}</span></p>
                             <p className="text-xs text-muted-foreground">Dates: {format(task.startDate, 'MMM d, yy')} - {format(task.dueDate, 'MMM d, yy')}</p>
-                            {task.assignee && (<p className="text-xs text-muted-foreground">Assigned to: <span className="font-medium text-foreground">{task.assignee.name}</span></p>)}
+                            {task.assignees && task.assignees.length > 0 && (
+                              <p className="text-xs text-muted-foreground">Assigned to: <span className="font-medium text-foreground">{task.assignees.map(a => a.name).join(', ')}</span></p>
+                            )}
                           </div>
                         </TooltipContent>
                       </Tooltip>
