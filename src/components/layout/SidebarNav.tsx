@@ -24,7 +24,8 @@ import {
   ChevronsLeft,
   ChevronsRight,
   History,
-  ListChecks, 
+  ListChecks,
+  Trello, 
 } from "lucide-react";
 import { useSidebar } from "@/components/ui/sidebar";
 
@@ -39,6 +40,7 @@ const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/tasks", label: "Tasks", icon: ClipboardList },
+  { href: "/kanban", label: "Kanban", icon: Trello },
   { href: "/validations", label: "Validations", icon: ListChecks },
   { href: "/validations-2", label: "Validations 2.0", icon: ListChecks },
   { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true }, 
