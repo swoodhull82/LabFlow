@@ -40,6 +40,7 @@ const navItems: NavItem[] = [
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/tasks", label: "Tasks", icon: ClipboardList },
   { href: "/validations", label: "Validations", icon: ListChecks },
+  { href: "/validations-2", label: "Validations 2.0", icon: ListChecks },
   { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true }, 
   { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true }, 
   { href: "/settings", label: "Settings", icon: Settings },
