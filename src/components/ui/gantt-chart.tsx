@@ -1162,3 +1162,4 @@ const buttonVariants = cva(
   }
 );
     
+export { GanttChart };
