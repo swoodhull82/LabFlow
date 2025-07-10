@@ -476,6 +476,7 @@ const GoGanttChart = () => {
 
         // Shared Model
         const myModel = new go.GraphLinksModel({
+            linkKeyProperty: 'key',
             modelData: { origin: 1531540800000 },
             nodeDataArray: [
                 { key: 0, text: 'Project X' },
@@ -494,9 +495,9 @@ const GoGanttChart = () => {
                 { key: 231, text: 'Task 2.3.1', color: 'orange', duration: convertDaysToUnits(11) }
             ],
             linkDataArray: [
-                { from: 0, to: 1 }, { from: 1, to: 11 }, { from: 1, to: 12 }, { from: 12, to: 121 }, { from: 12, to: 122 }, { from: 12, to: 123 },
-                { from: 0, to: 2 }, { from: 2, to: 21 }, { from: 2, to: 22 }, { from: 22, to: 221 }, { from: 22, to: 222 }, { from: 2, to: 23 }, { from: 23, to: 231 },
-                { from: 11, to: 2, category: 'Dep' }
+                { key: '0_1', from: 0, to: 1 }, { key: '1_11', from: 1, to: 11 }, { key: '1_12', from: 1, to: 12 }, { key: '12_121', from: 12, to: 121 }, { key: '12_122', from: 12, to: 122 }, { key: '12_123', from: 12, to: 123 },
+                { key: '0_2', from: 0, to: 2 }, { key: '2_21', from: 2, to: 21 }, { key: '2_22', from: 2, to: 22 }, { key: '22_221', from: 22, to: 221 }, { key: '22_222', from: 22, to: 222 }, { key: '2_23', from: 2, to: 23 }, { key: '23_231', from: 23, to: 231 },
+                { key: '11_2', from: 11, to: 2, category: 'Dep' }
             ]
         });
 
