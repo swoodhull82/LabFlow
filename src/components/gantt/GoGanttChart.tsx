@@ -22,38 +22,39 @@ const GoGanttChart = () => {
         
         // Custom Layout for myGantt Diagram
         class GanttLayout extends go.Layout {
-            constructor(init) {
-            super();
-            this.cellHeight = GridCellHeight;
-            if (init) Object.assign(this, init);
+            cellHeight: number;
+            constructor(init?: Partial<GanttLayout>) {
+              super();
+              this.cellHeight = GridCellHeight;
+              if (init) Object.assign(this, init);
             }
 
-            doLayout(coll) {
-            coll = this.collectParts(coll);
-            const diagram = this.diagram;
-            if (!diagram) return;
-            diagram.startTransaction('Gantt Layout');
-            const bars = [];
-            this.assignTimes(diagram, bars);
-            this.arrangementOrigin = this.initialOrigin(this.arrangementOrigin);
-            let y = this.arrangementOrigin.y;
-            bars.forEach((node) => {
+            doLayout(coll: go.Diagram | go.Group | go.Iterable<go.Part>) {
+              coll = this.collectParts(coll);
+              const diagram = this.diagram;
+              if (!diagram) return;
+              diagram.startTransaction('Gantt Layout');
+              const bars: go.Node[] = [];
+              this.assignTimes(diagram, bars);
+              this.arrangementOrigin = this.initialOrigin(this.arrangementOrigin);
+              let y = this.arrangementOrigin.y;
+              bars.forEach((node) => {
                 const tasknode = myTasks.findNodeForData(node.data);
                 if (!tasknode) return;
                 node.visible = tasknode.isVisible();
                 node.moveTo(convertStartToX(node.data.start), y);
                 if (node.visible) y += this.cellHeight;
-            });
-            diagram.commitTransaction('Gantt Layout');
+              });
+              diagram.commitTransaction('Gantt Layout');
             }
 
             // Update node data, to make sure each node has a start and a duration
-            assignTimes(diagram, bars) {
-            const roots = diagram.findTreeRoots();
-            roots.each((root) => this.walkTree(root, 0, bars));
+            assignTimes(diagram: go.Diagram, bars: go.Node[]) {
+              const roots = diagram.findTreeRoots();
+              roots.each((root) => this.walkTree(root, 0, bars));
             }
 
-            walkTree(node, start, bars) {
+            walkTree(node: go.Node, start: number, bars: go.Node[]): number {
                 if (!node.diagram) return start;
                 bars.push(node);
                 const model = node.diagram.model;
@@ -97,41 +98,41 @@ const GoGanttChart = () => {
 
         const MsPerDay = 24 * 60 * 60 * 1000;
 
-        function convertDaysToUnits(n) {
+        function convertDaysToUnits(n: number) {
             return n;
         }
 
-        function convertUnitsToDays(n) {
+        function convertUnitsToDays(n: number) {
             return n;
         }
 
-        function convertStartToX(start) {
+        function convertStartToX(start: number) {
             return convertUnitsToDays(start) * GridCellWidth;
         }
 
-        function convertXToStart(x, node) {
+        function convertXToStart(x: number, node: go.Part | null) {
             return convertDaysToUnits(x / GridCellWidth);
         }
 
-        function convertDurationToW(duration) {
+        function convertDurationToW(duration: number) {
             return convertUnitsToDays(duration) * GridCellWidth;
         }
 
-        function convertWToDuration(w) {
+        function convertWToDuration(w: number) {
             return convertDaysToUnits(w / GridCellWidth);
         }
 
-        function convertStartToPosition(start, node) {
+        function convertStartToPosition(start: number, node: go.Node) {
             return new go.Point(convertStartToX(start), node.position.y || 0);
         }
 
-        function convertPositionToStart(pos) {
-            return convertXToStart(pos.x);
+        function convertPositionToStart(pos: go.Point) {
+            return convertXToStart(pos.x, null);
         }
 
         var StartDate = new Date(); // set from Model.modelData.origin
 
-        function valueToText(n) {
+        function valueToText(n: number) {
             const startDate = StartDate;
             const startDateMs = startDate.getTime() + startDate.getTimezoneOffset() * 60000;
             const date = new Date(startDateMs + (n / GridCellWidth) * MsPerDay);
@@ -167,7 +168,7 @@ const GoGanttChart = () => {
                     e.diagram.model.commit((m) => {
                         const newdata = { key: undefined, text: 'New Task', color: task.data.color, duration: convertDaysToUnits(5) };
                         m.addNodeData(newdata);
-                        if (task.key) m.addLinkData({ from: task.key, to: (m as go.GraphLinksModel).getKeyForNodeData(newdata) });
+                        if (task.key && m instanceof go.GraphLinksModel) m.addLinkData({ from: task.key, to: m.getKeyForNodeData(newdata) });
                         const newNode = e.diagram.findNodeForData(newdata);
                         if(newNode) e.diagram.select(newNode);
                     }, 'new task');
@@ -209,7 +210,7 @@ const GoGanttChart = () => {
         myTasks.addDiagramListener("ChangedSelection", (e) => {
             if (myChangingSelection) return;
             myChangingSelection = true;
-            const tasks = [];
+            const tasks: go.Node[] = [];
             e.diagram.selection.each((part) => {
                 if (part instanceof go.Node) {
                     const ganttNode = myGantt.findNodeForData(part.data);
@@ -268,7 +269,7 @@ const GoGanttChart = () => {
 
         var TREEWIDTH = 160;
 
-        function updateNodeWidths(width) {
+        function updateNodeWidths(width: number) {
             let minx = Infinity;
             myTasks.nodes.each((n) => {
                 if (n instanceof go.Node) {
@@ -327,12 +328,12 @@ const GoGanttChart = () => {
         myGantt.scrollMargin = new go.Margin(0, GridCellWidth * 7, 0, 0);
         myGantt.allowCopy = false;
         myGantt.commandHandler.deletesTree = true;
-        myGantt.draggingTool.isGridSnapEnabled = true;
-        myGantt.draggingTool.gridSnapCellSize = new go.Size(GridCellWidth, GridCellHeight);
-        myGantt.draggingTool.dragsTree = true;
-        myGantt.resizingTool.isGridSnapEnabled = true;
-        myGantt.resizingTool.cellSize = new go.Size(GridCellWidth, GridCellHeight);
-        myGantt.resizingTool.minSize = new go.Size(GridCellWidth, GridCellHeight);
+        myGantt.toolManager.draggingTool.isGridSnapEnabled = true;
+        myGantt.toolManager.draggingTool.gridSnapCellSize = new go.Size(GridCellWidth, GridCellHeight);
+        myGantt.toolManager.draggingTool.dragsTree = true;
+        myGantt.toolManager.resizingTool.isGridSnapEnabled = true;
+        myGantt.toolManager.resizingTool.cellSize = new go.Size(GridCellWidth, GridCellHeight);
+        myGantt.toolManager.resizingTool.minSize = new go.Size(GridCellWidth, GridCellHeight);
         myGantt.layout = new GanttLayout(null);
         myGantt.mouseOver = (e) => {
             if (!myGrid || !myHighlightDay) return;
@@ -358,7 +359,7 @@ const GoGanttChart = () => {
         myGantt.addDiagramListener("ChangedSelection", (e) => {
             if (myChangingSelection) return;
             myChangingSelection = true;
-            const bars = [];
+            const bars: go.Node[] = [];
             e.diagram.selection.each((part) => {
                 if (part instanceof go.Node) {
                     const taskNode = myTasks.findNodeForData(part.data);
@@ -543,7 +544,7 @@ const GoGanttChart = () => {
         const myGantt = ganttRef.current?.getDiagram();
         if(!myGantt) return;
         myGantt.commit((diag) => {
-            const GridCellWidth = val;
+            GridCellWidth = val;
             diag.scrollMargin = new go.Margin(0, GridCellWidth * 7, 0, 0);
             diag.toolManager.draggingTool.gridSnapCellSize = new go.Size(GridCellWidth, 20);
             diag.toolManager.resizingTool.cellSize = new go.Size(GridCellWidth, 20);
@@ -600,3 +601,5 @@ const GoGanttChart = () => {
 };
 
 export default GoGanttChart;
+
+    
