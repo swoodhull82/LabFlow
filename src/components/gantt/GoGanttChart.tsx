@@ -93,8 +93,8 @@ const GoGanttChart = () => {
             });
 
             // Add keys to links
-            linkDataArray.forEach((link, i) => {
-                link.key = `L${i}`;
+            linkDataArray.forEach((link) => {
+                link.key = `${link.from}_${link.to}`;
             });
 
             setChartData({ nodeDataArray, linkDataArray, originDate });
