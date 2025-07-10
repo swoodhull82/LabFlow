@@ -10,6 +10,11 @@ const GoGanttChart = () => {
     const tasksRef = useRef<ReactDiagram | null>(null);
     const [modelText, setModelText] = useState('');
 
+    // Move constants to a scope accessible by both useEffect and handlers
+    let GridCellHeight = 20;
+    let GridCellWidth = 12;
+    let TimelineHeight = 24;
+
     useEffect(() => {
         // This effect runs once on component mount to initialize the GoJS diagrams.
         // It's a direct adaptation of the imperative code you provided.
@@ -91,11 +96,7 @@ const GoGanttChart = () => {
             }
         }
         // end of GanttLayout
-
-        var GridCellHeight = 20; // document units; cannot be changed dynamically
-        var GridCellWidth = 12; // document units per day; this can be modified -- see rescale()
-        var TimelineHeight = 24; // document units; cannot be changed dynamically
-
+       
         const MsPerDay = 24 * 60 * 60 * 1000;
 
         function convertDaysToUnits(n: number) {
@@ -602,5 +603,7 @@ const GoGanttChart = () => {
 };
 
 export default GoGanttChart;
+
+    
 
     
