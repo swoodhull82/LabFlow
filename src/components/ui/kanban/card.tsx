@@ -124,4 +124,3 @@ export function KanbanCard({ task, isOverlay }: TaskCardProps) {
     </div>
   );
 }
-
