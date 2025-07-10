@@ -115,6 +115,7 @@ const GoGanttChart = () => {
             return convertDaysToUnits(x / GridCellWidth);
         }
 
+        // these four functions are used in TwoWay Bindings on the task/node template
         function convertDurationToW(duration: number) {
             return convertUnitsToDays(duration) * GridCellWidth;
         }
@@ -134,6 +135,7 @@ const GoGanttChart = () => {
         var StartDate = new Date(); // set from Model.modelData.origin
 
         function valueToText(n: number) {
+            // N document units after StartDate
             const startDate = StartDate;
             const startDateMs = startDate.getTime() + startDate.getTimezoneOffset() * 60000;
             const date = new Date(startDateMs + (n / GridCellWidth) * MsPerDay);
@@ -184,7 +186,8 @@ const GoGanttChart = () => {
 
         // the tree on the left side of the page
         myTasks.initialContentAlignment = go.Spot.Right;
-        myTasks.padding = new go.Margin(TimelineHeight + 4, 0, GridCellHeight, 0);
+        // make room on top for myTimeline and a bit of spacing; on bottom for whole task row and a bit more
+        myTasks.padding = new go.Margin(TimelineHeight + 4, 0, GridCellHeight, 0); // needs to be the same vertically as for myGantt
         myTasks.hasVerticalScrollbar = false;
         myTasks.allowMove = false;
         myTasks.allowCopy = false;
@@ -199,7 +202,10 @@ const GoGanttChart = () => {
             portSpot: go.Spot.Bottom,
             childPortSpot: go.Spot.Left,
             arrangementSpacing: new go.Size(0, 0),
+            // after the tree layout, change the width of each node so that all
+            // of the nodes have widths such that the collection has a given width
             commitNodes: function () {
+                // method override must be function, not =>
                 go.TreeLayout.prototype.commitNodes.call(this);
                 updateNodeWidths(400);
             }
@@ -209,6 +215,7 @@ const GoGanttChart = () => {
         myTasks.addDiagramListener("TreeCollapsed", (e) => myGantt.layoutDiagram(true));
         myTasks.addDiagramListener("TreeExpanded", (e) => myGantt.layoutDiagram(true));
         myTasks.addDiagramListener("ChangedSelection", (e) => {
+            // selecting a bar also selects the corresponding task in myTasks
             if (myChangingSelection) return;
             myChangingSelection = true;
             const tasks: go.Node[] = [];
@@ -237,6 +244,7 @@ const GoGanttChart = () => {
                 myHighlightTask.visible = false;
             },
             doubleClick: (e, node) => {
+                // scroll myGantt so the corresponding bar is visible
                 const bar = myGantt.findNodeForData(node.data);
                 if (bar) myGantt.commandHandler.scrollToPart(bar);
             },
@@ -262,13 +270,14 @@ const GoGanttChart = () => {
             go.GraphObject.build('TreeExpanderButton', { column: 0, portId: '', scale: 0.85 }),
             new go.TextBlock({ column: 1, editable: true })
             .bind(new go.Binding('text').makeTwoWay()),
+            // additional columns
             new go.TextBlock({ column: 2 })
             .bind('text', 'start', (s) => s.toFixed(2)),
             new go.TextBlock({ column: 3 })
             .bind('text', 'duration', (d) => d.toFixed(2))
         );
 
-        var TREEWIDTH = 160;
+        var TREEWIDTH = 160; // document units, may be modified, used by updateNodeWidths
 
         function updateNodeWidths(width: number) {
             let minx = Infinity;
@@ -290,10 +299,10 @@ const GoGanttChart = () => {
             if(headerCol1) headerCol1.width = TREEWIDTH - myTasksHeader.actualBounds.x;
         }
 
-        const myTasksHeader = new go.Part('Table', {
+        const myTasksHeader = new go.Part('Table', { // the timeline at the top of the myTasks viewport
             layerName: 'Adornment',
             pickable: false,
-            position: new go.Point(-26, 0),
+            position: new go.Point(-26, 0), // position will be set in "ViewportBoundsChanged" listener
             columnSizing: go.Sizing.None,
             selectionAdorned: false,
             height: GridCellHeight,
@@ -305,6 +314,7 @@ const GoGanttChart = () => {
         .addColumnDefinition(3, { width: 40, alignment: go.Spot.Right, separatorPadding: new go.Margin(0, 4), separatorStroke: 'gray' })
         .add(
             new go.TextBlock('Name', { column: 1 }),
+            // additional columns
             new go.TextBlock('Start', { column: 2 }),
             new go.TextBlock('Dur.', { column: 3 })
         );
@@ -315,18 +325,24 @@ const GoGanttChart = () => {
             routing: go.Routing.Orthogonal,
             fromEndSegmentLength: 1,
             toEndSegmentLength: 1
-        }).add(new go.Shape());
+        })
+        .add(
+            new go.Shape()
+        );
 
-        myTasks.linkTemplateMap.add('Dep', new go.Link({
+        myTasks.linkTemplateMap.add('Dep',
+            new go.Link({ // ignore these links in the Tasks diagram
             selectable: false,
             visible: false,
             isTreeLink: false
-        }));
+            })
+        );
         
-        // Gantt chart setup
-        myGantt.initialPosition = new go.Point(-10, -100);
-        myGantt.padding = new go.Margin(TimelineHeight + 4, GridCellWidth * 7, GridCellHeight, 0);
-        myGantt.scrollMargin = new go.Margin(0, GridCellWidth * 7, 0, 0);
+        // the right side of the page, holding both the timeline and all of the task bars
+        myGantt.initialPosition = new go.Point(-10, -100); // show labels
+        // make room on top for myTimeline and a bit of spacing; on bottom for whole task row and a bit more
+        myGantt.padding = new go.Margin(TimelineHeight + 4, GridCellWidth * 7, GridCellHeight, 0); // needs to be the same vertically as for myTasks
+        myGantt.scrollMargin = new go.Margin(0, GridCellWidth * 7, 0, 0); // and allow scrolling to a week beyond that
         myGantt.allowCopy = false;
         myGantt.commandHandler.deletesTree = true;
         myGantt.toolManager.draggingTool.isGridSnapEnabled = true;
@@ -339,9 +355,9 @@ const GoGanttChart = () => {
         myGantt.mouseOver = (e) => {
             if (!myGrid || !myHighlightDay) return;
             const lp = myGrid.getLocalPoint(e.documentPoint);
-            const day = Math.floor(convertXToStart(lp.x, null));
+            const day = Math.floor(convertXToStart(lp.x, null)); // floor gets start of day
             myHighlightDay.position = new go.Point(convertStartToX(day), myGrid.position.y);
-            myHighlightDay.width = GridCellWidth;
+            myHighlightDay.width = GridCellWidth; // 1 day
             myHighlightDay.height = myGrid.actualBounds.height;
             myHighlightDay.visible = true;
         };
@@ -349,8 +365,11 @@ const GoGanttChart = () => {
         myGantt.animationManager.isInitial = false;
         myGantt.addDiagramListener("SelectionMoved", (e) => e.diagram.layoutDiagram(true));
         myGantt.addDiagramListener("DocumentBoundsChanged", (e) => {
+            // the grid extends to only the area needed
             const b = e.diagram.documentBounds;
             myGrid.desiredSize = new go.Size(b.width + GridCellWidth * 7, b.bottom);
+            // the timeline, which is not in the documentBounds, only covers the needed area
+            // widen to cover whole weeks
             myTimeline.graduatedMax = Math.ceil(b.width / (GridCellWidth * 7)) * (GridCellWidth * 7);
             const mainShape = myTimeline.findObject('MAIN');
             if (mainShape) mainShape.width = myTimeline.graduatedMax;
@@ -358,6 +377,7 @@ const GoGanttChart = () => {
             if(ticksShape) ticksShape.height = Math.max(e.diagram.documentBounds.height, e.diagram.viewportBounds.height);
         });
         myGantt.addDiagramListener("ChangedSelection", (e) => {
+            // selecting a task also selects the corresponding bar in myGantt
             if (myChangingSelection) return;
             myChangingSelection = true;
             const bars: go.Node[] = [];
@@ -371,32 +391,46 @@ const GoGanttChart = () => {
             myChangingSelection = false;
         });
 
-        const myTimeline = new go.Part('Graduated', {
+        const myTimeline = new go.Part('Graduated', { // the timeline at the top of the myGantt viewport
             layerName: 'Adornment',
             pickable: false,
-            position: new go.Point(-26, 0),
-            graduatedTickUnit: GridCellWidth
+            position: new go.Point(-26, 0), // position will be set in "ViewportBoundsChanged" listener
+            graduatedTickUnit: GridCellWidth // each tick is one day
+            // assume graduatedMax == length of line
         }).add(
-            new go.Shape('LineH', { name: 'MAIN', strokeWidth: 0, height: TimelineHeight, background: 'lightgray' }),
-            new go.Shape('LineV', { name: 'TICKS', interval: 7, alignmentFocus: new go.Spot(0.5, 0, 0, -TimelineHeight / 2), stroke: 'lightgray', strokeWidth: 0.5 }),
+            new go.Shape('LineH', {
+                name: 'MAIN',
+                strokeWidth: 0, // don't draw the actual line
+                height: TimelineHeight, // width will be set in "DocumentBoundsChanged" listener
+                background: 'lightgray'
+            }),
+            new go.Shape('LineV', {
+                name: 'TICKS',
+                interval: 7, // once per week
+                alignmentFocus: new go.Spot(0.5, 0, 0, -TimelineHeight / 2), // tick marks cross over the timeline itself
+                stroke: 'lightgray',
+                strokeWidth: 0.5
+            }),
             new go.TextBlock({
                 alignmentFocus: go.Spot.Left,
-                interval: 7,
+                interval: 7, // once per week
                 graduatedFunction: valueToText,
-                graduatedSkip: (val, tb) => val > tb.panel.graduatedMax - GridCellWidth * 7
+                graduatedSkip: (val, tb) => val > tb.panel.graduatedMax - GridCellWidth * 7 // don't show last label
             })
         );
         myGantt.add(myTimeline);
 
-        const myGrid = new go.Part('Grid', {
+        const myGrid = new go.Part('Grid', { // the grid of horizontal lines
             layerName: 'Grid',
             pickable: false,
             position: new go.Point(0, 0),
             gridCellSize: new go.Size(3000, GridCellHeight)
-        }).add(new go.Shape('LineH', { strokeWidth: 0.5 }));
+        }).add(
+            new go.Shape('LineH', { strokeWidth: 0.5 })
+        );
         myGantt.add(myGrid);
 
-        const myHighlightDay = new go.Part({
+        const myHighlightDay = new go.Part({ // the vertical highlighter covering the day where the mouse is
             layerName: 'Grid',
             visible: false,
             pickable: false,
@@ -407,7 +441,7 @@ const GoGanttChart = () => {
         });
         myGantt.add(myHighlightDay);
 
-        const myHighlightTask = new go.Part({
+        const myHighlightTask = new go.Part({ // the horizontal highlighter covering the current task
             layerName: 'Grid',
             visible: false,
             pickable: false,
@@ -444,7 +478,14 @@ const GoGanttChart = () => {
             resizeAdornmentTemplate: new go.Adornment('Spot')
                 .add(
                     new go.Placeholder(),
-                    new go.Shape('Diamond', { alignment: go.Spot.Right, width: 8, height: 8, strokeWidth: 0, fill: 'fuchsia', cursor: 'e-resize' })
+                    new go.Shape('Diamond', {
+                        alignment: go.Spot.Right,
+                        width: 8,
+                        height: 8,
+                        strokeWidth: 0,
+                        fill: 'fuchsia',
+                        cursor: 'e-resize'
+                    })
                 ),
             mouseOver: (e, node) => myGantt.mouseOver(e),
             ...standardContextMenus()
@@ -453,11 +494,22 @@ const GoGanttChart = () => {
         .bind(new go.Binding('resizable', 'isTreeLeaf'))
         .bind(new go.Binding('isTreeExpanded').makeTwoWay())
         .add(
-            new go.Shape({ name: 'SHAPE', height: 18, margin: new go.Margin(1, 0), strokeWidth: 0, fill: 'gray' })
+            new go.Shape({
+                name: 'SHAPE',
+                height: 18,
+                margin: new go.Margin(1, 0),
+                strokeWidth: 0,
+                fill: 'gray'
+            })
             .bind(new go.Binding('fill', 'color'))
             .bind(new go.Binding('width', 'duration', convertDurationToW, convertWToDuration).makeTwoWay())
             .bind(new go.Binding('figure', 'isTreeLeaf', (leaf) => (leaf ? 'Rectangle' : 'RangeBar'))),
-            new go.TextBlock({ font: '8pt sans-serif', alignment: go.Spot.TopLeft, alignmentFocus: new go.Spot(0, 0, 0, -2) })
+            // "RangeBar" is defined above as a custom figure
+            new go.TextBlock({
+                font: '8pt sans-serif',
+                alignment: go.Spot.TopLeft,
+                alignmentFocus: new go.Spot(0, 0, 0, -2)
+            })
             .bind(new go.Binding('text'))
             .bind(new go.Binding('stroke', 'color', (c) => (go.Brush.isDark(c) ? '#DDDDDD' : '#333333')))
         );
@@ -477,58 +529,10 @@ const GoGanttChart = () => {
 
         // Shared Model
         const myModel = new go.GraphLinksModel({
-            linkKeyProperty: 'key',
+            linkKeyProperty: "key",
             modelData: {"origin":1531540800000},
-              "nodeDataArray": [
-            {"key":0,"text":"Project X","start":0,"duration":52},
-            {"key":1,"text":"Task 1","color":"darkgreen","start":0,"duration":19},
-            {"key":11,"text":"Task 1.1","color":"green","duration":7,"start":0},
-            {"key":12,"text":"Task 1.2","color":"green","start":7,"duration":12},
-            {"key":121,"text":"Task 1.2.1","color":"lightgreen","duration":3,"start":7},
-            {"key":122,"text":"Task 1.2.2","color":"lightgreen","duration":5,"start":10},
-            {"key":123,"text":"Task 1.2.3","color":"lightgreen","duration":4,"start":15},
-            {"key":2,"text":"Task 2","color":"darkblue","start":10,"duration":29},
-            {"key":21,"text":"Task 2.1","color":"blue","duration":15,"start":10},
-            {"key":22,"text":"Task 2.2","color":"goldenrod","start":25,"duration":14},
-            {"key":221,"text":"Task 2.2.1","color":"yellow","duration":8,"start":25},
-            {"key":222,"text":"Task 2.2.2","color":"yellow","duration":6,"start":33},
-            {"key":23,"text":"Task 2.3","color":"darkorange","start":20,"duration":11},
-            {"key":231,"text":"Task 2.3.1","color":"orange","duration":11,"start":20},
-            {"key":3,"text":"Task 3","color":"maroon","start":18,"duration":34},
-            {"key":31,"text":"Task 3.1","color":"brown","duration":10,"start":42},
-            {"key":32,"text":"Task 3.2","color":"brown","start":18,"duration":25},
-            {"key":321,"text":"Task 3.2.1","color":"lightsalmon","duration":8,"start":18},
-            {"key":322,"text":"Task 3.2.2","color":"lightsalmon","duration":3,"start":26},
-            {"key":323,"text":"Task 3.2.3","color":"lightsalmon","duration":7,"start":29},
-            {"key":324,"text":"Task 3.2.4","color":"lightsalmon","duration":5,"start":29},
-            {"key":325,"text":"Task 3.2.5","color":"lightsalmon","duration":4,"start":34},
-            {"key":326,"text":"Task 3.2.6","color":"lightsalmon","duration":5,"start":38}
-            ],
-              "linkDataArray": [
-            {"key": "0_1", "from":0,"to":1},
-            {"key": "1_11", "from":1,"to":11},
-            {"key": "1_12", "from":1,"to":12},
-            {"key": "12_121", "from":12,"to":121},
-            {"key": "12_122", "from":12,"to":122},
-            {"key": "12_123", "from":12,"to":123},
-            {"key": "0_2", "from":0,"to":2},
-            {"key": "2_21", "from":2,"to":21},
-            {"key": "2_22", "from":2,"to":22},
-            {"key": "22_221", "from":22,"to":221},
-            {"key": "22_222", "from":22,"to":222},
-            {"key": "2_23", "from":2,"to":23},
-            {"key": "23_231", "from":23,"to":231},
-            {"key": "0_3", "from":0,"to":3},
-            {"key": "3_31", "from":3,"to":31},
-            {"key": "3_32", "from":3,"to":32},
-            {"key": "32_321", "from":32,"to":321},
-            {"key": "32_322", "from":32,"to":322},
-            {"key": "32_323", "from":32,"to":323},
-            {"key": "32_324", "from":32,"to":324},
-            {"key": "32_325", "from":32,"to":325},
-            {"key": "32_326", "from":32,"to":326},
-            {"key": "11_2", "from":11,"to":2,"category":"Dep"}
-            ]
+            nodeDataArray: [],
+            linkDataArray: []
         });
 
         StartDate = new Date(myModel.modelData.origin);
