@@ -42,7 +42,6 @@ const navItems: NavItem[] = [
   { href: "/tasks", label: "Tasks", icon: ClipboardList },
   { href: "/kanban", label: "Kanban", icon: Trello },
   { href: "/validations", label: "Validations", icon: ListChecks },
-  { href: "/validations-2", label: "Validations 2.0", icon: ListChecks },
   { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true }, 
   { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true }, 
   { href: "/settings", label: "Settings", icon: Settings },
