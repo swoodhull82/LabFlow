@@ -125,7 +125,7 @@ const KanbanPage = () => {
 
     // Add employees first
     employees.forEach(emp => {
-      // Use the 'users' collection ID if available, otherwise fall back to employee ID
+      // Use the 'users' collection ID if available, otherwise fall back to employee ID for robustness
       const idToUse = emp.userId || emp.id;
       if (!allPeople.has(idToUse)) {
           allPeople.set(idToUse, { id: idToUse, name: emp.name, email: emp.email });
@@ -579,3 +579,5 @@ const KanbanPage = () => {
 };
 
 export default KanbanPage;
+
+    
