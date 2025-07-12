@@ -123,16 +123,16 @@ const KanbanPage = () => {
     if (!user) return [];
     const allPeople = new Map<string, { id: string; name: string; email: string }>();
 
-    // Add employees first
+    // Add employees who are linked to a user account
     employees.forEach(emp => {
-      // Use the 'users' collection ID if available, otherwise fall back to employee ID for robustness
-      const idToUse = emp.userId || emp.id;
-      if (!allPeople.has(idToUse)) {
-          allPeople.set(idToUse, { id: idToUse, name: emp.name, email: emp.email });
+      // CRITICAL FIX: Only use employees that have a valid userId relation.
+      // This prevents sending employee record IDs to the users relation field.
+      if (emp.userId && !allPeople.has(emp.userId)) {
+          allPeople.set(emp.userId, { id: emp.userId, name: emp.name, email: emp.email });
       }
     });
 
-    // Add current authenticated user if not already in the map
+    // Add current authenticated user if not already in the map from their employee record
     if (user.id && !allPeople.has(user.id)) {
       allPeople.set(user.id, { id: user.id, name: user.name || user.email, email: user.email });
     }
