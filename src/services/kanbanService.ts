@@ -33,8 +33,8 @@ const pbToStep = (record: any): KanbanStep => ({
 const pbToCard = (record: any): KanbanCard => ({
     id: record.id,
     name: record.name,
-    status: record.status,
-    group: record.group,
+    status: record.status, // This is a single ID
+    group: record.group,   // This is a single ID
     owners: record.owners || [],
     createdBy: record.createdBy,
     startAt: record.startAt ? new Date(record.startAt) : new Date(now - aDay * 7),
@@ -59,7 +59,7 @@ export const getKanbanData = async (pb: PocketBase, options?: { signal?: AbortSi
             withRetry(() => pb.collection('kanban_groups').getFullList({ sort: 'order' }, options), { ...options, context: 'fetching kanban groups' }),
             withRetry(() => pb.collection('kanban_cards').getFullList({
                 sort: 'order',
-                expand: 'kanban_steps(card)', // Expand reverse relation
+                expand: 'kanban_steps(card),status,group,owners,createdBy', // Expand all relations
             }, options), { ...options, context: 'fetching kanban cards' })
         ]);
 
@@ -80,7 +80,7 @@ export const getKanbanData = async (pb: PocketBase, options?: { signal?: AbortSi
 
 export const createKanbanCard = async (pb: PocketBase, data: Partial<KanbanCard>): Promise<KanbanCard> => {
     try {
-        const record = await pb.collection('kanban_cards').create(data, { expand: 'kanban_steps(card)' });
+        const record = await pb.collection('kanban_cards').create(data, { expand: 'kanban_steps(card),status,group,owners,createdBy' });
         return pbToCard(record);
     } catch (error) {
         console.error("Failed to create Kanban card:", error);
@@ -90,7 +90,7 @@ export const createKanbanCard = async (pb: PocketBase, data: Partial<KanbanCard>
 
 export const updateKanbanCardStatus = async (pb: PocketBase, cardId: string, statusId: string): Promise<KanbanCard> => {
     try {
-        const record = await pb.collection('kanban_cards').update(cardId, { status: statusId }, { expand: 'kanban_steps(card)' });
+        const record = await pb.collection('kanban_cards').update(cardId, { status: statusId }, { expand: 'kanban_steps(card),status,group,owners,createdBy' });
         return pbToCard(record);
     } catch (error) {
         console.error(`Failed to update status for card ${cardId}:`, error);
