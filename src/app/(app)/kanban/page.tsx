@@ -92,9 +92,6 @@ const Example = () => {
     try {
       const fetchedEmployees = await getEmployees(pb, { signal });
       setEmployees(fetchedEmployees);
-      if(user?.id && newCardAssignees.length === 0) {
-        setNewCardAssignees([user.id]);
-      }
     } catch (error: any) {
       const isAutocancel = error?.isAbort === true || (typeof error?.message === 'string' && error.message.toLowerCase().includes("autocancelled"));
       if (!isAutocancel) {
@@ -103,7 +100,7 @@ const Example = () => {
     } finally {
       setIsLoadingEmployees(false);
     }
-  }, [user?.id, newCardAssignees.length]);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -359,14 +356,11 @@ const Example = () => {
   const handleAddCardSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!newCardName || newCardAssignees.length === 0 || !newCardStatus || !newCardGroup || !user) return;
+    if (!newCardName || !newCardStatus || !newCardGroup || !user) return;
     
     const creator = { id: user.id, name: user.name || user.email };
     
     const owners = kanbanOwners.filter(o => newCardAssignees.includes(o.id));
-    if(newCardAssignees.includes(user.id) && !owners.some(o => o.id === user.id)){
-        owners.push(creator);
-    }
     
     const status = exampleStatuses.find(s => s.id === newCardStatus);
 
@@ -748,5 +742,3 @@ const Example = () => {
 };
 
 export default Example;
-
-    
