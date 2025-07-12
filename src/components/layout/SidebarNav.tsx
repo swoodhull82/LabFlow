@@ -27,6 +27,7 @@ import {
   ListChecks,
   Trello, 
   Users2,
+  Presentation,
 } from "lucide-react";
 import { useSidebar } from "@/components/ui/sidebar";
 
@@ -43,6 +44,7 @@ const navItems: NavItem[] = [
   { href: "/team-schedule", label: "Team Schedule", icon: Users2, supervisorOnly: true },
   { href: "/tasks", label: "Tasks", icon: ClipboardList },
   { href: "/kanban", label: "Kanban", icon: Trello },
+  { href: "/timeline", label: "Timeline", icon: Presentation },
   { href: "/validations", label: "Validations", icon: ListChecks },
   { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true }, 
   { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true }, 

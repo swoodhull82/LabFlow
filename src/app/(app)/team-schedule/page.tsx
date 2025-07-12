@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { getTeamEvents, deleteTeamEvent } from "@/services/teamEventService";
+import { getPersonalEvents } from "@/services/personalEventService";
 import { getEmployees } from "@/services/employeeService";
 import type { CalendarEvent, Employee } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -11,8 +11,6 @@ import { Loader2, AlertTriangle } from "lucide-react";
 import WeeklyView from "@/components/calendar/WeeklyView";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { TeamEventForm } from "@/components/tasks/TeamEventForm";
 import type PocketBase from "pocketbase";
 
 const getDetailedErrorMessage = (error: any): string => {
@@ -29,7 +27,6 @@ const getDetailedErrorMessage = (error: any): string => {
   return message;
 };
 
-
 export default function TeamSchedulePage() {
   const { pbClient, user } = useAuth();
   const { toast } = useToast();
@@ -39,16 +36,14 @@ export default function TeamSchedulePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [defaultDate, setDefaultDate] = useState<Date | undefined>(undefined);
-
-  const fetchData = useCallback(async (pb: PocketBase, signal?: AbortSignal) => {
+  const fetchData = useCallback(async (pb: PocketBase, currentUserId: string, signal?: AbortSignal) => {
     setIsLoading(true);
     setError(null);
     try {
+      // getPersonalEvents will fetch all events the current user is allowed to see,
+      // including their own and those from users who have shared their calendar.
       const [fetchedEvents, fetchedEmployees] = await Promise.all([
-        getTeamEvents(pb, { signal }),
+        getPersonalEvents(pb, currentUserId, { signal }),
         getEmployees(pb, { signal }),
       ]);
       setEvents(fetchedEvents);
@@ -69,7 +64,7 @@ export default function TeamSchedulePage() {
   useEffect(() => {
     const controller = new AbortController();
     if (pbClient && user) {
-      fetchData(pbClient, controller.signal);
+      fetchData(pbClient, user.id, controller.signal);
     }
     return () => controller.abort();
   }, [pbClient, user, fetchData]);
@@ -77,65 +72,29 @@ export default function TeamSchedulePage() {
   const employeeColorMap = useMemo(() => {
     const map = new Map<string, string>();
     employees.forEach(employee => {
-      if (employee.color) {
-        map.set(employee.id, employee.color);
+      // Find the user account associated with the employee to get the correct user ID for event mapping
+      const userForEmployee = user?.id; // This is a simplification. A real app would map employee.userId to a user record.
+                                         // For now, we assume all events are owned by a user that might be an employee.
+                                         
+      if (employee.color && employee.userId) { // Ensure employee has a color and is linked to a user
+        map.set(employee.userId, employee.color);
       }
     });
-    
-    // For each event, determine its color based on assigned employees
-    const eventColorMap = new Map<string, string>();
-    events.forEach(event => {
-        // If event has multiple assignees, we could blend colors or pick first one.
-        // For simplicity, let's pick the color of the first assigned employee.
-        const firstAssigneeId = event.assignedTo?.[0];
-        if(firstAssigneeId && map.has(firstAssigneeId)){
-            eventColorMap.set(event.id, map.get(firstAssigneeId)!);
-        } else if (event.color) { // Fallback to event's own color if it has one
-            eventColorMap.set(event.id, event.color);
-        }
+    return map;
+  }, [employees, user]);
+
+  const eventsWithColor = useMemo(() => {
+    return events.map(event => {
+      if (event.ownerId && employeeColorMap.has(event.ownerId)) {
+        return { ...event, color: employeeColorMap.get(event.ownerId) };
+      }
+      return event;
     });
-
-    return eventColorMap;
-  }, [events, employees]);
-
-  const handleDataChanged = () => {
-    if (pbClient) fetchData(pbClient);
-  };
-
-  const openFormForNew = (date: Date) => {
-    setSelectedEvent(null);
-    setDefaultDate(date);
-    setIsFormOpen(true);
-  };
-
-  const openFormForEdit = (event: CalendarEvent) => {
-    setSelectedEvent(event);
-    setDefaultDate(undefined);
-    setIsFormOpen(true);
-  };
-  
-  const closeForm = () => {
-    setIsFormOpen(false);
-    setSelectedEvent(null);
-    setDefaultDate(undefined);
-  };
-  
-  const handleDeleteEvent = async (eventId: string) => {
-    if (!pbClient) return;
-    try {
-      await deleteTeamEvent(pbClient, eventId);
-      toast({ title: "Event Deleted", description: "The team event has been removed." });
-      handleDataChanged();
-      closeForm();
-    } catch (error: any) {
-      toast({ title: "Error Deleting Event", description: getDetailedErrorMessage(error), variant: "destructive" });
-    }
-  };
-
+  }, [events, employeeColorMap]);
 
   const refetchData = () => {
     if (pbClient && user) {
-      fetchData(pbClient);
+      fetchData(pbClient, user.id);
     }
   };
 
@@ -147,9 +106,9 @@ export default function TeamSchedulePage() {
 
       <Card className="shadow-md">
         <CardHeader>
-          <CardTitle className="font-headline">Weekly Team Calendar</CardTitle>
+          <CardTitle className="font-headline">Weekly Team Availability</CardTitle>
           <CardDescription>
-            A weekly calendar view of all team-related events like meetings or maintenance.
+            A combined view of all shared employee schedules. Events are color-coded by employee.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -166,31 +125,15 @@ export default function TeamSchedulePage() {
             </div>
           ) : (
             <WeeklyView
-              events={events}
-              employeeColorMap={employeeColorMap} 
+              events={eventsWithColor}
               isTeamView={true}
-              onHourSlotClick={openFormForNew}
-              onEventClick={openFormForEdit}
+              // Clicking on the team schedule won't open a form to prevent
+              // users from accidentally creating events on someone else's calendar.
+              // Event creation should happen on the "My Calendar" page.
             />
           )}
         </CardContent>
       </Card>
-      
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{selectedEvent ? 'Edit Team Event' : 'Add New Team Event'}</DialogTitle>
-          </DialogHeader>
-          <TeamEventForm
-            employees={employees}
-            eventToEdit={selectedEvent}
-            defaultDate={defaultDate}
-            onDialogClose={closeForm}
-            onDataChanged={handleDataChanged}
-            onDelete={handleDeleteEvent}
-          />
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

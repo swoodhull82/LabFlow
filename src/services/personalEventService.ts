@@ -32,7 +32,7 @@ const handleCreateError = (error: any, collectionName: string) => {
 
 
 // Helper to convert PocketBase record to a CalendarEvent-compatible object
-const pbRecordToPersonalEvent = (record: any, currentUserId: string): CalendarEvent | null => {
+const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
   const startDate = record.startDate ? new Date(record.startDate) : null;
   const endDate = record.endDate ? new Date(record.endDate) : null;
 
@@ -42,7 +42,6 @@ const pbRecordToPersonalEvent = (record: any, currentUserId: string): CalendarEv
   }
   
   const owner = record.expand?.userId;
-  const isOwner = !owner || owner.id === currentUserId;
 
   return {
     id: record.id,
@@ -59,7 +58,8 @@ const pbRecordToPersonalEvent = (record: any, currentUserId: string): CalendarEv
     collectionId: record.collectionId,
     collectionName: record.collectionName,
     ownerId: owner?.id,
-    ownerName: isOwner ? undefined : owner?.name,
+    ownerName: owner?.name, // Always include owner name for team view
+    expand: record.expand,
   } as CalendarEvent;
 };
 
@@ -75,8 +75,7 @@ export const getPersonalEvents = async (pb: PocketBase, userId: string, options?
     return [];
   }
   try {
-    // With correct API rules, we no longer need to manually build the filter.
-    // PocketBase will automatically filter the results based on the logged-in user's auth context.
+    // With correct API rules, PocketBase will automatically filter the results based on the logged-in user's auth context.
     const { signal, projectionHorizon, ...otherOptions } = options || {};
     const requestParams = {
       sort: 'startDate',
@@ -91,7 +90,7 @@ export const getPersonalEvents = async (pb: PocketBase, userId: string, options?
 
     // Map and filter out any records that are invalid
     const rawEvents = records
-      .map(record => pbRecordToPersonalEvent(record, userId))
+      .map(record => pbRecordToPersonalEvent(record))
       .filter((event): event is CalendarEvent => event !== null);
       
     if (projectionHorizon) {
@@ -130,15 +129,13 @@ export const createPersonalEvent = async (
 ): Promise<CalendarEvent> => {
   try {
     const record = await pb.collection(COLLECTION_NAME).create(eventData);
-    // For a newly created event, the owner is always the creator.
-    const personalEvent = pbRecordToPersonalEvent(record, eventData.userId);
+    const personalEvent = pbRecordToPersonalEvent(record);
     if (!personalEvent) {
         throw new Error("Failed to process the created event record.");
     }
     return personalEvent;
   } catch (error) {
     handleCreateError(error, COLLECTION_NAME);
-    // The line below is for TypeScript's benefit, as handleCreateError always throws.
     throw error;
   }
 };
@@ -163,8 +160,7 @@ export const updatePersonalEvent = async (
         pb.collection(COLLECTION_NAME).update(eventId, eventData),
         { context: `updating personal event ${eventId}` }
     );
-    // We don't know the current user ID here, but for an update, it must be the owner.
-    const personalEvent = pbRecordToPersonalEvent(record, record.userId);
+    const personalEvent = pbRecordToPersonalEvent(record);
     if (!personalEvent) {
         throw new Error("Failed to process the updated event record.");
     }

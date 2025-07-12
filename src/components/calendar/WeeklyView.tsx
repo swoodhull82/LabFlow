@@ -22,14 +22,11 @@ const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
     return `${hour} AM`;
 });
 
-const getEventColorClass = (event: CalendarEvent, employeeColorMap?: Map<string, string>): string => {
-    if (employeeColorMap && event.id) { // Use event.id for task-based coloring
-        const color = employeeColorMap.get(event.id);
-        if (color) {
-            return 'text-white border-l-4';
-        }
+const getEventColorClass = (event: CalendarEvent): string => {
+    if (event.color) {
+        return 'text-white border-l-4';
     }
-    // Fallback to original color logic if no map or ownerId
+    // Fallback to original color logic if no owner color
     switch (event.eventType) {
         case 'Out of Office':
             return "border-green-500 bg-green-50 text-green-900 dark:bg-green-900/20 dark:border-green-500/70 dark:text-green-100";
@@ -79,11 +76,10 @@ interface WeeklyViewProps {
     events: CalendarEvent[];
     onHourSlotClick?: (date: Date) => void;
     onEventClick?: (event: CalendarEvent) => void;
-    employeeColorMap?: Map<string, string>;
     isTeamView?: boolean;
 }
 
-export default function WeeklyView({ events, onHourSlotClick, onEventClick, employeeColorMap, isTeamView = false }: WeeklyViewProps) {
+export default function WeeklyView({ events, onHourSlotClick, onEventClick, isTeamView = false }: WeeklyViewProps) {
     const [currentDate, setCurrentDate] = useState(new Date());
     const containerRef = useRef<HTMLDivElement>(null);
     const headerRef = useRef<HTMLDivElement>(null);
@@ -142,21 +138,6 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick, empl
     const handleNextWeek = () => setCurrentDate(current => add(current, { weeks: 1 }));
     const handleToday = () => setCurrentDate(new Date());
     
-    // Determine the user name to display for an event
-    const getAssigneeName = (event: CalendarEvent): string | undefined => {
-      if (isTeamView) {
-        if (event.expand?.assignedTo && event.expand.assignedTo.length > 0) {
-          if (event.expand.assignedTo.length === 1) {
-            return event.expand.assignedTo[0].name;
-          }
-          return `${event.expand.assignedTo.length} assignees`;
-        }
-        return event.ownerName; // For personal events
-      }
-      return undefined;
-    };
-
-
     return (
         <Card className="shadow-md overflow-hidden flex flex-col h-[calc(100vh-200px)]">
             <CardHeader className="flex flex-row items-center justify-between gap-4 border-b p-3 flex-shrink-0">
@@ -219,7 +200,7 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick, empl
                                                 <div
                                                     key={`${dayIndex}-${hour}-${minute}`}
                                                     onClick={() => onHourSlotClick?.(slotDate)}
-                                                    className={cn("border-b border-border/70 hover:bg-accent transition-colors cursor-pointer", minute === 0 && 'border-dashed')}
+                                                    className={cn("border-b border-border/70 hover:bg-accent transition-colors", onHourSlotClick && 'cursor-pointer', minute === 0 && 'border-dashed')}
                                                     style={{height: `${HOUR_HEIGHT_PX / 2}px`}}
                                                 />
                                             );
@@ -247,20 +228,18 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick, empl
                                     const durationMinutes = Math.max(15, differenceInMinutes(endDate, startDate));
                                     const height = (durationMinutes / 60) * HOUR_HEIGHT_PX - 2;
                                     
-                                    const eventColorStyle = (employeeColorMap && event.id)
-                                      ? { borderColor: employeeColorMap.get(event.id), backgroundColor: `${employeeColorMap.get(event.id)}33` } // Add alpha for background
+                                    const eventColorStyle = event.color
+                                      ? { borderColor: event.color, backgroundColor: `${event.color}33` } // Add alpha for background
                                       : {};
                                     
-                                    const assigneeName = getAssigneeName(event);
-
                                     return (
                                         <div 
                                             key={event.id}
                                             onClick={() => onEventClick?.(event)}
                                             className={cn(
                                                 "absolute p-2 rounded-md transition-all shadow-sm overflow-hidden z-[5]",
-                                                getEventColorClass(event, employeeColorMap),
-                                                !isTeamView && "cursor-pointer hover:shadow-md",
+                                                getEventColorClass(event),
+                                                onEventClick && "cursor-pointer hover:shadow-md",
                                                 event.isAllDay && "opacity-90"
                                             )}
                                             style={{ 
@@ -274,9 +253,9 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick, empl
                                         >
                                             <p className="font-semibold text-xs truncate">{event.title}</p>
                                             {!event.isAllDay && <p className="text-[10px] opacity-80">{format(startDate, 'h:mm a')} - {format(endDate, 'h:mm a')}</p>}
-                                            {assigneeName && (
-                                                <div className="flex items-center text-[10px] opacity-70 italic mt-1">
-                                                    <User className="w-2.5 h-2.5 mr-1"/> {assigneeName}
+                                            {isTeamView && event.ownerName && (
+                                                <div className="flex items-center text-[10px] opacity-90 font-medium mt-1">
+                                                    <User className="w-2.5 h-2.5 mr-1"/> {event.ownerName}
                                                 </div>
                                             )}
                                         </div>
