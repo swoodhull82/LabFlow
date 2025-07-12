@@ -61,7 +61,7 @@ Based on the application's frontend code, the 'tasks' collection in PocketBase i
 *   **`updated`**: (Date, System Field) - Timestamp of last update.
 *   **`color`**: (Text, Optional) - Hex color code for the employee's events on team calendars (e.g., "#3b82f6").
 
-## PocketBase 'personal_events' Collection Schema (New)
+## PocketBase 'personal_events' Collection Schema (Updated)
 
 A new collection is required to store personal calendar events separately from the main tasks.
 
@@ -71,8 +71,9 @@ A new collection is required to store personal calendar events separately from t
 *   **`startDate`**: (Date, Required) - The start date and time of the event.
 *   **`endDate`**: (Date, Required) - The end date and time of the event.
 *   **`eventType`**: (Select, Optional, Default: "Available") - The type of event. Options: "Available", "Busy", "Out of Office".
-*   **`userId`**: (Relation to 'users', Optional) - The ID of the user who owns this event.
+*   **`userId`**: (Relation to 'users', Optional) - The ID of the user who owns this event OR the supervisor who created it.
 *   **`employeeId`**: (Relation to 'employees', Optional) - The ID of the employee this event belongs to. A supervisor can create events for employees.
+*   **`priority`**: (Select, Required) - Priority level. Options: "Low", "Medium", "High", "Urgent".
 *   **`isAllDay`**: (Boolean, Optional, Default: false) - Indicates if the event is for the whole day.
 *   **`recurrence`**: (Select, Optional, Default: "None") - Recurrence pattern. Options: "None", "Daily", "Weekly", "Monthly", "Yearly".
 *   **`created`**: (Date, System Field) - Timestamp of creation.

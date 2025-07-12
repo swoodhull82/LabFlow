@@ -1,6 +1,6 @@
 
 'use client';
-import type { CalendarEvent, PersonalEventType, TaskRecurrence } from "@/lib/types";
+import type { CalendarEvent, PersonalEventType, TaskRecurrence, TaskPriority } from "@/lib/types";
 import PocketBase, { ClientResponseError } from 'pocketbase';
 import { withRetry } from '@/lib/retry';
 import { isValid, addYears, addMonths, addWeeks, addDays, isBefore } from 'date-fns';
@@ -50,6 +50,7 @@ const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
     startDate: startDate,
     endDate: endDate,
     description: record.description,
+    priority: record.priority,
     userId: record.userId,
     employeeId: record.employeeId,
     isAllDay: record.isAllDay || false,
@@ -121,10 +122,11 @@ export const getPersonalEvents = async (pb: PocketBase, userId?: string, options
 interface PersonalEventCreationData {
     title: string;
     description?: string;
+    priority?: TaskPriority;
     startDate: Date;
     endDate: Date;
-    userId?: string; // Optional now
-    employeeId?: string; // Add employeeId
+    userId?: string; 
+    employeeId?: string;
     isAllDay?: boolean;
     eventType?: PersonalEventType;
     recurrence?: TaskRecurrence;
@@ -150,12 +152,14 @@ export const createPersonalEvent = async (
 export interface PersonalEventUpdateData {
     title?: string;
     description?: string;
+    priority?: TaskPriority;
     startDate?: Date;
     endDate?: Date;
     isAllDay?: boolean;
     eventType?: PersonalEventType;
     recurrence?: TaskRecurrence;
     employeeId?: string;
+    userId?: string;
 }
 
 export const updatePersonalEvent = async (

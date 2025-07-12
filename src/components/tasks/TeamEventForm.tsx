@@ -16,13 +16,14 @@ import { useToast } from "@/hooks/use-toast";
 import { createPersonalEvent, updatePersonalEvent, type PersonalEventUpdateData } from "@/services/personalEventService";
 import { useState } from "react";
 import { format, set, addDays, startOfWeek } from "date-fns";
-import { PERSONAL_EVENT_TYPES } from "@/lib/constants";
-import type { CalendarEvent, PersonalEventType, TaskRecurrence, Employee } from "@/lib/types";
+import { PERSONAL_EVENT_TYPES, TASK_PRIORITIES } from "@/lib/constants";
+import type { CalendarEvent, PersonalEventType, TaskRecurrence, Employee, TaskPriority } from "@/lib/types";
 
 const teamEventFormSchema = z.object({
   employeeId: z.string().min(1, { message: "An employee must be selected." }),
   title: z.string().min(2, { message: "Title must be at least 2 characters." }),
   description: z.string().optional(),
+  priority: z.string().min(1, "Priority is required.") as z.ZodType<TaskPriority>,
   selectedDays: z.array(z.number()).min(1, { message: "Please select at least one day." }),
   isAllDay: z.boolean().optional(),
   startTime: z.string().optional(),
@@ -83,7 +84,7 @@ const weekdays = [
 ];
 
 export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventToEdit, employees, weekToShow }: TeamEventFormProps) {
-  const { pbClient } = useAuth();
+  const { pbClient, user } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -98,6 +99,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
       employeeId: eventToEdit.employeeId || "",
       title: eventToEdit.title || "",
       description: eventToEdit.description || "",
+      priority: eventToEdit.priority || "Medium",
       eventType: eventToEdit.eventType || "Available",
       selectedDays: [new Date(eventToEdit.startDate).getDay()], // getDay() is 1 for Mon, 2 for Tue...
       isAllDay: eventToEdit.isAllDay || false,
@@ -108,6 +110,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
       employeeId: "",
       title: "",
       description: "",
+      priority: "Medium",
       eventType: "Available",
       selectedDays: [],
       isAllDay: false,
@@ -120,7 +123,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
   const isAllDay = form.watch("isAllDay");
 
   async function onSubmit(data: TeamEventFormData) {
-    if (!pbClient) {
+    if (!pbClient || !user) {
       toast({ title: "Error", description: "You must be logged in.", variant: "destructive" });
       return;
     }
@@ -146,10 +149,12 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
           description: data.description,
           startDate,
           endDate,
+          priority: data.priority,
           isAllDay: data.isAllDay,
           eventType: data.eventType,
           recurrence: data.recurrence,
           employeeId: data.employeeId,
+          userId: user.id, // Ensure supervisor's ID is attached
         };
         await updatePersonalEvent(pbClient, eventToEdit.id, eventPayload);
         toast({ title: "Success", description: "Event updated." });
@@ -171,8 +176,10 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
             }
             const eventPayload = {
               employeeId: data.employeeId,
+              userId: user.id, // The logged-in user (supervisor) is the creator
               title: data.title,
               description: data.description,
+              priority: data.priority,
               startDate,
               endDate,
               isAllDay: data.isAllDay,
@@ -251,28 +258,52 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
             </FormItem>
           )}
         />
-        <FormField
-            control={form.control}
-            name="eventType"
-            render={({ field }) => (
-                <FormItem>
-                <FormLabel>Show As</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Select event type" />
-                    </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                    {PERSONAL_EVENT_TYPES.map(type => (
-                        <SelectItem key={type} value={type}>{type}</SelectItem>
-                    ))}
-                    </SelectContent>
-                </Select>
-                <FormMessage />
-                </FormItem>
-            )}
-        />
+        <div className="grid grid-cols-2 gap-4">
+            <FormField
+                control={form.control}
+                name="eventType"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel>Show As</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select event type" />
+                        </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                        {PERSONAL_EVENT_TYPES.map(type => (
+                            <SelectItem key={type} value={type}>{type}</SelectItem>
+                        ))}
+                        </SelectContent>
+                    </Select>
+                    <FormMessage />
+                    </FormItem>
+                )}
+            />
+             <FormField
+                control={form.control}
+                name="priority"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel>Priority</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select priority" />
+                        </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                        {TASK_PRIORITIES.map(p => (
+                            <SelectItem key={p} value={p}>{p}</SelectItem>
+                        ))}
+                        </SelectContent>
+                    </Select>
+                    <FormMessage />
+                    </FormItem>
+                )}
+            />
+        </div>
 
         <FormField
           control={form.control}
