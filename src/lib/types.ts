@@ -62,6 +62,7 @@ export interface CalendarEvent {
   collectionName?: string; 
   expand?: {
     assignedTo?: Employee[];
+    createdBy?: User;
     [key: string]: any;
   };
   assignedTo?: string[];
@@ -72,6 +73,8 @@ export interface CalendarEvent {
   ownerId?: string;
   ownerName?: string;
   recurrence?: TaskRecurrence;
+  color?: string;
+  createdBy?: string;
 }
 
 export interface Employee {

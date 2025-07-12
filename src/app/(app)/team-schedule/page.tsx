@@ -3,13 +3,16 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { getCalendarEvents } from "@/services/calendarEventService";
-import type { CalendarEvent } from "@/lib/types";
+import { getTeamEvents, deleteTeamEvent } from "@/services/teamEventService";
+import { getEmployees } from "@/services/employeeService";
+import type { CalendarEvent, Employee } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertTriangle } from "lucide-react";
 import WeeklyView from "@/components/calendar/WeeklyView";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { TeamEventForm } from "@/components/tasks/TeamEventForm";
 import type PocketBase from "pocketbase";
 
 const getDetailedErrorMessage = (error: any): string => {
@@ -26,36 +29,30 @@ const getDetailedErrorMessage = (error: any): string => {
   return message;
 };
 
-// Priority-based colors, consistent with other parts of the app
-const getPriorityColor = (priority?: string) => {
-  if (!priority) return '#6b7280'; // gray-500
-  const lowerPriority = priority.toLowerCase();
-  switch (lowerPriority) {
-    case "urgent": return '#ef4444'; // red-500
-    case "high": return '#f97316';   // orange-500
-    case "medium": return '#3b82f6'; // blue-500
-    case "low": return '#10b981';    // green-500
-    default: return '#6b7280';
-  }
-};
-
 
 export default function TeamSchedulePage() {
   const { pbClient, user } = useAuth();
   const { toast } = useToast();
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [defaultDate, setDefaultDate] = useState<Date | undefined>(undefined);
 
   const fetchData = useCallback(async (pb: PocketBase, signal?: AbortSignal) => {
     setIsLoading(true);
     setError(null);
     try {
-      // Fetch all tasks and treat them as calendar events
-      const fetchedEvents = await getCalendarEvents(pb, { signal });
+      const [fetchedEvents, fetchedEmployees] = await Promise.all([
+        getTeamEvents(pb, { signal }),
+        getEmployees(pb, { signal }),
+      ]);
       setEvents(fetchedEvents);
-
+      setEmployees(fetchedEmployees);
     } catch (err: any) {
       const isCancellation = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
       if (!isCancellation) {
@@ -77,14 +74,64 @@ export default function TeamSchedulePage() {
     return () => controller.abort();
   }, [pbClient, user, fetchData]);
   
-  const priorityColorMap = useMemo(() => {
+  const employeeColorMap = useMemo(() => {
     const map = new Map<string, string>();
-    events.forEach((event) => {
-        // Use a unique key for each event, as multiple events can have the same priority
-        map.set(event.id, getPriorityColor(event.priority));
+    employees.forEach(employee => {
+      if (employee.color) {
+        map.set(employee.id, employee.color);
+      }
     });
-    return map;
-  }, [events]);
+    
+    // For each event, determine its color based on assigned employees
+    const eventColorMap = new Map<string, string>();
+    events.forEach(event => {
+        // If event has multiple assignees, we could blend colors or pick first one.
+        // For simplicity, let's pick the color of the first assigned employee.
+        const firstAssigneeId = event.assignedTo?.[0];
+        if(firstAssigneeId && map.has(firstAssigneeId)){
+            eventColorMap.set(event.id, map.get(firstAssigneeId)!);
+        } else if (event.color) { // Fallback to event's own color if it has one
+            eventColorMap.set(event.id, event.color);
+        }
+    });
+
+    return eventColorMap;
+  }, [events, employees]);
+
+  const handleDataChanged = () => {
+    if (pbClient) fetchData(pbClient);
+  };
+
+  const openFormForNew = (date: Date) => {
+    setSelectedEvent(null);
+    setDefaultDate(date);
+    setIsFormOpen(true);
+  };
+
+  const openFormForEdit = (event: CalendarEvent) => {
+    setSelectedEvent(event);
+    setDefaultDate(undefined);
+    setIsFormOpen(true);
+  };
+  
+  const closeForm = () => {
+    setIsFormOpen(false);
+    setSelectedEvent(null);
+    setDefaultDate(undefined);
+  };
+  
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!pbClient) return;
+    try {
+      await deleteTeamEvent(pbClient, eventId);
+      toast({ title: "Event Deleted", description: "The team event has been removed." });
+      handleDataChanged();
+      closeForm();
+    } catch (error: any) {
+      toast({ title: "Error Deleting Event", description: getDetailedErrorMessage(error), variant: "destructive" });
+    }
+  };
+
 
   const refetchData = () => {
     if (pbClient && user) {
@@ -100,9 +147,9 @@ export default function TeamSchedulePage() {
 
       <Card className="shadow-md">
         <CardHeader>
-          <CardTitle className="font-headline">Weekly Task Overview</CardTitle>
+          <CardTitle className="font-headline">Weekly Team Calendar</CardTitle>
           <CardDescription>
-            A weekly calendar view of all scheduled lab tasks. Task colors are based on priority.
+            A weekly calendar view of all team-related events like meetings or maintenance.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -120,12 +167,30 @@ export default function TeamSchedulePage() {
           ) : (
             <WeeklyView
               events={events}
-              employeeColorMap={priorityColorMap} // Re-using this prop to pass color data
-              isTeamView={true} // Ensures event owner names are shown if available
+              employeeColorMap={employeeColorMap} 
+              isTeamView={true}
+              onHourSlotClick={openFormForNew}
+              onEventClick={openFormForEdit}
             />
           )}
         </CardContent>
       </Card>
+      
+      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{selectedEvent ? 'Edit Team Event' : 'Add New Team Event'}</DialogTitle>
+          </DialogHeader>
+          <TeamEventForm
+            employees={employees}
+            eventToEdit={selectedEvent}
+            defaultDate={defaultDate}
+            onDialogClose={closeForm}
+            onDataChanged={handleDataChanged}
+            onDelete={handleDeleteEvent}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
