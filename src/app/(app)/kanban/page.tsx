@@ -96,16 +96,31 @@ const Example = () => {
   
   const kanbanOwners = useMemo(() => {
     if (employees.length === 0) {
-      return [];
+        // If there are no employees but we have a logged in user, create an entry for them
+        if (user) {
+            return [{ id: user.id, name: user.name || user.email }];
+        }
+        return [];
     }
-    return employees.map(emp => ({
-      id: emp.id,
-      name: emp.name
+    
+    // Create a set of all employee IDs to check for the user's existence
+    const employeeIds = new Set(employees.map(emp => emp.id));
+    const allOwners = employees.map(emp => ({
+        id: emp.id,
+        name: emp.name
     }));
-  }, [employees]);
+
+    // If the logged-in user is not in the list of employees, add them
+    if (user && !employeeIds.has(user.id)) {
+        allOwners.unshift({ id: user.id, name: user.name || user.email });
+    }
+    
+    return allOwners;
+
+  }, [employees, user]);
 
   const initialFeatures = useMemo(() => {
-    if (kanbanOwners.length <= 1 && employees.length > 0) return []; // Wait for full employee list if possible
+    if (kanbanOwners.length === 0) return [];
     
     const getOwner = (index: number) => kanbanOwners[index % kanbanOwners.length];
     const getCreator = (index: number) => kanbanOwners[index % kanbanOwners.length];
@@ -135,8 +150,8 @@ const Example = () => {
         endAt: addMonths(endOfMonth(today), 1),
         status: exampleStatuses[1], // In Progress
         group: newGroups[1], // Instrument Management
-        owner: getOwner(1),
-        createdBy: getCreator(1),
+        owner: getOwner(1 % kanbanOwners.length),
+        createdBy: getCreator(1 % kanbanOwners.length),
         initiative: { id: '2', name: 'Lab Operations' },
         release: { id: '1', name: 'v1.0' },
         steps: [
@@ -152,8 +167,8 @@ const Example = () => {
         endAt: subDays(endOfMonth(today), 5),
         status: exampleStatuses[1], // In Progress
         group: newGroups[2], // Supply Chain & Ordering
-        owner: getOwner(2),
-        createdBy: getCreator(2),
+        owner: getOwner(2 % kanbanOwners.length),
+        createdBy: getCreator(2 % kanbanOwners.length),
         initiative: { id: '3', name: 'Inventory Management' },
         release: { id: '2', name: 'v1.1' },
         steps: [
@@ -168,8 +183,8 @@ const Example = () => {
         endAt: addMonths(endOfMonth(today), 2),
         status: exampleStatuses[0], // Planned
         group: newGroups[3], // General Projects
-        owner: getOwner(3),
-        createdBy: getCreator(3),
+        owner: getOwner(3 % kanbanOwners.length),
+        createdBy: getCreator(3 % kanbanOwners.length),
         initiative: { id: '4', name: 'Compliance 2024' },
         release: { id: '2', name: 'v1.1' },
         steps: []
@@ -197,8 +212,8 @@ const Example = () => {
         endAt: startOfMonth(today),
         status: exampleStatuses[2], // Done
         group: newGroups[1], // Instrument Management
-        owner: getOwner(1),
-        createdBy: getCreator(1),
+        owner: getOwner(1 % kanbanOwners.length),
+        createdBy: getCreator(1 % kanbanOwners.length),
         initiative: { id: '2', name: 'Lab Operations' },
         release: { id: '3', name: 'v1.2' },
         steps: [
@@ -215,17 +230,19 @@ const Example = () => {
         status: exampleStatuses[0], // Planned
         group: newGroups[2], // Supply Chain & Ordering
         owner: getOwner(5 % kanbanOwners.length),
-        createdBy: getCreator(2),
+        createdBy: getCreator(2 % kanbanOwners.length),
         initiative: { id: '3', name: 'Inventory Management' },
         release: { id: '3', name: 'v1.2' },
         steps: []
       },
     ];
-  }, [kanbanOwners, employees.length]);
+  }, [kanbanOwners]);
 
   const [features, setFeatures] = useState(initialFeatures);
 
   useEffect(() => {
+    // This effect ensures that the example features are re-initialized
+    // once the dynamic kanbanOwners list is populated.
     setFeatures(initialFeatures);
   }, [initialFeatures]);
   
@@ -318,12 +335,19 @@ const Example = () => {
     event.preventDefault();
 
     if (!newCardName || !newCardAssignee || !newCardStatus || !newCardGroup || !user) return;
-
+    
+    // Find the assignee in the comprehensive kanbanOwners list
     const owner = kanbanOwners.find(o => o.id === newCardAssignee);
-    const creator = kanbanOwners.find(o => o.id === user.id);
+    
+    // The creator is always the logged-in user.
+    const creator = { id: user.id, name: user.name || user.email };
+
     const status = exampleStatuses.find(s => s.id === newCardStatus);
 
-    if (!owner || !status || !creator) return;
+    if (!owner || !status) {
+        console.error("Could not create card. Owner or Status not found.", { owner, status });
+        return;
+    }
 
     const newFeature = {
       id: `feature-${Date.now()}`,
