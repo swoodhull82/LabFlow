@@ -72,7 +72,7 @@ const KanbanPage = () => {
   // New Card Form states
   const [newCardGroup, setNewCardGroup] = useState<KanbanGroup | null>(null);
   const [newCardName, setNewCardName] = useState('');
-  const [newCardAssignees, setNewCardAssignees] = useState<string[]>([]);
+  const [newCardAssigneeIds, setNewCardAssigneeIds] = useState<string[]>([]);
   const [newCardStatusId, setNewCardStatusId] = useState('');
   const [newCardSteps, setNewCardSteps] = useState<{ id: string, name: string, completed: boolean, assigneeIds: string[] }[]>([]);
   const [currentStepInput, setCurrentStepInput] = useState('');
@@ -209,13 +209,13 @@ const KanbanPage = () => {
     event.preventDefault();
     if (!newCardName || !newCardStatusId || !newCardGroup || !user || !pbClient) return;
     
-    const cardPayload: { [key: string]: any } = {
+    const cardPayload = {
         name: newCardName,
         status: newCardStatusId,
         group: newCardGroup.id,
         createdBy: user.id,
         order: (cards.filter(c => c.group === newCardGroup.id).length + 1) * 10,
-        owners: newCardAssignees.length > 0 ? newCardAssignees : [user.id],
+        owners: newCardAssigneeIds.length > 0 ? newCardAssigneeIds : [user.id],
     };
 
     try {
@@ -248,7 +248,7 @@ const KanbanPage = () => {
 
   // Helper functions for the new card dialog
   const resetAndCloseForm = () => {
-    setIsAddCardOpen(false); setNewCardName(''); setNewCardAssignees([]); 
+    setIsAddCardOpen(false); setNewCardName(''); setNewCardAssigneeIds([]); 
     if (statuses.length > 0) setNewCardStatusId(statuses[0].id);
     setNewCardSteps([]); setCurrentStepInput(''); setNewCardGroup(null);
   };
@@ -369,14 +369,14 @@ const KanbanPage = () => {
   };
   
   const MultiAssigneeSelect = ({
-      label, selectedAssignees, onSelectionChange, isLoading: isLoadingOptions, options, className,
+      label, selectedAssigneeIds, onSelectionChange, isLoading: isLoadingOptions, options, className,
   }: {
-      label: string; selectedAssignees: string[]; onSelectionChange: (id: string) => void;
+      label: string; selectedAssigneeIds: string[]; onSelectionChange: (id: string) => void;
       isLoading: boolean; options: { id: string; name: string }[]; className?: string;
   }) => {
-      const selectedText = selectedAssignees.length === 0 ? `Select ${label}...`
-          : selectedAssignees.length === 1 ? options.find((o) => o.id === selectedAssignees[0])?.name ?? '1 selected'
-          : `${selectedAssignees.length} selected`;
+      const selectedText = selectedAssigneeIds.length === 0 ? `Select ${label}...`
+          : selectedAssigneeIds.length === 1 ? options.find((o) => o.id === selectedAssigneeIds[0])?.name ?? '1 selected'
+          : `${selectedAssigneeIds.length} selected`;
 
       return (
           <Popover>
@@ -392,10 +392,10 @@ const KanbanPage = () => {
                           <CommandEmpty>No results found.</CommandEmpty>
                           <CommandGroup>
                               {options.map((option) => (
-                                  <CommandItem key={option.id} onSelect={() => {
+                                  <CommandItem key={option.id} onSelect={(currentValue) => {
                                       onSelectionChange(option.id);
                                   }}>
-                                      <div className={cn("mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary", selectedAssignees.includes(option.id) ? 'bg-primary text-primary-foreground' : 'opacity-50 [&_svg]:invisible')}>
+                                      <div className={cn("mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary", selectedAssigneeIds.includes(option.id) ? 'bg-primary text-primary-foreground' : 'opacity-50 [&_svg]:invisible')}>
                                           <Check className="h-4 w-4" />
                                       </div>
                                       <span>{option.name}</span>
@@ -519,8 +519,8 @@ const KanbanPage = () => {
               <div className="grid grid-cols-4 items-center gap-4">
                   <Label htmlFor="assignees" className="text-right">Assignees</Label>
                    <div className="col-span-3">
-                      <MultiAssigneeSelect label="Assignees" selectedAssignees={newCardAssignees}
-                          onSelectionChange={(id) => setNewCardAssignees((prev) => prev.includes(id) ? prev.filter((prevId) => prevId !== id) : [...prev, id])}
+                      <MultiAssigneeSelect label="Assignees" selectedAssigneeIds={newCardAssigneeIds}
+                          onSelectionChange={(id) => setNewCardAssigneeIds((prev) => prev.includes(id) ? prev.filter((prevId) => prevId !== id) : [...prev, id])}
                           isLoading={isLoading} options={allUsersForAssigning} />
                   </div>
               </div>
@@ -542,7 +542,7 @@ const KanbanPage = () => {
                           <div key={step.id} className="flex items-center justify-between text-sm gap-2">
                               <span className="flex-1 truncate">{step.name}</span>
                               <div className="flex items-center gap-2">
-                                  <MultiAssigneeSelect label="Assignees" selectedAssignees={step.assigneeIds}
+                                  <MultiAssigneeSelect label="Assignees" selectedAssigneeIds={step.assigneeIds}
                                       onSelectionChange={(id) => handleStepAssigneeChange(step.id, id)}
                                       isLoading={isLoading} options={allUsersForAssigning} className="h-7 text-xs" />
                                 <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleRemoveStep(step.id)}>
