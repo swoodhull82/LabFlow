@@ -52,7 +52,7 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-US', {
 });
 
 const Example = () => {
-  const { pbClient } = useAuth();
+  const { pbClient, user } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
 
@@ -369,7 +369,7 @@ const Example = () => {
                 <Label htmlFor="ownerId" className="text-right">
                   Owner
                 </Label>
-                <Select name="ownerId" required disabled={isLoadingEmployees}>
+                <Select name="ownerId" defaultValue={user?.id} required disabled={isLoadingEmployees}>
                     <SelectTrigger className="col-span-3">
                         <SelectValue placeholder={isLoadingEmployees ? <div className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> <span>Loading...</span></div> : "Select an owner"} />
                     </SelectTrigger>
