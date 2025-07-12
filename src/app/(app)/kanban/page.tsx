@@ -31,6 +31,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from '@/context/AuthContext';
 import { getEmployees } from '@/services/employeeService';
+import { getUsers } from '@/services/userService';
 import { getKanbanData, createKanbanCard, updateKanbanCardStatus, updateKanbanStep, createKanbanStep, deleteKanbanCard } from '@/services/kanbanService';
 import type { Employee, KanbanCard as KanbanCardData, KanbanStatus, KanbanGroup, KanbanStep, User as AuthUser } from '@/lib/types';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -55,14 +56,15 @@ const DEFAULT_GROUPS: KanbanGroup[] = [
     { id: 'group-general', name: 'General Tasks', order: 1 },
 ];
 
-const DeleteDropZone = () => {
+const DeleteDropZone = ({ className }: { className?: string }) => {
     const { setNodeRef, isOver } = useDroppable({ id: 'delete-zone' });
     return (
         <div
             ref={setNodeRef}
             className={cn(
-                'flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-destructive/50 bg-destructive/10 p-4 transition-colors',
-                isOver && 'bg-destructive/20 border-destructive'
+                'flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-destructive/50 bg-destructive/10 p-4 transition-colors h-full',
+                isOver && 'bg-destructive/20 border-destructive',
+                className
             )}
         >
             <Trash2 className="h-10 w-10 text-destructive" />
@@ -115,6 +117,7 @@ const KanbanPage = () => {
       setGroups(liveGroups);
       setCards(kanbanData.cards);
       setEmployees(fetchedEmployees);
+
       if (liveStatuses.length > 0) {
         setNewCardStatusId(liveStatuses[0].id);
       }
@@ -236,7 +239,7 @@ const KanbanPage = () => {
                     card: newCard.id,
                     name: step.name,
                     completed: false,
-                    assignees: step.assigneeIds, // This is an array of Employee IDs
+                    assignees: step.assigneeIds,
                     order: (index + 1) * 10
                 })
             );
@@ -477,40 +480,50 @@ const KanbanPage = () => {
 
       {viewMode === 'board' ? (
         <KanbanProvider onDragEnd={handleDragEnd} className="p-4 pt-0">
-          <div className="grid grid-cols-[200px_1fr_1fr_1fr_200px] gap-4 w-full">
-            <div className="font-semibold text-lg p-2">Category</div>
+          <div className="grid grid-cols-[200px_1fr_1fr_1fr_200px] grid-rows-[auto_1fr] gap-4 w-full">
+            {/* Header Row */}
+            <div className="font-semibold text-lg p-2 row-start-1">Category</div>
             {statuses.map((status) => (
-              <div key={status.name} className="p-2">
+              <div key={status.name} className="p-2 row-start-1">
                 <KanbanHeader name={status.name} color={status.color} />
               </div>
             ))}
-            <div className="font-semibold text-lg p-2 text-destructive">Actions</div>
-            
-            <div className="col-span-5"><Separator /></div>
+            <div className="font-semibold text-lg p-2 text-destructive row-start-1">Actions</div>
+            <div className="col-span-5 row-start-1"><Separator /></div>
 
-            {groups.map((group) => (
-              <React.Fragment key={group.id}>
-                <div className="p-2 h-full flex flex-col">
+            {/* Content Area */}
+            <div className="col-span-1 row-start-2 flex flex-col gap-4">
+              {groups.map((group) => (
+                <div key={group.id} className="p-2 flex-1 flex flex-col min-h-40">
                   <h3 className="text-md font-semibold text-foreground sticky top-4">{group.name}</h3>
-                  <Button variant="ghost" className="w-full mt-2 text-muted-foreground justify-start px-0" onClick={() => handleAddCardClick(group)}>
+                   <Button variant="ghost" className="w-full mt-2 text-muted-foreground justify-start px-0" onClick={() => handleAddCardClick(group)}>
                     <Plus className="mr-2 h-4 w-4" /> Add a card
                   </Button>
                 </div>
-                {statuses.map((status) => (
-                  <KanbanBoard key={`${group.name}-${status.name}`} id={`${status.name}-${group.name}`}>
-                    <KanbanCards>
-                      {(tasksByGroupAndStatus[group.name]?.[status.name] || []).map((card, index) => (
-                        <KanbanCard key={card.id} id={card.id} name={card.name} parent={`${status.name}-${group.name}`} index={index}>
-                          {cardRenderer(card)}
-                        </KanbanCard>
-                      ))}
-                    </KanbanCards>
-                  </KanbanBoard>
-                ))}
+              ))}
+            </div>
+            
+            <div className="col-span-3 row-start-2 flex gap-4">
+              {statuses.map((status) => (
+                <div key={status.name} className="flex flex-col gap-4 w-full">
+                  {groups.map((group) => (
+                     <KanbanBoard key={`${group.name}-${status.name}`} id={`${status.name}-${group.name}`}>
+                       <KanbanCards>
+                         {(tasksByGroupAndStatus[group.name]?.[status.name] || []).map((card, index) => (
+                           <KanbanCard key={card.id} id={card.id} name={card.name} parent={`${status.name}-${group.name}`} index={index}>
+                             {cardRenderer(card)}
+                           </KanbanCard>
+                         ))}
+                       </KanbanCards>
+                     </KanbanBoard>
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            <div className="col-span-1 row-start-2">
                 <DeleteDropZone />
-                <div className="col-span-5"><Separator /></div>
-              </React.Fragment>
-            ))}
+            </div>
           </div>
         </KanbanProvider>
       ) : (
