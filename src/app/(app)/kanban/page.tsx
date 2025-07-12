@@ -14,7 +14,6 @@ import { useState, useMemo } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subDays, subMonths } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 
-// Inline content
 const today = new Date();
 
 const exampleStatuses = [
@@ -23,101 +22,89 @@ const exampleStatuses = [
   { id: '3', name: 'Done', color: '#10B981' },
 ];
 
+const newGroups = [
+  { id: '1', name: 'Customer Service' },
+  { id: '2', name: 'Instrument Management' },
+  { id: '3', name: 'Supply Chain & Ordering' },
+  { id: '4', name: 'General Projects' },
+]
+
 const initialFeatures = [
   {
     id: '1',
-    name: 'AI Scene Analysis',
-    startAt: startOfMonth(subMonths(today, 6)),
-    endAt: subDays(endOfMonth(today), 5),
-    status: exampleStatuses[0],
-    group: { id: '1', name: 'Core AI Features' },
-    product: { id: '1', name: 'Video Editor Pro' },
-    owner: {
-      id: '1',
-      image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=1',
-      name: 'Alice Johnson',
-    },
-    initiative: { id: '1', name: 'AI Integration' },
+    name: 'Develop new customer feedback form',
+    startAt: startOfMonth(subMonths(today, 2)),
+    endAt: endOfMonth(subMonths(today, 1)),
+    status: exampleStatuses[2], // Done
+    group: newGroups[0], // Customer Service
+    owner: { id: '1', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=1', name: 'Alice Johnson' },
+    initiative: { id: '1', name: 'Client Relations Q3' },
     release: { id: '1', name: 'v1.0' },
   },
   {
     id: '2',
-    name: 'Collaborative Editing',
-    startAt: startOfMonth(subMonths(today, 5)),
-    endAt: subDays(endOfMonth(today), 5),
-    status: exampleStatuses[1],
-    group: { id: '2', name: 'Collaboration Tools' },
-    product: { id: '1', name: 'Video Editor Pro' },
-    owner: {
-      id: '2',
-      image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=2',
-      name: 'Bob Smith',
-    },
-    initiative: { id: '2', name: 'Real-time Collaboration' },
+    name: 'Quarterly ICP-MS Maintenance',
+    startAt: startOfMonth(today),
+    endAt: addMonths(endOfMonth(today), 1),
+    status: exampleStatuses[1], // In Progress
+    group: newGroups[1], // Instrument Management
+    owner: { id: '2', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=2', name: 'Bob Smith' },
+    initiative: { id: '2', name: 'Lab Operations' },
     release: { id: '1', name: 'v1.0' },
   },
   {
     id: '3',
-    name: 'AI-Powered Color Grading',
-    startAt: startOfMonth(subMonths(today, 4)),
+    name: 'Restock common reagents',
+    startAt: startOfMonth(today),
     endAt: subDays(endOfMonth(today), 5),
-    status: exampleStatuses[2],
-    group: { id: '1', name: 'Core AI Features' },
-    product: { id: '1', name: 'Video Editor Pro' },
-    owner: {
-      id: '3',
-      image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=3',
-      name: 'Charlie Brown',
-    },
-    initiative: { id: '1', name: 'AI Integration' },
+    status: exampleStatuses[1], // In Progress
+    group: newGroups[2], // Supply Chain & Ordering
+    owner: { id: '3', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=3', name: 'Charlie Brown' },
+    initiative: { id: '3', name: 'Inventory Management' },
     release: { id: '2', name: 'v1.1' },
   },
   {
     id: '4',
-    name: 'Real-time Video Chat',
-    startAt: startOfMonth(subMonths(today, 3)),
-    endAt: subDays(endOfMonth(today), 12),
-    status: exampleStatuses[0],
-    group: { id: '2', name: 'Collaboration Tools' },
-    product: { id: '1', name: 'Video Editor Pro' },
-    owner: {
-      id: '4',
-      image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=4',
-      name: 'Diana Prince',
-    },
-    initiative: { id: '2', name: 'Real-time Collaboration' },
+    name: 'Update Safety Data Sheets (SDS)',
+    startAt: addMonths(startOfMonth(today), 1),
+    endAt: addMonths(endOfMonth(today), 2),
+    status: exampleStatuses[0], // Planned
+    group: newGroups[3], // General Projects
+    owner: { id: '4', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=4', name: 'Diana Prince' },
+    initiative: { id: '4', name: 'Compliance 2024' },
     release: { id: '2', name: 'v1.1' },
   },
   {
     id: '5',
-    name: 'AI Voice-to-Text Subtitles',
-    startAt: startOfMonth(subMonths(today, 2)),
-    endAt: subDays(endOfMonth(today), 5),
-    status: exampleStatuses[1],
-    group: { id: '1', name: 'Core AI Features' },
-    product: { id: '1', name: 'Video Editor Pro' },
-    owner: {
-      id: '5',
-      image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=5',
-      name: 'Ethan Hunt',
-    },
-    initiative: { id: '1', name: 'AI Integration' },
+    name: 'Onboard new client: Acme Inc.',
+    startAt: startOfMonth(today),
+    endAt: endOfMonth(today),
+    status: exampleStatuses[1], // In Progress
+    group: newGroups[0], // Customer Service
+    owner: { id: '5', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=5', name: 'Ethan Hunt' },
+    initiative: { id: '1', name: 'Client Relations Q3' },
     release: { id: '2', name: 'v1.1' },
   },
   {
     id: '6',
-    name: 'Cloud Asset Management',
-    startAt: startOfMonth(subMonths(today, 1)),
-    endAt: endOfMonth(today),
-    status: exampleStatuses[2],
-    group: { id: '3', name: 'Cloud Infrastructure' },
-    product: { id: '1', name: 'Video Editor Pro' },
-    owner: {
-      id: '6',
-      image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=6',
-      name: 'Fiona Gallagher',
-    },
-    initiative: { id: '3', name: 'Cloud Migration' },
+    name: 'Calibrate pH meters',
+    startAt: subDays(startOfMonth(today), 10),
+    endAt: startOfMonth(today),
+    status: exampleStatuses[2], // Done
+    group: newGroups[1], // Instrument Management
+    owner: { id: '2', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=2', name: 'Bob Smith' },
+    initiative: { id: '2', name: 'Lab Operations' },
+    release: { id: '3', name: 'v1.2' },
+  },
+    {
+    id: '7',
+    name: 'Evaluate new pipette supplier',
+    startAt: addMonths(startOfMonth(today), 2),
+    endAt: addMonths(endOfMonth(today), 2),
+    status: exampleStatuses[0], // Planned
+    group: newGroups[2], // Supply Chain & Ordering
+    owner: { id: '6', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=6', name: 'Fiona Gallagher' },
+    initiative: { id: '3', name: 'Inventory Management' },
     release: { id: '3', name: 'v1.2' },
   },
 ];
@@ -177,10 +164,8 @@ const Example = () => {
   }, [features]);
 
   const allGroups = useMemo(() => {
-    const groupSet = new Set<string>();
-    features.forEach(feature => groupSet.add(feature.group.name));
-    return Array.from(groupSet);
-  }, [features]);
+    return newGroups.map(g => g.name);
+  }, []);
 
   return (
     <KanbanProvider onDragEnd={handleDragEnd} className="p-4">
