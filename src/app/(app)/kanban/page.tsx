@@ -11,15 +11,18 @@ import {
 } from '@/components/ui/shadcn-io/kanban';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { useSensor, useSensors, PointerSensor, TouchSensor } from '@dnd-kit/core';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subDays, subMonths } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import { Plus, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAuth } from '@/context/AuthContext';
+import { getEmployees } from '@/services/employeeService';
+import type { Employee } from '@/lib/types';
 
 
 const today = new Date();
@@ -37,95 +40,6 @@ const newGroups = [
   { id: '4', name: 'General Projects' },
 ]
 
-const exampleOwners = [
-    { id: '1', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=1', name: 'Alice Johnson' },
-    { id: '2', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=2', name: 'Bob Smith' },
-    { id: '3', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=3', name: 'Charlie Brown' },
-    { id: '4', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=4', name: 'Diana Prince' },
-    { id: '5', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=5', name: 'Ethan Hunt' },
-    { id: '6', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=6', name: 'Fiona Gallagher' },
-];
-
-const initialFeatures = [
-  {
-    id: '1',
-    name: 'Develop new customer feedback form',
-    startAt: startOfMonth(subMonths(today, 2)),
-    endAt: endOfMonth(subMonths(today, 1)),
-    status: exampleStatuses[2], // Done
-    group: newGroups[0], // Customer Service
-    owner: exampleOwners[0],
-    initiative: { id: '1', name: 'Client Relations Q3' },
-    release: { id: '1', name: 'v1.0' },
-  },
-  {
-    id: '2',
-    name: 'Quarterly ICP-MS Maintenance',
-    startAt: startOfMonth(today),
-    endAt: addMonths(endOfMonth(today), 1),
-    status: exampleStatuses[1], // In Progress
-    group: newGroups[1], // Instrument Management
-    owner: exampleOwners[1],
-    initiative: { id: '2', name: 'Lab Operations' },
-    release: { id: '1', name: 'v1.0' },
-  },
-  {
-    id: '3',
-    name: 'Restock common reagents',
-    startAt: startOfMonth(today),
-    endAt: subDays(endOfMonth(today), 5),
-    status: exampleStatuses[1], // In Progress
-    group: newGroups[2], // Supply Chain & Ordering
-    owner: exampleOwners[2],
-    initiative: { id: '3', name: 'Inventory Management' },
-    release: { id: '2', name: 'v1.1' },
-  },
-  {
-    id: '4',
-    name: 'Update Safety Data Sheets (SDS)',
-    startAt: addMonths(startOfMonth(today), 1),
-    endAt: addMonths(endOfMonth(today), 2),
-    status: exampleStatuses[0], // Planned
-    group: newGroups[3], // General Projects
-    owner: exampleOwners[3],
-    initiative: { id: '4', name: 'Compliance 2024' },
-    release: { id: '2', name: 'v1.1' },
-  },
-  {
-    id: '5',
-    name: 'Onboard new client: Acme Inc.',
-    startAt: startOfMonth(today),
-    endAt: endOfMonth(today),
-    status: exampleStatuses[1], // In Progress
-    group: newGroups[0], // Customer Service
-    owner: exampleOwners[4],
-    initiative: { id: '1', name: 'Client Relations Q3' },
-    release: { id: '2', name: 'v1.1' },
-  },
-  {
-    id: '6',
-    name: 'Calibrate pH meters',
-    startAt: subDays(startOfMonth(today), 10),
-    endAt: startOfMonth(today),
-    status: exampleStatuses[2], // Done
-    group: newGroups[1], // Instrument Management
-    owner: exampleOwners[1],
-    initiative: { id: '2', name: 'Lab Operations' },
-    release: { id: '3', name: 'v1.2' },
-  },
-    {
-    id: '7',
-    name: 'Evaluate new pipette supplier',
-    startAt: addMonths(startOfMonth(today), 2),
-    endAt: addMonths(endOfMonth(today), 2),
-    status: exampleStatuses[0], // Planned
-    group: newGroups[2], // Supply Chain & Ordering
-    owner: exampleOwners[5],
-    initiative: { id: '3', name: 'Inventory Management' },
-    release: { id: '3', name: 'v1.2' },
-  },
-];
-
 const dateFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   day: 'numeric',
@@ -138,9 +52,136 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-US', {
 });
 
 const Example = () => {
-  const [features, setFeatures] = useState(initialFeatures);
+  const { pbClient } = useAuth();
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
+
   const [isAddCardOpen, setIsAddCardOpen] = useState(false);
   const [newCardGroup, setNewCardGroup] = useState<typeof newGroups[0] | null>(null);
+
+  const fetchTeamMembers = useCallback(async () => {
+    if (!pbClient) return;
+    setIsLoadingEmployees(true);
+    try {
+      const fetchedEmployees = await getEmployees(pbClient);
+      setEmployees(fetchedEmployees);
+    } catch (error) {
+      console.error("Failed to fetch employees for Kanban:", error);
+    } finally {
+      setIsLoadingEmployees(false);
+    }
+  }, [pbClient]);
+
+  useEffect(() => {
+    fetchTeamMembers();
+  }, [fetchTeamMembers]);
+  
+  const kanbanOwners = useMemo(() => {
+    if (employees.length === 0) {
+      return [
+        { id: 'placeholder-1', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=placeholder', name: 'Loading...' },
+      ];
+    }
+    return employees.map(emp => ({
+      id: emp.id,
+      image: `https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=${emp.id}`,
+      name: emp.name
+    }));
+  }, [employees]);
+
+  const initialFeatures = useMemo(() => {
+    if (kanbanOwners.length <= 1 && employees.length > 0) return []; // Wait for full employee list if possible
+    
+    // Helper to get an owner by index, cycling through available owners
+    const getOwner = (index: number) => kanbanOwners[index % kanbanOwners.length];
+
+    return [
+      {
+        id: '1',
+        name: 'Develop new customer feedback form',
+        startAt: startOfMonth(subMonths(today, 2)),
+        endAt: endOfMonth(subMonths(today, 1)),
+        status: exampleStatuses[2], // Done
+        group: newGroups[0], // Customer Service
+        owner: getOwner(0),
+        initiative: { id: '1', name: 'Client Relations Q3' },
+        release: { id: '1', name: 'v1.0' },
+      },
+      {
+        id: '2',
+        name: 'Quarterly ICP-MS Maintenance',
+        startAt: startOfMonth(today),
+        endAt: addMonths(endOfMonth(today), 1),
+        status: exampleStatuses[1], // In Progress
+        group: newGroups[1], // Instrument Management
+        owner: getOwner(1),
+        initiative: { id: '2', name: 'Lab Operations' },
+        release: { id: '1', name: 'v1.0' },
+      },
+      {
+        id: '3',
+        name: 'Restock common reagents',
+        startAt: startOfMonth(today),
+        endAt: subDays(endOfMonth(today), 5),
+        status: exampleStatuses[1], // In Progress
+        group: newGroups[2], // Supply Chain & Ordering
+        owner: getOwner(2),
+        initiative: { id: '3', name: 'Inventory Management' },
+        release: { id: '2', name: 'v1.1' },
+      },
+      {
+        id: '4',
+        name: 'Update Safety Data Sheets (SDS)',
+        startAt: addMonths(startOfMonth(today), 1),
+        endAt: addMonths(endOfMonth(today), 2),
+        status: exampleStatuses[0], // Planned
+        group: newGroups[3], // General Projects
+        owner: getOwner(3),
+        initiative: { id: '4', name: 'Compliance 2024' },
+        release: { id: '2', name: 'v1.1' },
+      },
+      {
+        id: '5',
+        name: 'Onboard new client: Acme Inc.',
+        startAt: startOfMonth(today),
+        endAt: endOfMonth(today),
+        status: exampleStatuses[1], // In Progress
+        group: newGroups[0], // Customer Service
+        owner: getOwner(4 % kanbanOwners.length),
+        initiative: { id: '1', name: 'Client Relations Q3' },
+        release: { id: '2', name: 'v1.1' },
+      },
+      {
+        id: '6',
+        name: 'Calibrate pH meters',
+        startAt: subDays(startOfMonth(today), 10),
+        endAt: startOfMonth(today),
+        status: exampleStatuses[2], // Done
+        group: newGroups[1], // Instrument Management
+        owner: getOwner(1),
+        initiative: { id: '2', name: 'Lab Operations' },
+        release: { id: '3', name: 'v1.2' },
+      },
+        {
+        id: '7',
+        name: 'Evaluate new pipette supplier',
+        startAt: addMonths(startOfMonth(today), 2),
+        endAt: addMonths(endOfMonth(today), 2),
+        status: exampleStatuses[0], // Planned
+        group: newGroups[2], // Supply Chain & Ordering
+        owner: getOwner(5 % kanbanOwners.length),
+        initiative: { id: '3', name: 'Inventory Management' },
+        release: { id: '3', name: 'v1.2' },
+      },
+    ];
+  }, [kanbanOwners, employees.length]);
+
+  const [features, setFeatures] = useState(initialFeatures);
+
+  useEffect(() => {
+    // This effect synchronizes the features state once the initialFeatures are properly computed with fetched employees.
+    setFeatures(initialFeatures);
+  }, [initialFeatures]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -192,7 +233,7 @@ const Example = () => {
 
     if (!cardName || !ownerId || !statusId || !newCardGroup) return;
 
-    const owner = exampleOwners.find(o => o.id === ownerId);
+    const owner = kanbanOwners.find(o => o.id === ownerId);
     const status = exampleStatuses.find(s => s.id === statusId);
 
     if (!owner || !status) return;
@@ -328,12 +369,12 @@ const Example = () => {
                 <Label htmlFor="ownerId" className="text-right">
                   Owner
                 </Label>
-                <Select name="ownerId" required>
+                <Select name="ownerId" required disabled={isLoadingEmployees}>
                     <SelectTrigger className="col-span-3">
-                        <SelectValue placeholder="Select an owner" />
+                        <SelectValue placeholder={isLoadingEmployees ? <div className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> <span>Loading...</span></div> : "Select an owner"} />
                     </SelectTrigger>
                     <SelectContent>
-                        {exampleOwners.map(owner => (
+                        {!isLoadingEmployees && kanbanOwners.map(owner => (
                             <SelectItem key={owner.id} value={owner.id}>{owner.name}</SelectItem>
                         ))}
                     </SelectContent>
@@ -357,7 +398,7 @@ const Example = () => {
             </div>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setIsAddCardOpen(false)}>Cancel</Button>
-              <Button type="submit">Add Card</Button>
+              <Button type="submit" disabled={isLoadingEmployees}>Add Card</Button>
             </DialogFooter>
           </form>
         </DialogContent>
