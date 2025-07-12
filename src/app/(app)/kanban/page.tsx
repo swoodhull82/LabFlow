@@ -43,6 +43,16 @@ const getInitials = (name: string = "") => {
   return name.split(' ').map((n) => n[0]).join('');
 }
 
+const DEFAULT_STATUSES: KanbanStatus[] = [
+    { id: 'status-todo', name: 'To Do', color: '#F59E0B', order: 1 },
+    { id: 'status-inprogress', name: 'In Progress', color: '#3B82F6', order: 2 },
+    { id: 'status-done', name: 'Done', color: '#10B981', order: 3 },
+];
+
+const DEFAULT_GROUPS: KanbanGroup[] = [
+    { id: 'group-general', name: 'General Tasks', order: 1 },
+];
+
 const KanbanPage = () => {
   const { pbClient, user } = useAuth();
   const { toast } = useToast();
@@ -77,12 +87,16 @@ const KanbanPage = () => {
         getKanbanData(pb, { signal }),
         getEmployees(pb, { signal }),
       ]);
-      setStatuses(kanbanData.statuses);
-      setGroups(kanbanData.groups);
+
+      const liveStatuses = kanbanData.statuses.length > 0 ? kanbanData.statuses : DEFAULT_STATUSES;
+      const liveGroups = kanbanData.groups.length > 0 ? kanbanData.groups : DEFAULT_GROUPS;
+
+      setStatuses(liveStatuses);
+      setGroups(liveGroups);
       setCards(kanbanData.cards);
       setEmployees(fetchedEmployees);
-      if (kanbanData.statuses.length > 0) {
-        setNewCardStatusId(kanbanData.statuses[0].id);
+      if (liveStatuses.length > 0) {
+        setNewCardStatusId(liveStatuses[0].id);
       }
     } catch (err: any) {
         const isCancellation = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
@@ -192,27 +206,29 @@ const KanbanPage = () => {
     event.preventDefault();
     if (!newCardName || !newCardStatusId || !newCardGroup || !user || !pbClient) return;
 
-    const cardData = {
+    const cardData: Partial<KanbanCardData> = {
       name: newCardName,
       status: newCardStatusId,
       group: newCardGroup.id,
-      owners: newCardAssignees.length > 0 ? newCardAssignees : [user.id],
       createdBy: user.id,
       order: (cards.filter(c => c.group === newCardGroup.id).length + 1) * 10,
     };
+    
+    // If assignees are selected, use them. Otherwise, default to the creator.
+    cardData.owners = newCardAssignees.length > 0 ? newCardAssignees : [user.id];
 
     try {
       const newCard = await createKanbanCard(pbClient, cardData);
       
       // Create steps if any
       if (newCardSteps.length > 0) {
-        const stepPromises = newCardSteps.map(step =>
+        const stepPromises = newCardSteps.map((step, index) =>
           createKanbanStep(pbClient, {
             card: newCard.id,
             name: step.name,
             completed: false,
             assignees: step.assigneeIds,
-            order: (newCard.steps.length + 1) * 10
+            order: (index + 1) * 10
           })
         );
         const createdSteps = await Promise.all(stepPromises);
@@ -397,16 +413,21 @@ const KanbanPage = () => {
     return <div className="flex h-full items-center justify-center p-4"><Loader2 className="h-8 w-8 animate-spin" /></div>;
   }
 
-  if (error) {
-    return <div className="flex flex-col h-full items-center justify-center p-4 text-destructive">
-      <AlertTriangle className="h-8 w-8 mb-2" />
-      <p className="font-semibold">Failed to load Kanban board</p>
-      <p className="text-sm">{error}</p>
-      <Button variant="outline" size="sm" className="mt-4" onClick={() => fetchData(pbClient, new AbortController().signal)}>Try Again</Button>
-    </div>;
+  if (error && (!statuses.length || !groups.length)) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center p-4 text-center text-destructive">
+        <AlertTriangle className="h-12 w-12 mb-4" />
+        <h2 className="text-xl font-semibold">Could Not Load Kanban Board</h2>
+        <p className="text-muted-foreground mt-2 max-w-md">
+            There was an issue fetching board data. This might be due to a network issue or incorrect API rules on your PocketBase collections (kanban_statuses, kanban_groups, kanban_cards).
+        </p>
+        <p className="text-xs mt-2 text-muted-foreground max-w-md">Error: {error}</p>
+        <Button className="mt-6" onClick={() => fetchData(pbClient, new AbortController().signal)}>Try Again</Button>
+      </div>
+    );
   }
 
-  if (statuses.length === 0 || groups.length === 0) {
+  if ((!statuses.length || !groups.length) && !isLoading) {
     return (
       <div className="flex flex-col h-full items-center justify-center p-4 text-center">
         <Inbox className="h-12 w-12 text-muted-foreground mb-4" />
