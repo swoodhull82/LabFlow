@@ -23,8 +23,8 @@ const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
 });
 
 const getEventColorClass = (event: CalendarEvent, employeeColorMap?: Map<string, string>): string => {
-    if (employeeColorMap && event.ownerId) {
-        const color = employeeColorMap.get(event.ownerId);
+    if (employeeColorMap && event.id) { // Use event.id for task-based coloring
+        const color = employeeColorMap.get(event.id);
         if (color) {
             return 'text-white border-l-4';
         }
@@ -141,6 +141,21 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick, empl
     const handlePrevWeek = () => setCurrentDate(current => add(current, { weeks: -1 }));
     const handleNextWeek = () => setCurrentDate(current => add(current, { weeks: 1 }));
     const handleToday = () => setCurrentDate(new Date());
+    
+    // Determine the user name to display for an event
+    const getAssigneeName = (event: CalendarEvent): string | undefined => {
+      if (isTeamView) {
+        if (event.expand?.assignedTo && event.expand.assignedTo.length > 0) {
+          if (event.expand.assignedTo.length === 1) {
+            return event.expand.assignedTo[0].name;
+          }
+          return `${event.expand.assignedTo.length} assignees`;
+        }
+        return event.ownerName; // For personal events
+      }
+      return undefined;
+    };
+
 
     return (
         <Card className="shadow-md overflow-hidden flex flex-col h-[calc(100vh-200px)]">
@@ -192,22 +207,26 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick, empl
                     <div ref={containerRef} className="overflow-y-auto h-full">
                         <div className="grid grid-cols-5 relative min-h-full">
                             {/* Background grid lines and clickable slots */}
-                            {daysInWeek.map((day, dayIndex) => (
-                                <div key={`col-${day.toString()}`} className="relative border-l">
-                                    {Array.from({ length: END_HOUR - START_HOUR }).map((_, hourIndex) => {
-                                        const hour = START_HOUR + hourIndex;
-                                        const slotDate = set(day, { hours: hour, minutes: 0, seconds: 0, milliseconds: 0});
-                                        return (
-                                            <div
-                                                key={`${dayIndex}-${hourIndex}`}
-                                                onClick={() => onHourSlotClick?.(slotDate)}
-                                                className="border-b border-border/70 hover:bg-accent transition-colors cursor-pointer"
-                                                style={{height: `${HOUR_HEIGHT_PX}px`}}
-                                            />
-                                        );
-                                    })}
-                                </div>
-                            ))}
+                            {daysInWeek.map((day, dayIndex) => {
+                                const hourSlots = Array.from({ length: (END_HOUR - START_HOUR) * 2 }); // 30-min slots
+                                return (
+                                    <div key={`col-${day.toString()}`} className="relative border-l">
+                                        {hourSlots.map((_, slotIndex) => {
+                                            const hour = START_HOUR + Math.floor(slotIndex / 2);
+                                            const minute = (slotIndex % 2) * 30;
+                                            const slotDate = set(day, { hours: hour, minutes: minute, seconds: 0, milliseconds: 0});
+                                            return (
+                                                <div
+                                                    key={`${dayIndex}-${hour}-${minute}`}
+                                                    onClick={() => onHourSlotClick?.(slotDate)}
+                                                    className={cn("border-b border-border/70 hover:bg-accent transition-colors cursor-pointer", minute === 0 && 'border-dashed')}
+                                                    style={{height: `${HOUR_HEIGHT_PX / 2}px`}}
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })}
                             
                             {/* Render events */}
                             {Array.from(eventsByDay.entries()).map(([dayString, dayEvents], dayIndex) => {
@@ -228,9 +247,11 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick, empl
                                     const durationMinutes = Math.max(15, differenceInMinutes(endDate, startDate));
                                     const height = (durationMinutes / 60) * HOUR_HEIGHT_PX - 2;
                                     
-                                    const eventColorStyle = (isTeamView && employeeColorMap && event.ownerId)
-                                      ? { borderColor: employeeColorMap.get(event.ownerId), backgroundColor: `${employeeColorMap.get(event.ownerId)}33` } // Add alpha for background
+                                    const eventColorStyle = (employeeColorMap && event.id)
+                                      ? { borderColor: employeeColorMap.get(event.id), backgroundColor: `${employeeColorMap.get(event.id)}33` } // Add alpha for background
                                       : {};
+                                    
+                                    const assigneeName = getAssigneeName(event);
 
                                     return (
                                         <div 
@@ -253,9 +274,9 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick, empl
                                         >
                                             <p className="font-semibold text-xs truncate">{event.title}</p>
                                             {!event.isAllDay && <p className="text-[10px] opacity-80">{format(startDate, 'h:mm a')} - {format(endDate, 'h:mm a')}</p>}
-                                            {event.ownerName && (
+                                            {assigneeName && (
                                                 <div className="flex items-center text-[10px] opacity-70 italic mt-1">
-                                                    <User className="w-2.5 h-2.5 mr-1"/> {event.ownerName}
+                                                    <User className="w-2.5 h-2.5 mr-1"/> {assigneeName}
                                                 </div>
                                             )}
                                         </div>
