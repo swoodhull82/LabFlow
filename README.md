@@ -84,18 +84,18 @@ The Kanban board currently uses in-memory example data. To make it persistent an
 *   `name`: (Text, Required) - The title of the card.
 *   `status`: (Relation to `kanban_statuses`, Required, Single) - Links to a status column (e.g., "In Progress").
 *   `group`: (Relation to `kanban_groups`, Required, Single) - Links to a swimlane group (e.g., "Customer Service").
-*   `owners`: (Relation to `users`, Multiple) - List of user IDs assigned to the card.
+*   `owners`: (Relation to `employees`, Multiple) - List of employee IDs assigned to the card.
 *   `createdBy`: (Relation to `users`, Required, Single) - The user who created the card.
 *   `startAt`: (Date, Optional) - Start date for the card.
 *   `endAt`: (Date, Optional) - Due date for the card.
-*   `order`: (Number, Required) - For sorting cards within a column.
+*   `order`: (Number, Required, Non-zero) - For sorting cards within a column.
 
 ### 2. `kanban_steps` Collection (Sub-tasks within a card)
 *   `id`: (System Field) - Unique identifier.
 *   `card`: (Relation to `kanban_cards`, Required, Single) - The parent card this step belongs to.
 *   `name`: (Text, Required) - The description of the step.
 *   `completed`: (Boolean, Default: false) - Whether the step is checked off.
-*   `assignees`: (Relation to `users`, Multiple) - Users assigned to this specific step.
+*   `assignees`: (Relation to `employees`, Multiple) - Employees assigned to this specific step.
 *   `order`: (Number, Required) - For sorting steps within a card.
 
 ### 3. `kanban_statuses` Collection (The columns of the board)
@@ -173,3 +173,5 @@ While less likely to cause "works locally, fails deployed" if the same user is t
 Verify that `POCKETBASE_URL` in `src/context/AuthContext.tsx` (currently `https://swoodhu.pockethost.io/`) is correct and publicly accessible.
 
 By systematically checking these points, you can usually identify why data fetching fails on deployment.
+
+    
