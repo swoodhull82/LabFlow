@@ -130,7 +130,10 @@ const Example = () => {
       return;
     }
 
-    const status = exampleStatuses.find((status) => status.name === over.id);
+    const overIdParts = over.id.toString().split('-');
+    const statusName = overIdParts[0];
+
+    const status = exampleStatuses.find((s) => s.name === statusName);
 
     if (!status) {
       return;
@@ -141,79 +144,90 @@ const Example = () => {
         if (feature.id === active.id) {
           return { ...feature, status };
         }
-
         return feature;
       })
     );
   };
 
-  const tasksByStatusAndGroup = useMemo(() => {
+  const tasksByGroupAndStatus = useMemo(() => {
     const grouped = features.reduce((acc, feature) => {
-      const statusName = feature.status.name;
       const groupName = feature.group.name;
-      if (!acc[statusName]) {
-        acc[statusName] = {};
+      const statusName = feature.status.name;
+      if (!acc[groupName]) {
+        acc[groupName] = {};
       }
-      if (!acc[statusName][groupName]) {
-        acc[statusName][groupName] = [];
+      if (!acc[groupName][statusName]) {
+        acc[groupName][statusName] = [];
       }
-      acc[statusName][groupName].push(feature);
+      acc[groupName][statusName].push(feature);
       return acc;
     }, {} as Record<string, Record<string, typeof features>>);
     return grouped;
   }, [features]);
 
-  const allGroups = useMemo(() => {
-    return newGroups.map(g => g.name);
-  }, []);
-
   return (
     <KanbanProvider onDragEnd={handleDragEnd} className="p-4">
-      {exampleStatuses.map((status) => (
-        <KanbanBoard key={status.name} id={status.name}>
-          <KanbanHeader name={status.name} color={status.color} />
-          <KanbanCards className="gap-4">
-            {allGroups.map((groupName, groupIndex) => (
-              <div key={groupName} className="flex flex-col gap-2">
-                {groupIndex > 0 && <Separator />}
-                <h3 className="text-sm font-semibold text-muted-foreground px-1 pt-2">{groupName}</h3>
-                {(tasksByStatusAndGroup[status.name]?.[groupName] || []).map((feature, index) => (
-                  <KanbanCard
-                    key={feature.id}
-                    id={feature.id}
-                    name={feature.name}
-                    parent={status.name}
-                    index={index}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex flex-col gap-1">
-                        <p className="m-0 flex-1 font-medium text-sm">
-                          {feature.name}
-                        </p>
-                        <p className="m-0 text-muted-foreground text-xs">
-                          {feature.initiative.name}
-                        </p>
+      <div className="grid grid-cols-[200px_1fr_1fr_1fr] gap-4 w-full">
+        {/* Header Row */}
+        <div className="font-semibold text-lg p-2">Category</div>
+        {exampleStatuses.map((status) => (
+          <div key={status.name} className="p-2">
+            <KanbanHeader name={status.name} color={status.color} />
+          </div>
+        ))}
+        
+        <div className="col-span-4"><Separator /></div>
+
+        {/* Swimlane Rows */}
+        {newGroups.map((group) => (
+          <React.Fragment key={group.id}>
+            {/* Swimlane Label */}
+            <div className="p-2 h-full">
+              <h3 className="text-md font-semibold text-foreground sticky top-4">{group.name}</h3>
+            </div>
+            {/* Status Columns for the swimlane */}
+            {exampleStatuses.map((status) => (
+              <KanbanBoard key={`${group.name}-${status.name}`} id={`${status.name}-${group.name}`}>
+                <KanbanCards>
+                  {(tasksByGroupAndStatus[group.name]?.[status.name] || []).map((feature, index) => (
+                    <KanbanCard
+                      key={feature.id}
+                      id={feature.id}
+                      name={feature.name}
+                      parent={`${status.name}-${group.name}`}
+                      index={index}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex flex-col gap-1">
+                          <p className="m-0 flex-1 font-medium text-sm">
+                            {feature.name}
+                          </p>
+                          <p className="m-0 text-muted-foreground text-xs">
+                            {feature.initiative.name}
+                          </p>
+                        </div>
+                        {feature.owner && (
+                          <Avatar className="h-4 w-4 shrink-0">
+                            <AvatarImage src={feature.owner.image} />
+                            <AvatarFallback>
+                              {feature.owner.name?.slice(0, 2)}
+                            </AvatarFallback>
+                          </Avatar>
+                        )}
                       </div>
-                      {feature.owner && (
-                        <Avatar className="h-4 w-4 shrink-0">
-                          <AvatarImage src={feature.owner.image} />
-                          <AvatarFallback>
-                            {feature.owner.name?.slice(0, 2)}
-                          </AvatarFallback>
-                        </Avatar>
-                      )}
-                    </div>
-                    <p className="m-0 text-muted-foreground text-xs">
-                      {shortDateFormatter.format(feature.startAt)} -{' '}
-                      {dateFormatter.format(feature.endAt)}
-                    </p>
-                  </KanbanCard>
-                ))}
-              </div>
+                      <p className="m-0 text-muted-foreground text-xs">
+                        {shortDateFormatter.format(feature.startAt)} -{' '}
+                        {dateFormatter.format(feature.endAt)}
+                      </p>
+                    </KanbanCard>
+                  ))}
+                </KanbanCards>
+              </KanbanBoard>
             ))}
-          </KanbanCards>
-        </KanbanBoard>
-      ))}
+            <div className="col-span-4"><Separator /></div>
+          </React.Fragment>
+        ))}
+      </div>
     </KanbanProvider>
   );
 };
