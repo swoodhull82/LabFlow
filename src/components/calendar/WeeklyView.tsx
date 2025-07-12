@@ -77,9 +77,10 @@ interface WeeklyViewProps {
     onHourSlotClick?: (date: Date) => void;
     onEventClick?: (event: CalendarEvent) => void;
     isTeamView?: boolean;
+    onWeekChange?: (weekStartDate: Date) => void;
 }
 
-export default function WeeklyView({ events, onHourSlotClick, onEventClick, isTeamView = false }: WeeklyViewProps) {
+export default function WeeklyView({ events, onHourSlotClick, onEventClick, isTeamView = false, onWeekChange }: WeeklyViewProps) {
     const [currentDate, setCurrentDate] = useState(new Date());
     const containerRef = useRef<HTMLDivElement>(null);
     const headerRef = useRef<HTMLDivElement>(null);
@@ -112,6 +113,11 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick, isTe
         start: startOfCurrentWeek,
         end: add(startOfCurrentWeek, { days: 4 }), // Monday to Friday
     });
+
+    useEffect(() => {
+        onWeekChange?.(startOfCurrentWeek);
+    }, [startOfCurrentWeek, onWeekChange]);
+
 
     const eventsByDay = useMemo(() => {
         const map = new Map<string, CalendarEvent[]>();

@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Button } from "@/components/ui/button";
@@ -9,15 +9,13 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
-import { CalendarIcon, Loader2, Save, Trash2, User } from "lucide-react";
+import { Loader2, Save, Trash2, Calendar, Clock } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { createPersonalEvent, updatePersonalEvent, type PersonalEventUpdateData } from "@/services/personalEventService";
 import { useState } from "react";
-import { format, addHours, set, getHours } from "date-fns";
+import { format, set, addDays, startOfWeek } from "date-fns";
 import { PERSONAL_EVENT_TYPES, TASK_RECURRENCES } from "@/lib/constants";
 import type { CalendarEvent, PersonalEventType, TaskRecurrence, Employee } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -26,7 +24,7 @@ const teamEventFormSchema = z.object({
   userId: z.string().min(1, { message: "An employee must be selected." }),
   title: z.string().min(2, { message: "Title must be at least 2 characters." }),
   description: z.string().optional(),
-  eventDate: z.date({ required_error: "An event date is required." }),
+  selectedDays: z.array(z.number()).min(1, { message: "Please select at least one day." }),
   isAllDay: z.boolean().optional(),
   startTime: z.string().optional(),
   endTime: z.string().optional(),
@@ -52,9 +50,9 @@ interface TeamEventFormProps {
   onEventUpserted: () => void;
   onDialogClose: () => void;
   onDelete?: (eventId: string) => void;
-  defaultDate?: Date;
   eventToEdit?: CalendarEvent | null;
   employees: Employee[];
+  weekToShow: Date;
 }
 
 const generateTimeSlots = () => {
@@ -77,30 +75,46 @@ const formatTimeSlot = (slot: string) => {
 
 const timeSlots = generateTimeSlots();
 
-export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, defaultDate, eventToEdit, employees }: TeamEventFormProps) {
+const weekdays = [
+  { id: 1, label: 'Mon' },
+  { id: 2, label: 'Tue' },
+  { id: 3, label: 'Wed' },
+  { id: 4, label: 'Thu' },
+  { id: 5, label: 'Fri' },
+];
+
+export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventToEdit, employees, weekToShow }: TeamEventFormProps) {
   const { pbClient } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const isEditMode = !!eventToEdit;
 
-  const defaultHour = defaultDate ? getHours(defaultDate) : 9; // 9 AM
-  const defaultStartDateWithHour = set(defaultDate || new Date(), { hours: defaultHour, minutes: 0, seconds: 0, milliseconds: 0 });
-  const defaultStartTime = format(defaultStartDateWithHour, 'HH:mm');
-  const defaultEndTime = format(addHours(defaultStartDateWithHour, 1), 'HH:mm');
-  
+  const defaultStartTime = '09:00';
+  const defaultEndTime = '17:00';
+
   const form = useForm<TeamEventFormData>({
     resolver: zodResolver(teamEventFormSchema),
-    defaultValues: {
-      userId: eventToEdit?.ownerId || "",
-      title: eventToEdit?.title || "",
-      description: eventToEdit?.description || "",
-      eventType: eventToEdit?.eventType || "Available",
-      eventDate: eventToEdit ? new Date(eventToEdit.startDate) : defaultDate,
-      isAllDay: eventToEdit?.isAllDay || false,
-      startTime: eventToEdit && !eventToEdit.isAllDay ? format(new Date(eventToEdit.startDate), 'HH:mm') : defaultStartTime,
-      endTime: eventToEdit && !eventToEdit.isAllDay ? format(new Date(eventToEdit.endDate), 'HH:mm') : defaultEndTime,
-      recurrence: eventToEdit?.recurrence || "None",
+    defaultValues: isEditMode && eventToEdit ? {
+      userId: eventToEdit.ownerId || "",
+      title: eventToEdit.title || "",
+      description: eventToEdit.description || "",
+      eventType: eventToEdit.eventType || "Available",
+      selectedDays: [new Date(eventToEdit.startDate).getDay()], // getDay() is 1 for Mon, 2 for Tue...
+      isAllDay: eventToEdit.isAllDay || false,
+      startTime: !eventToEdit.isAllDay ? format(new Date(eventToEdit.startDate), 'HH:mm') : defaultStartTime,
+      endTime: !eventToEdit.isAllDay ? format(new Date(eventToEdit.endDate), 'HH:mm') : defaultEndTime,
+      recurrence: eventToEdit.recurrence || "None",
+    } : {
+      userId: "",
+      title: "",
+      description: "",
+      eventType: "Available",
+      selectedDays: [],
+      isAllDay: false,
+      startTime: defaultStartTime,
+      endTime: defaultEndTime,
+      recurrence: "None"
     },
   });
   
@@ -113,20 +127,20 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, defaul
     }
     setIsSubmitting(true);
 
-    let startDate, endDate;
-
-    if (data.isAllDay) {
-        startDate = set(data.eventDate, { hours: 7, minutes: 0, seconds: 0 });
-        endDate = set(data.eventDate, { hours: 16, minutes: 0, seconds: 0 });
-    } else {
-        const [startHour, startMinute] = data.startTime!.split(':').map(Number);
-        const [endHour, endMinute] = data.endTime!.split(':').map(Number);
-        startDate = set(data.eventDate, { hours: startHour, minutes: startMinute, seconds: 0 });
-        endDate = set(data.eventDate, { hours: endHour, minutes: endMinute, seconds: 0 });
-    }
-
     try {
       if (isEditMode && eventToEdit) {
+        // Handle editing a single event
+        let startDate, endDate;
+        const eventDate = new Date(eventToEdit.startDate);
+        if (data.isAllDay) {
+          startDate = set(eventDate, { hours: 7, minutes: 0, seconds: 0 });
+          endDate = set(eventDate, { hours: 16, minutes: 0, seconds: 0 });
+        } else {
+          const [startHour, startMinute] = data.startTime!.split(':').map(Number);
+          const [endHour, endMinute] = data.endTime!.split(':').map(Number);
+          startDate = set(eventDate, { hours: startHour, minutes: startMinute, seconds: 0 });
+          endDate = set(eventDate, { hours: endHour, minutes: endMinute, seconds: 0 });
+        }
         const eventPayload: PersonalEventUpdateData = {
           title: data.title,
           description: data.description,
@@ -136,25 +150,44 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, defaul
           eventType: data.eventType,
           recurrence: data.recurrence,
         };
-        // userId cannot be updated
         await updatePersonalEvent(pbClient, eventToEdit.id, eventPayload);
         toast({ title: "Success", description: "Event updated." });
+
       } else {
-        const eventPayload = {
-          userId: data.userId, // Key difference: assign to selected user
-          title: data.title,
-          description: data.description,
-          startDate,
-          endDate,
-          isAllDay: data.isAllDay,
-          eventType: data.eventType,
-          recurrence: data.recurrence,
-        };
-        await createPersonalEvent(pbClient, eventPayload);
-        toast({ title: "Success", description: "Event added to employee's calendar." });
+        // Handle creating multiple events for selected days
+        const weekStartDate = startOfWeek(weekToShow, { weekStartsOn: 1 });
+        const creationPromises = data.selectedDays.map(dayIndex => {
+            const eventDate = addDays(weekStartDate, dayIndex - 1);
+            let startDate, endDate;
+            if (data.isAllDay) {
+                startDate = set(eventDate, { hours: 7, minutes: 0, seconds: 0 });
+                endDate = set(eventDate, { hours: 16, minutes: 0, seconds: 0 });
+            } else {
+                const [startHour, startMinute] = data.startTime!.split(':').map(Number);
+                const [endHour, endMinute] = data.endTime!.split(':').map(Number);
+                startDate = set(eventDate, { hours: startHour, minutes: startMinute, seconds: 0 });
+                endDate = set(eventDate, { hours: endHour, minutes: endMinute, seconds: 0 });
+            }
+            const eventPayload = {
+              userId: data.userId,
+              title: data.title,
+              description: data.description,
+              startDate,
+              endDate,
+              isAllDay: data.isAllDay,
+              eventType: data.eventType,
+              recurrence: data.recurrence,
+            };
+            return createPersonalEvent(pbClient, eventPayload);
+        });
+
+        await Promise.all(creationPromises);
+        toast({ title: "Success", description: `Events created for ${data.selectedDays.length} day(s).` });
       }
+      
       onEventUpserted();
       onDialogClose();
+
     } catch (err: any) {
       toast({
         title: `Error ${isEditMode ? 'Updating' : 'Creating'} Event`,
@@ -239,59 +272,56 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, defaul
                 </FormItem>
             )}
         />
+
         <FormField
           control={form.control}
-          name="eventDate"
-          render={({ field }) => (
-              <FormItem className="flex flex-col">
-                <FormLabel>Date</FormLabel>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <FormControl>
-                      <Button
-                        variant={"outline"}
-                        className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
-                      >
-                        {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                      </Button>
-                    </FormControl>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                        mode="single"
-                        selected={field.value}
-                        onSelect={field.onChange}
-                        initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-                <FormMessage />
-              </FormItem>
+          name="selectedDays"
+          render={() => (
+            <FormItem>
+              <FormLabel>Days</FormLabel>
+               <p className="text-sm text-muted-foreground">Select which days this event should occur on for the week of {format(weekToShow, 'MMM do')}.</p>
+              <div className="flex items-center space-x-4 pt-2">
+                {weekdays.map(day => (
+                  <FormField
+                    key={day.id}
+                    control={form.control}
+                    name="selectedDays"
+                    render={({ field }) => {
+                      return (
+                        <FormItem
+                          key={day.id}
+                          className="flex flex-row items-start space-x-2 space-y-0"
+                        >
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value?.includes(day.id)}
+                              onCheckedChange={(checked) => {
+                                const currentDays = field.value || [];
+                                return checked
+                                  ? field.onChange([...currentDays, day.id])
+                                  : field.onChange(
+                                      currentDays.filter(
+                                        (value) => value !== day.id
+                                      )
+                                    )
+                              }}
+                              disabled={isEditMode}
+                            />
+                          </FormControl>
+                          <FormLabel className="font-normal cursor-pointer">
+                            {day.label}
+                          </FormLabel>
+                        </FormItem>
+                      )
+                    }}
+                  />
+                ))}
+              </div>
+              <FormMessage />
+            </FormItem>
           )}
         />
-        <FormField
-            control={form.control}
-            name="recurrence"
-            render={({ field }) => (
-                <FormItem>
-                <FormLabel>Recurrence</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Select recurrence" />
-                    </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                    {TASK_RECURRENCES.map(r => (
-                      <SelectItem key={r} value={r}>{r}</SelectItem>
-                    ))}
-                    </SelectContent>
-                </Select>
-                <FormMessage />
-                </FormItem>
-            )}
-        />
+
         <FormField
             control={form.control}
             name="isAllDay"
@@ -372,7 +402,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, defaul
             <Button type="button" variant="ghost" onClick={onDialogClose}>Cancel</Button>
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-              {isEditMode ? "Save Changes" : "Save Event"}
+              {isEditMode ? "Save Changes" : "Save Event(s)"}
             </Button>
           </div>
         </div>

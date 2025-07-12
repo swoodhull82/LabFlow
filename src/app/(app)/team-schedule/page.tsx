@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import type PocketBase from "pocketbase";
 import { TeamEventForm } from "@/components/tasks/TeamEventForm";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-
+import { startOfWeek, add } from 'date-fns';
 
 const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred.";
@@ -41,7 +41,7 @@ export default function TeamSchedulePage() {
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>();
+  const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
 
   const isSupervisor = user?.role === 'Supervisor';
 
@@ -50,7 +50,7 @@ export default function TeamSchedulePage() {
     setError(null);
     try {
       const [fetchedEvents, fetchedEmployees] = await Promise.all([
-        getPersonalEvents(pb, currentUserId, { signal }),
+        getPersonalEvents(pb, currentUserId, { signal, expand: 'userId' }), // Ensure userId is expanded
         getEmployees(pb, { signal }),
       ]);
       setEvents(fetchedEvents);
@@ -104,7 +104,6 @@ export default function TeamSchedulePage() {
   const handleFormClose = () => {
     setIsFormOpen(false);
     setEditingEvent(null);
-    setSelectedDate(undefined);
   };
   
   const handleEventClick = (event: CalendarEvent) => {
@@ -116,7 +115,8 @@ export default function TeamSchedulePage() {
 
   const handleHourSlotClick = (date: Date) => {
     if (isSupervisor) {
-      setSelectedDate(date);
+      // For multi-day creation, we don't pre-fill a specific date/time from a slot click
+      // Instead, just open the form in "create" mode
       setEditingEvent(null);
       setIsFormOpen(true);
     }
@@ -148,7 +148,7 @@ export default function TeamSchedulePage() {
         {isSupervisor && (
           <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
             <DialogTrigger asChild>
-              <Button onClick={() => { setEditingEvent(null); setSelectedDate(new Date()); setIsFormOpen(true); }}>
+              <Button onClick={() => { setEditingEvent(null); setIsFormOpen(true); }}>
                 <PlusCircle className="mr-2 h-4 w-4" /> New Team Event
               </Button>
             </DialogTrigger>
@@ -162,7 +162,7 @@ export default function TeamSchedulePage() {
                 onDialogClose={handleFormClose}
                 onDelete={handleDeleteEvent}
                 eventToEdit={editingEvent}
-                defaultDate={selectedDate}
+                weekToShow={currentWeekStart}
               />
             </DialogContent>
           </Dialog>
@@ -173,7 +173,7 @@ export default function TeamSchedulePage() {
         <CardHeader>
           <CardTitle className="font-headline">Weekly Team Availability</CardTitle>
           <CardDescription>
-            A combined view of all shared employee schedules. {isSupervisor ? "Click on an event to edit or on an empty slot to create a new event for an employee." : "Events are color-coded by employee."}
+            A combined view of all employee schedules. {isSupervisor ? "Click on an event to edit or create a new team event." : "Events are color-coded by employee."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -194,6 +194,7 @@ export default function TeamSchedulePage() {
               isTeamView={true}
               onEventClick={isSupervisor ? handleEventClick : undefined}
               onHourSlotClick={isSupervisor ? handleHourSlotClick : undefined}
+              onWeekChange={setCurrentWeekStart}
             />
           )}
         </CardContent>
