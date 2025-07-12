@@ -29,6 +29,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from '@/context/AuthContext';
 import { getEmployees } from '@/services/employeeService';
+import { getUsers } from '@/services/userService';
 import { getKanbanData, createKanbanCard, updateKanbanCardStatus, updateKanbanStep, createKanbanStep } from '@/services/kanbanService';
 import type { Employee, KanbanCard as KanbanCardData, KanbanStatus, KanbanGroup, KanbanStep, User as AuthUser } from '@/lib/types';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -62,6 +63,7 @@ const KanbanPage = () => {
   const [groups, setGroups] = useState<KanbanGroup[]>([]);
   const [cards, setCards] = useState<KanbanCardData[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [allUsers, setAllUsers] = useState<AuthUser[]>([]);
 
   // UI/Error states
   const [isLoading, setIsLoading] = useState(true);
@@ -83,9 +85,10 @@ const KanbanPage = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [kanbanData, fetchedEmployees] = await Promise.all([
+      const [kanbanData, fetchedEmployees, fetchedUsers] = await Promise.all([
         getKanbanData(pb, { signal }),
         getEmployees(pb, { signal }),
+        getUsers(pb, { signal }),
       ]);
 
       const liveStatuses = kanbanData.statuses.length > 0 ? kanbanData.statuses : DEFAULT_STATUSES;
@@ -95,6 +98,7 @@ const KanbanPage = () => {
       setGroups(liveGroups);
       setCards(kanbanData.cards);
       setEmployees(fetchedEmployees);
+      setAllUsers(fetchedUsers);
       if (liveStatuses.length > 0) {
         setNewCardStatusId(liveStatuses[0].id);
       }
@@ -120,25 +124,27 @@ const KanbanPage = () => {
 
 
   const allUsersForAssigning = useMemo(() => {
-    if (!user) return [];
-    const allPeople = new Map<string, { id: string; name: string; email: string }>();
+    // This function creates a definitive list of people who can be assigned tasks.
+    // It prioritizes the employee record's name if a user is also an employee.
+    const peopleMap = new Map<string, { id: string; name: string; email: string }>();
 
-    // Add employees who are linked to a user account
-    employees.forEach(emp => {
-      // CRITICAL FIX: Only use employees that have a valid userId relation.
-      // This prevents sending employee record IDs to the users relation field.
-      if (emp.userId && !allPeople.has(emp.userId)) {
-          allPeople.set(emp.userId, { id: emp.userId, name: emp.name, email: emp.email });
-      }
+    // First, add all users to the map.
+    allUsers.forEach(u => {
+        if(u.id && u.name) {
+            peopleMap.set(u.id, { id: u.id, name: u.name, email: u.email });
+        }
     });
 
-    // Add current authenticated user if not already in the map from their employee record
-    if (user.id && !allPeople.has(user.id)) {
-      allPeople.set(user.id, { id: user.id, name: user.name || user.email, email: user.email });
-    }
+    // Then, go through employees. If an employee is linked to a user,
+    // update the name in the map to use the employee's name for consistency.
+    employees.forEach(emp => {
+        if (emp.userId && peopleMap.has(emp.userId)) {
+            peopleMap.set(emp.userId, { ...peopleMap.get(emp.userId)!, name: emp.name });
+        }
+    });
 
-    return Array.from(allPeople.values());
-  }, [employees, user]);
+    return Array.from(peopleMap.values());
+  }, [employees, allUsers]);
 
 
   const handleDragEnd = async (event: DragEndEvent) => {
@@ -190,7 +196,7 @@ const KanbanPage = () => {
 
     try {
       await updateKanbanStep(pbClient, step.id, { completed: newCompletedState });
-    } catch (err: any) {
+    } catch (err) {
       // Revert on failure
       setCards(currentCards => currentCards.map(card => {
         if (card.id === cardId) {
@@ -574,4 +580,5 @@ const KanbanPage = () => {
 
 export default KanbanPage;
 
+    
     
