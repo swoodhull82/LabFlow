@@ -112,25 +112,22 @@ const Example = () => {
   }, [fetchTeamMembers, pbClient]);
   
   const kanbanOwners = useMemo(() => {
-    if (employees.length === 0) {
-        if (user) {
-            return [{ id: user.id, name: user.name || user.email }];
-        }
-        return [];
-    }
-    
-    const employeeIds = new Set(employees.map(emp => emp.id));
-    const allOwners = employees.map(emp => ({
-        id: emp.id,
-        name: emp.name
-    }));
+    if (!user) return [];
 
-    if (user && !employeeIds.has(user.id)) {
-        allOwners.unshift({ id: user.id, name: user.name || user.email });
-    }
-    
-    return allOwners;
+    const allPeople = new Map<string, { id: string; name: string }>();
 
+    // Add the current user first
+    allPeople.set(user.id, { id: user.id, name: user.name || user.email });
+
+    // Add employees, overwriting if the user ID matches to avoid duplicates
+    employees.forEach(emp => {
+      const idToUse = emp.userId || emp.id;
+      if (!allPeople.has(idToUse)) {
+        allPeople.set(idToUse, { id: idToUse, name: emp.name });
+      }
+    });
+
+    return Array.from(allPeople.values());
   }, [employees, user]);
 
   const initialFeatures = useMemo(() => {
@@ -364,9 +361,8 @@ const Example = () => {
 
     if (!newCardName || newCardAssignees.length === 0 || !newCardStatus || !newCardGroup || !user) return;
     
-    const owners = kanbanOwners.filter(o => newCardAssignees.includes(o.id));
     let creator = { id: user.id, name: user.name || user.email };
-
+    const owners = kanbanOwners.filter(o => newCardAssignees.includes(o.id));
     const status = exampleStatuses.find(s => s.id === newCardStatus);
 
     if (owners.length === 0 || !status) {
@@ -416,7 +412,7 @@ const Example = () => {
       }
       acc[statusName].push(feature);
       return acc;
-    }, {} as Record<string, Record<string, typeof features[0][]>>);
+    }, {} as Record<string, typeof features[0]>);
   }, [features]);
 
   const cardRenderer = (feature: typeof features[0]) => {
@@ -540,7 +536,9 @@ const Example = () => {
                               {options.map((option) => (
                                   <CommandItem
                                       key={option.id}
-                                      onSelect={() => onSelectionChange(option.id)}
+                                      onSelect={(currentValue) => {
+                                        onSelectionChange(option.id);
+                                      }}
                                   >
                                       <div className={cn("mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary", selectedAssignees.includes(option.id) ? 'bg-primary text-primary-foreground' : 'opacity-50 [&_svg]:invisible')}>
                                           <Check className="h-4 w-4" />
@@ -745,3 +743,5 @@ const Example = () => {
 };
 
 export default Example;
+
+    
