@@ -22,7 +22,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subMonths, format, formatDistanceToNow } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
-import { Plus, Loader2, X, List, Trello, Users, Check, AlertTriangle } from 'lucide-react';
+import { Plus, Loader2, X, List, Trello, Users, Check, AlertTriangle, Inbox } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -85,11 +85,12 @@ const KanbanPage = () => {
         setNewCardStatusId(kanbanData.statuses[0].id);
       }
     } catch (err: any) {
-      if (!err.isAbort) {
-        console.error("Failed to fetch Kanban data:", err);
-        setError(err.message || "An unexpected error occurred.");
-        toast({ title: "Error", description: err.message, variant: "destructive" });
-      }
+        const isCancellation = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+        if (!isCancellation) {
+            console.error("Failed to fetch Kanban data:", err);
+            setError(err.message || "An unexpected error occurred.");
+            toast({ title: "Error", description: err.message, variant: "destructive" });
+        }
     } finally {
       setIsLoading(false);
     }
@@ -97,7 +98,9 @@ const KanbanPage = () => {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchData(pbClient, controller.signal);
+    if(pbClient) {
+        fetchData(pbClient, controller.signal);
+    }
     return () => controller.abort();
   }, [fetchData, pbClient]);
 
@@ -113,7 +116,7 @@ const KanbanPage = () => {
     });
 
     // Add current user if not already present from employee list
-    if (!allPeople.has(user.id)) {
+    if (user.name && !allPeople.has(user.id)) {
       allPeople.set(user.id, { id: user.id, name: user.name || user.email, email: user.email });
     }
 
@@ -373,6 +376,7 @@ const KanbanPage = () => {
                               {options.map((option) => (
                                   <CommandItem key={option.id} onSelect={(currentValue) => {
                                       onSelectionChange(option.id);
+                                      // Prevent the popover from closing on select
                                       (document.activeElement as HTMLElement)?.blur();
                                   }}>
                                       <div className={cn("mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary", selectedAssignees.includes(option.id) ? 'bg-primary text-primary-foreground' : 'opacity-50 [&_svg]:invisible')}>
@@ -400,6 +404,19 @@ const KanbanPage = () => {
       <p className="text-sm">{error}</p>
       <Button variant="outline" size="sm" className="mt-4" onClick={() => fetchData(pbClient, new AbortController().signal)}>Try Again</Button>
     </div>;
+  }
+
+  if (statuses.length === 0 || groups.length === 0) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center p-4 text-center">
+        <Inbox className="h-12 w-12 text-muted-foreground mb-4" />
+        <h2 className="text-xl font-semibold">Kanban Board Needs Setup</h2>
+        <p className="text-muted-foreground mt-2 max-w-md">
+          To get started, please add at least one status (e.g., "To Do", "In Progress") and one group (e.g., "General Tasks") in your PocketBase admin panel for the `kanban_statuses` and `kanban_groups` collections.
+        </p>
+        <Button className="mt-6" onClick={() => fetchData(pbClient, new AbortController().signal)}>Refresh Data</Button>
+      </div>
+    );
   }
 
   return (

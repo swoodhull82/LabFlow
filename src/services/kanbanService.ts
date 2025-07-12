@@ -71,7 +71,10 @@ export const getKanbanData = async (pb: PocketBase, options?: { signal?: AbortSi
     } catch (error: any) {
         if (error.isAbort) throw error;
         console.error("Failed to fetch Kanban board data:", error);
-        throw new Error("Could not load the Kanban board. Please ensure the required collections (kanban_statuses, kanban_groups, kanban_cards) exist and have the correct permissions.");
+        if (error.status === 404) {
+             throw new Error("Could not load the Kanban board because one or more required collections (kanban_statuses, kanban_groups, kanban_cards) were not found. Please check your PocketBase setup.");
+        }
+        throw new Error("Could not load the Kanban board. Please ensure the required collections exist and have the correct permissions.");
     }
 };
 
