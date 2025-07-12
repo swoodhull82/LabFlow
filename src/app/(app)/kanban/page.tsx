@@ -208,43 +208,40 @@ const KanbanPage = () => {
   const handleAddCardSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!newCardName || !newCardStatusId || !newCardGroup || !user || !pbClient) return;
-
-    // This is the object that will be sent to PocketBase.
-    // It should only contain fields that exist in the 'kanban_cards' collection.
+    
     const cardPayload: { [key: string]: any } = {
-      name: newCardName,
-      status: newCardStatusId,
-      group: newCardGroup.id,
-      createdBy: user.id,
-      order: (cards.filter(c => c.group === newCardGroup.id).length + 1) * 10,
-      owners: newCardAssignees.length > 0 ? newCardAssignees : [user.id],
+        name: newCardName,
+        status: newCardStatusId,
+        group: newCardGroup.id,
+        createdBy: user.id,
+        order: (cards.filter(c => c.group === newCardGroup.id).length + 1) * 10,
+        owners: newCardAssignees.length > 0 ? newCardAssignees : [user.id],
     };
 
     try {
-      // The `createKanbanCard` service now handles the expand properly.
-      const newCard = await createKanbanCard(pbClient, cardPayload);
-      
-      // Create steps if any, now that we have a valid card ID.
-      if (newCardSteps.length > 0) {
-        const stepPromises = newCardSteps.map((step, index) =>
-          createKanbanStep(pbClient, {
-            card: newCard.id,
-            name: step.name,
-            completed: false,
-            assignees: step.assigneeIds,
-            order: (index + 1) * 10
-          })
-        );
-        const createdSteps = await Promise.all(stepPromises);
-        newCard.steps = createdSteps;
-      }
-      
-      setCards(prev => [...prev, newCard]);
-      toast({ title: "Success", description: `Card "${newCard.name}" created.` });
-      resetAndCloseForm();
+        const newCard = await createKanbanCard(pbClient, cardPayload);
+
+        // Create steps if any, now that we have a valid card ID.
+        if (newCardSteps.length > 0) {
+            const stepPromises = newCardSteps.map((step, index) =>
+                createKanbanStep(pbClient, {
+                    card: newCard.id,
+                    name: step.name,
+                    completed: false,
+                    assignees: step.assigneeIds,
+                    order: (index + 1) * 10
+                })
+            );
+            const createdSteps = await Promise.all(stepPromises);
+            newCard.steps = createdSteps;
+        }
+
+        setCards(prev => [...prev, newCard]);
+        toast({ title: "Success", description: `Card "${newCard.name}" created.` });
+        resetAndCloseForm();
     } catch (err: any) {
-      console.error("Error creating card on page:", err);
-      toast({ title: "Error Creating Card", description: err.message, variant: "destructive" });
+        console.error("Error creating card on page:", err);
+        toast({ title: "Error Creating Card", description: err.message, variant: "destructive" });
     }
   };
 

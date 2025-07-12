@@ -78,7 +78,7 @@ export const getKanbanData = async (pb: PocketBase, options?: { signal?: AbortSi
     }
 };
 
-export const createKanbanCard = async (pb: PocketBase, data: Partial<KanbanCard>): Promise<KanbanCard> => {
+export const createKanbanCard = async (pb: PocketBase, data: { [key: string]: any }): Promise<KanbanCard> => {
     try {
         const record = await pb.collection('kanban_cards').create(data, { expand: 'kanban_steps(card),status,group,owners,createdBy' });
         return pbToCard(record);
@@ -119,3 +119,4 @@ export const updateKanbanStep = async (pb: PocketBase, stepId: string, data: Par
 };
 
 // You can add delete functions here as needed
+
