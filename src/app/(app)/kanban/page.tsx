@@ -1,3 +1,4 @@
+
 'use client';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -11,6 +12,7 @@ import {
 import type { DragEndEvent } from '@/components/ui/shadcn-io/kanban';
 import { useState, useMemo } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subDays, subMonths } from 'date-fns';
+import { Separator } from '@/components/ui/separator';
 
 // Inline content
 const today = new Date();
@@ -158,67 +160,74 @@ const Example = () => {
     );
   };
 
-  const groups = useMemo(() => {
+  const tasksByStatusAndGroup = useMemo(() => {
     const grouped = features.reduce((acc, feature) => {
+      const statusName = feature.status.name;
       const groupName = feature.group.name;
-      if (!acc[groupName]) {
-        acc[groupName] = [];
+      if (!acc[statusName]) {
+        acc[statusName] = {};
       }
-      acc[groupName].push(feature);
+      if (!acc[statusName][groupName]) {
+        acc[statusName][groupName] = [];
+      }
+      acc[statusName][groupName].push(feature);
       return acc;
-    }, {} as Record<string, typeof features>);
-    return Object.entries(grouped);
+    }, {} as Record<string, Record<string, typeof features>>);
+    return grouped;
+  }, [features]);
+
+  const allGroups = useMemo(() => {
+    const groupSet = new Set<string>();
+    features.forEach(feature => groupSet.add(feature.group.name));
+    return Array.from(groupSet);
   }, [features]);
 
   return (
-    <KanbanProvider onDragEnd={handleDragEnd} className="p-4 flex-col gap-8">
-      {groups.map(([groupName, groupFeatures]) => (
-        <div key={groupName} className="flex flex-col gap-4">
-          <h2 className="text-xl font-bold">{groupName}</h2>
-          <div className="grid w-full auto-cols-fr grid-flow-col gap-4">
-            {exampleStatuses.map((status) => (
-              <KanbanBoard key={`${groupName}-${status.name}`} id={status.name}>
-                <KanbanHeader name={status.name} color={status.color} />
-                <KanbanCards>
-                  {groupFeatures
-                    .filter((feature) => feature.status.name === status.name)
-                    .map((feature, index) => (
-                      <KanbanCard
-                        key={feature.id}
-                        id={feature.id}
-                        name={feature.name}
-                        parent={status.name}
-                        index={index}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex flex-col gap-1">
-                            <p className="m-0 flex-1 font-medium text-sm">
-                              {feature.name}
-                            </p>
-                            <p className="m-0 text-muted-foreground text-xs">
-                              {feature.initiative.name}
-                            </p>
-                          </div>
-                          {feature.owner && (
-                            <Avatar className="h-4 w-4 shrink-0">
-                              <AvatarImage src={feature.owner.image} />
-                              <AvatarFallback>
-                                {feature.owner.name?.slice(0, 2)}
-                              </AvatarFallback>
-                            </Avatar>
-                          )}
-                        </div>
-                        <p className="m-0 text-muted-foreground text-xs">
-                          {shortDateFormatter.format(feature.startAt)} -{' '}
-                          {dateFormatter.format(feature.endAt)}
+    <KanbanProvider onDragEnd={handleDragEnd} className="p-4">
+      {exampleStatuses.map((status) => (
+        <KanbanBoard key={status.name} id={status.name}>
+          <KanbanHeader name={status.name} color={status.color} />
+          <KanbanCards className="gap-4">
+            {allGroups.map((groupName, groupIndex) => (
+              <div key={groupName} className="flex flex-col gap-2">
+                {groupIndex > 0 && <Separator />}
+                <h3 className="text-sm font-semibold text-muted-foreground px-1 pt-2">{groupName}</h3>
+                {(tasksByStatusAndGroup[status.name]?.[groupName] || []).map((feature, index) => (
+                  <KanbanCard
+                    key={feature.id}
+                    id={feature.id}
+                    name={feature.name}
+                    parent={status.name}
+                    index={index}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex flex-col gap-1">
+                        <p className="m-0 flex-1 font-medium text-sm">
+                          {feature.name}
                         </p>
-                      </KanbanCard>
-                    ))}
-                </KanbanCards>
-              </KanbanBoard>
+                        <p className="m-0 text-muted-foreground text-xs">
+                          {feature.initiative.name}
+                        </p>
+                      </div>
+                      {feature.owner && (
+                        <Avatar className="h-4 w-4 shrink-0">
+                          <AvatarImage src={feature.owner.image} />
+                          <AvatarFallback>
+                            {feature.owner.name?.slice(0, 2)}
+                          </AvatarFallback>
+                        </Avatar>
+                      )}
+                    </div>
+                    <p className="m-0 text-muted-foreground text-xs">
+                      {shortDateFormatter.format(feature.startAt)} -{' '}
+                      {dateFormatter.format(feature.endAt)}
+                    </p>
+                  </KanbanCard>
+                ))}
+              </div>
             ))}
-          </div>
-        </div>
+          </KanbanCards>
+        </KanbanBoard>
       ))}
     </KanbanProvider>
   );
