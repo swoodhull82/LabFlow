@@ -23,7 +23,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subMonths } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
-import { Plus, Loader2, X, List, Trello } from 'lucide-react';
+import { Plus, Loader2, X, List, Trello, User } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -77,7 +77,7 @@ const Example = () => {
   const [newCardName, setNewCardName] = useState('');
   const [newCardAssignee, setNewCardAssignee] = useState(user?.id || '');
   const [newCardStatus, setNewCardStatus] = useState(exampleStatuses[0].id);
-  const [newCardSteps, setNewCardSteps] = useState<{ id: string, name: string, completed: boolean }[]>([]);
+  const [newCardSteps, setNewCardSteps] = useState<{ id: string, name: string, completed: boolean, assigneeId: string | null }[]>([]);
   const [currentStepInput, setCurrentStepInput] = useState('');
 
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
@@ -93,7 +93,7 @@ const Example = () => {
       } else if (fetchedEmployees.length > 0) {
         setNewCardAssignee(fetchedEmployees[0].id);
       }
-    } catch (error) {
+    } catch (error: any) {
       const isAutocancel = error?.isAbort === true || (typeof error?.message === 'string' && error.message.toLowerCase().includes("autocancelled"));
       if (!isAutocancel) {
         console.error("Failed to fetch employees for Kanban:", error);
@@ -141,7 +141,6 @@ const Example = () => {
         creator = { id: user!.id, name: user!.name || user!.email };
     }
 
-
     return [
       {
         id: '1',
@@ -155,9 +154,9 @@ const Example = () => {
         initiative: { id: '1', name: 'Client Relations Q3' },
         release: { id: '1', name: 'v1.0' },
         steps: [
-            { id: 'step-1-1', name: 'Draft feedback questions', completed: true },
-            { id: 'step-1-2', name: 'Design form layout', completed: true },
-            { id: 'step-1-3', name: 'Implement and test form', completed: true },
+            { id: 'step-1-1', name: 'Draft feedback questions', completed: true, assigneeId: getOwner(0)?.id },
+            { id: 'step-1-2', name: 'Design form layout', completed: true, assigneeId: getOwner(1 % kanbanOwners.length)?.id },
+            { id: 'step-1-3', name: 'Implement and test form', completed: true, assigneeId: getOwner(0)?.id },
         ]
       },
       {
@@ -172,9 +171,9 @@ const Example = () => {
         initiative: { id: '2', name: 'Lab Operations' },
         release: { id: '1', name: 'v1.0' },
         steps: [
-            { id: 'step-2-1', name: 'Clean cones and injector', completed: true },
-            { id: 'step-2-2', name: 'Replace tubing', completed: false },
-            { id: 'step-2-3', name: 'Run performance check', completed: false },
+            { id: 'step-2-1', name: 'Clean cones and injector', completed: true, assigneeId: getOwner(1 % kanbanOwners.length)?.id },
+            { id: 'step-2-2', name: 'Replace tubing', completed: false, assigneeId: getOwner(1 % kanbanOwners.length)?.id },
+            { id: 'step-2-3', name: 'Run performance check', completed: false, assigneeId: null },
         ]
       },
       {
@@ -189,8 +188,8 @@ const Example = () => {
         initiative: { id: '3', name: 'Inventory Management' },
         release: { id: '2', name: 'v1.1' },
         steps: [
-             { id: 'step-3-1', name: 'Inventory check', completed: true },
-             { id: 'step-3-2', name: 'Create purchase order', completed: false },
+             { id: 'step-3-1', name: 'Inventory check', completed: true, assigneeId: getOwner(2 % kanbanOwners.length)?.id },
+             { id: 'step-3-2', name: 'Create purchase order', completed: false, assigneeId: getOwner(2 % kanbanOwners.length)?.id },
         ]
       },
       {
@@ -218,8 +217,8 @@ const Example = () => {
         initiative: { id: '1', name: 'Client Relations Q3' },
         release: { id: '2', name: 'v1.1' },
         steps: [
-            { id: 'step-5-1', name: 'Kickoff call', completed: true },
-            { id: 'step-5-2', name: 'Set up account in LIMS', completed: false },
+            { id: 'step-5-1', name: 'Kickoff call', completed: true, assigneeId: getOwner(4 % kanbanOwners.length)?.id },
+            { id: 'step-5-2', name: 'Set up account in LIMS', completed: false, assigneeId: null },
         ]
       },
       {
@@ -234,9 +233,9 @@ const Example = () => {
         initiative: { id: '2', name: 'Lab Operations' },
         release: { id: '3', name: 'v1.2' },
         steps: [
-            { id: 'step-6-1', name: 'Calibrate with pH 4 buffer', completed: true },
-            { id: 'step-6-2', name: 'Calibrate with pH 7 buffer', completed: true },
-            { id: 'step-6-3', name: 'Calibrate with pH 10 buffer', completed: true },
+            { id: 'step-6-1', name: 'Calibrate with pH 4 buffer', completed: true, assigneeId: getOwner(1 % kanbanOwners.length)?.id },
+            { id: 'step-6-2', name: 'Calibrate with pH 7 buffer', completed: true, assigneeId: getOwner(1 % kanbanOwners.length)?.id },
+            { id: 'step-6-3', name: 'Calibrate with pH 10 buffer', completed: true, assigneeId: getOwner(1 % kanbanOwners.length)?.id },
         ]
       },
         {
@@ -278,6 +277,15 @@ const Example = () => {
         return feature;
       })
     );
+  };
+
+  const handleStepAssigneeChange = (stepId: string, assigneeId: string) => {
+    setNewCardSteps(currentSteps => currentSteps.map(step => {
+      if (step.id === stepId) {
+        return { ...step, assigneeId };
+      }
+      return step;
+    }));
   };
 
   const sensors = useSensors(
@@ -337,7 +345,7 @@ const Example = () => {
   
   const handleAddStep = () => {
     if (currentStepInput.trim()) {
-      setNewCardSteps([...newCardSteps, { id: `new-step-${Date.now()}`, name: currentStepInput.trim(), completed: false }]);
+      setNewCardSteps([...newCardSteps, { id: `new-step-${Date.now()}`, name: currentStepInput.trim(), completed: false, assigneeId: newCardAssignee }]);
       setCurrentStepInput('');
     }
   };
@@ -352,7 +360,10 @@ const Example = () => {
     if (!newCardName || !newCardAssignee || !newCardStatus || !newCardGroup || !user) return;
     
     const owner = kanbanOwners.find(o => o.id === newCardAssignee);
-    let creator = { id: user.id, name: user.name || user.email };
+    let creator = kanbanOwners.find(o => o.id === user.id);
+    if (!creator) {
+      creator = { id: user.id, name: user.name || user.email };
+    }
 
     const status = exampleStatuses.find(s => s.id === newCardStatus);
 
@@ -406,57 +417,71 @@ const Example = () => {
     }, {} as Record<string, typeof features[0][]>);
   }, [features]);
 
-  const cardRenderer = (feature: typeof features[0]) => (
-    <>
-      <div className="flex items-start justify-between gap-2">
-        <p className="m-0 flex-1 font-medium text-sm">
-          {feature.name}
-        </p>
-        {feature.owner && (
-          <Avatar className="h-5 w-5 shrink-0">
-            <AvatarFallback>
-              {getInitials(feature.owner.name)}
-            </AvatarFallback>
-          </Avatar>
-        )}
-      </div>
-      {feature.steps && feature.steps.length > 0 && (
-        <div className="space-y-1.5 mt-2 ml-2 pl-2 border-l">
-            {feature.steps.map(step => (
-                <div key={step.id} className="flex items-center gap-2">
-                    <Checkbox 
-                        id={`step-${step.id}`} 
-                        checked={step.completed} 
-                        onCheckedChange={() => toggleStep(feature.id, step.id)}
-                        className="h-3 w-3"
-                    />
-                    <label
-                        htmlFor={`step-${step.id}`}
-                        className="text-xs font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                    >
-                        {step.name}
-                    </label>
-                </div>
-            ))}
+  const cardRenderer = (feature: typeof features[0]) => {
+    const assignee = kanbanOwners.find(o => o.id === feature.owner.id);
+
+    return (
+      <>
+        <div className="flex items-start justify-between gap-2">
+          <p className="m-0 flex-1 font-medium text-sm">
+            {feature.name}
+          </p>
+          {assignee && (
+            <Avatar className="h-5 w-5 shrink-0" title={`Assigned to: ${assignee.name}`}>
+              <AvatarFallback>
+                {getInitials(assignee.name)}
+              </AvatarFallback>
+            </Avatar>
+          )}
         </div>
-      )}
-      <div className="flex items-center justify-between text-muted-foreground text-xs mt-2">
-         <p className="m-0">
-            {shortDateFormatter.format(feature.startAt)} -{' '}
-            {dateFormatter.format(feature.endAt)}
-        </p>
-        {feature.createdBy && (
-            <div className="flex items-center gap-1" title={`Created by ${feature.createdBy.name}`}>
-                <Avatar className="h-4 w-4 shrink-0">
-                    <AvatarFallback className="text-[10px]">
-                    {getInitials(feature.createdBy.name)}
-                    </AvatarFallback>
-                </Avatar>
-            </div>
+        {feature.steps && feature.steps.length > 0 && (
+          <div className="space-y-1.5 mt-2 ml-2 pl-2 border-l">
+              {feature.steps.map(step => {
+                  const stepAssignee = kanbanOwners.find(o => o.id === step.assigneeId);
+                  return (
+                      <div key={step.id} className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                              <Checkbox 
+                                  id={`step-${step.id}`} 
+                                  checked={step.completed} 
+                                  onCheckedChange={() => toggleStep(feature.id, step.id)}
+                                  className="h-3 w-3"
+                              />
+                              <label
+                                  htmlFor={`step-${step.id}`}
+                                  className="text-xs font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                              >
+                                  {step.name}
+                              </label>
+                          </div>
+                          {stepAssignee && (
+                              <Avatar className="h-4 w-4 shrink-0" title={`Step assigned to: ${stepAssignee.name}`}>
+                                  <AvatarFallback className="text-[10px]">{getInitials(stepAssignee.name)}</AvatarFallback>
+                              </Avatar>
+                          )}
+                      </div>
+                  );
+              })}
+          </div>
         )}
-      </div>
-    </>
-  );
+        <div className="flex items-center justify-between text-muted-foreground text-xs mt-2">
+          <p className="m-0">
+              {shortDateFormatter.format(feature.startAt)} -{' '}
+              {dateFormatter.format(feature.endAt)}
+          </p>
+          {feature.createdBy && (
+              <div className="flex items-center gap-1" title={`Created by ${feature.createdBy.name}`}>
+                  <Avatar className="h-4 w-4 shrink-0">
+                      <AvatarFallback className="text-[10px]">
+                      {getInitials(feature.createdBy.name)}
+                      </AvatarFallback>
+                  </Avatar>
+              </div>
+          )}
+        </div>
+      </>
+    );
+  };
 
   return (
     <>
@@ -538,7 +563,7 @@ const Example = () => {
       )}
 
       <Dialog open={isAddCardOpen} onOpenChange={setIsAddCardOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Add New Card to {newCardGroup?.name}</DialogTitle>
             <DialogDescription>
@@ -590,19 +615,32 @@ const Example = () => {
                     </SelectContent>
                 </Select>
               </div>
-               <div className="grid grid-cols-4 items-start gap-4">
+              <div className="grid grid-cols-4 items-start gap-4">
                   <Label htmlFor="newStep" className="text-right pt-2">
                     Steps
                   </Label>
                   <div className="col-span-3 space-y-2">
                     {newCardSteps.length > 0 && (
-                      <div className="space-y-1 rounded-md border p-2">
+                      <div className="space-y-2 rounded-md border p-2">
                         {newCardSteps.map(step => (
-                          <div key={step.id} className="flex items-center justify-between text-sm">
-                            <span>{step.name}</span>
-                            <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleRemoveStep(step.id)}>
-                              <X className="h-3 w-3" />
-                            </Button>
+                          <div key={step.id} className="flex items-center justify-between text-sm gap-2">
+                              <span className="flex-1">{step.name}</span>
+                              <div className="flex items-center gap-2">
+                                <Select onValueChange={(value) => handleStepAssigneeChange(step.id, value)} defaultValue={step.assigneeId ?? undefined}>
+                                  <SelectTrigger className="w-[120px] h-7 text-xs">
+                                      <SelectValue placeholder="Assign..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="UNASSIGNED_STEP_VALUE">Unassigned</SelectItem>
+                                    {kanbanOwners.map(owner => (
+                                      <SelectItem key={owner.id} value={owner.id}>{owner.name}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleRemoveStep(step.id)}>
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
                           </div>
                         ))}
                       </div>
@@ -632,3 +670,5 @@ const Example = () => {
 };
 
 export default Example;
+
+    
