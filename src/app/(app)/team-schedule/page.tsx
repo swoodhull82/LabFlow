@@ -3,15 +3,18 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { getPersonalEvents } from "@/services/personalEventService";
+import { getPersonalEvents, deletePersonalEvent } from "@/services/personalEventService";
 import { getEmployees } from "@/services/employeeService";
 import type { CalendarEvent, Employee } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, PlusCircle } from "lucide-react";
 import WeeklyView from "@/components/calendar/WeeklyView";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type PocketBase from "pocketbase";
+import { TeamEventForm } from "@/components/tasks/TeamEventForm";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+
 
 const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred.";
@@ -36,12 +39,16 @@ export default function TeamSchedulePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>();
+
+  const isSupervisor = user?.role === 'Supervisor';
+
   const fetchData = useCallback(async (pb: PocketBase, currentUserId: string, signal?: AbortSignal) => {
     setIsLoading(true);
     setError(null);
     try {
-      // getPersonalEvents will fetch all events the current user is allowed to see,
-      // including their own and those from users who have shared their calendar.
       const [fetchedEvents, fetchedEmployees] = await Promise.all([
         getPersonalEvents(pb, currentUserId, { signal }),
         getEmployees(pb, { signal }),
@@ -72,16 +79,12 @@ export default function TeamSchedulePage() {
   const employeeColorMap = useMemo(() => {
     const map = new Map<string, string>();
     employees.forEach(employee => {
-      // Find the user account associated with the employee to get the correct user ID for event mapping
-      const userForEmployee = user?.id; // This is a simplification. A real app would map employee.userId to a user record.
-                                         // For now, we assume all events are owned by a user that might be an employee.
-                                         
-      if (employee.color && employee.userId) { // Ensure employee has a color and is linked to a user
+      if (employee.color && employee.userId) {
         map.set(employee.userId, employee.color);
       }
     });
     return map;
-  }, [employees, user]);
+  }, [employees]);
 
   const eventsWithColor = useMemo(() => {
     return events.map(event => {
@@ -91,6 +94,46 @@ export default function TeamSchedulePage() {
       return event;
     });
   }, [events, employeeColorMap]);
+
+  const handleDataChanged = () => {
+    if (pbClient && user) {
+      fetchData(pbClient, user.id);
+    }
+  };
+
+  const handleFormClose = () => {
+    setIsFormOpen(false);
+    setEditingEvent(null);
+    setSelectedDate(undefined);
+  };
+  
+  const handleEventClick = (event: CalendarEvent) => {
+    if (isSupervisor) {
+      setEditingEvent(event);
+      setIsFormOpen(true);
+    }
+  };
+
+  const handleHourSlotClick = (date: Date) => {
+    if (isSupervisor) {
+      setSelectedDate(date);
+      setEditingEvent(null);
+      setIsFormOpen(true);
+    }
+  };
+  
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!pbClient) return;
+    try {
+      await deletePersonalEvent(pbClient, eventId);
+      toast({ title: "Event Deleted", description: "The event has been removed." });
+      handleDataChanged();
+      handleFormClose();
+    } catch (error: any) {
+      toast({ title: "Error Deleting Event", description: getDetailedErrorMessage(error), variant: "destructive" });
+    }
+  };
+
 
   const refetchData = () => {
     if (pbClient && user) {
@@ -102,13 +145,35 @@ export default function TeamSchedulePage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-2xl md:text-3xl font-headline font-semibold">Team Schedule</h1>
+        {isSupervisor && (
+          <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={() => { setEditingEvent(null); setSelectedDate(new Date()); setIsFormOpen(true); }}>
+                <PlusCircle className="mr-2 h-4 w-4" /> New Team Event
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{editingEvent ? 'Edit Event' : 'New Team Event'}</DialogTitle>
+              </DialogHeader>
+              <TeamEventForm
+                employees={employees}
+                onEventUpserted={handleDataChanged}
+                onDialogClose={handleFormClose}
+                onDelete={handleDeleteEvent}
+                eventToEdit={editingEvent}
+                defaultDate={selectedDate}
+              />
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       <Card className="shadow-md">
         <CardHeader>
           <CardTitle className="font-headline">Weekly Team Availability</CardTitle>
           <CardDescription>
-            A combined view of all shared employee schedules. Events are color-coded by employee.
+            A combined view of all shared employee schedules. {isSupervisor ? "Click on an event to edit or on an empty slot to create a new event for an employee." : "Events are color-coded by employee."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -127,9 +192,8 @@ export default function TeamSchedulePage() {
             <WeeklyView
               events={eventsWithColor}
               isTeamView={true}
-              // Clicking on the team schedule won't open a form to prevent
-              // users from accidentally creating events on someone else's calendar.
-              // Event creation should happen on the "My Calendar" page.
+              onEventClick={isSupervisor ? handleEventClick : undefined}
+              onHourSlotClick={isSupervisor ? handleHourSlotClick : undefined}
             />
           )}
         </CardContent>
