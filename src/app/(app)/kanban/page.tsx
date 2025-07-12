@@ -96,16 +96,13 @@ const Example = () => {
   
   const kanbanOwners = useMemo(() => {
     if (employees.length === 0) {
-      if (isLoadingEmployees) {
-        return [{ id: 'placeholder-1', name: 'Loading...' }];
-      }
       return [];
     }
     return employees.map(emp => ({
       id: emp.id,
       name: emp.name
     }));
-  }, [employees, isLoadingEmployees]);
+  }, [employees]);
 
   const initialFeatures = useMemo(() => {
     if (kanbanOwners.length <= 1 && employees.length > 0) return []; // Wait for full employee list if possible
