@@ -18,6 +18,7 @@ import {
   ListItem
 } from '@/components/ui/shadcn-io/list';
 import type { DragEndEvent } from '@dnd-kit/core';
+import { useDroppable } from '@dnd-kit/core';
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subMonths, format, formatDistanceToNow } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
@@ -53,6 +54,23 @@ const DEFAULT_STATUSES: KanbanStatus[] = [
 const DEFAULT_GROUPS: KanbanGroup[] = [
     { id: 'group-general', name: 'General Tasks', order: 1 },
 ];
+
+const DeleteDropZone = () => {
+    const { setNodeRef, isOver } = useDroppable({ id: 'delete-zone' });
+    return (
+        <div
+            ref={setNodeRef}
+            className={cn(
+                'flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-destructive/50 bg-destructive/10 p-4 transition-colors',
+                isOver && 'bg-destructive/20 border-destructive'
+            )}
+        >
+            <Trash2 className="h-10 w-10 text-destructive" />
+            <p className="text-destructive font-medium text-center">Drag here to delete</p>
+        </div>
+    );
+};
+
 
 const KanbanPage = () => {
   const { pbClient, user } = useAuth();
@@ -124,6 +142,15 @@ const KanbanPage = () => {
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || !pbClient) return;
+
+    // Handle dropping on delete zone
+    if (over.id === 'delete-zone') {
+        const draggedCard = cards.find(c => c.id === active.id);
+        if (draggedCard) {
+            setCardToDelete(draggedCard);
+        }
+        return;
+    }
 
     const overIdParts = over.id.toString().split('-');
     const statusName = overIdParts[0];
@@ -299,34 +326,6 @@ const KanbanPage = () => {
 
     return (
       <div className="group relative">
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-0 top-0 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-              onClick={(e) => { e.stopPropagation(); setCardToDelete(card); }}
-            >
-              <Trash2 className="h-4 w-4 text-destructive" />
-              <span className="sr-only">Delete card</span>
-            </Button>
-          </AlertDialogTrigger>
-          {cardToDelete && cardToDelete.id === card.id && (
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        This will permanently delete the card "{cardToDelete.name}" and all its steps. This action cannot be undone.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel onClick={() => setCardToDelete(null)}>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDeleteCard} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-          )}
-        </AlertDialog>
-
         <div className="flex items-start justify-between gap-2">
           <p className="m-0 flex-1 font-medium text-sm pr-6">{card.name}</p>
           {cardCreator && (
@@ -478,15 +477,16 @@ const KanbanPage = () => {
 
       {viewMode === 'board' ? (
         <KanbanProvider onDragEnd={handleDragEnd} className="p-4 pt-0">
-          <div className="grid grid-cols-[200px_1fr_1fr_1fr] gap-4 w-full">
+          <div className="grid grid-cols-[200px_1fr_1fr_1fr_200px] gap-4 w-full">
             <div className="font-semibold text-lg p-2">Category</div>
             {statuses.map((status) => (
               <div key={status.name} className="p-2">
                 <KanbanHeader name={status.name} color={status.color} />
               </div>
             ))}
+            <div className="font-semibold text-lg p-2 text-destructive">Actions</div>
             
-            <div className="col-span-4"><Separator /></div>
+            <div className="col-span-5"><Separator /></div>
 
             {groups.map((group) => (
               <React.Fragment key={group.id}>
@@ -507,7 +507,8 @@ const KanbanPage = () => {
                     </KanbanCards>
                   </KanbanBoard>
                 ))}
-                <div className="col-span-4"><Separator /></div>
+                <DeleteDropZone />
+                <div className="col-span-5"><Separator /></div>
               </React.Fragment>
             ))}
           </div>
@@ -528,6 +529,22 @@ const KanbanPage = () => {
             ))}
         </ListProvider>
       )}
+
+      {/* Re-usable delete confirmation dialog */}
+      <AlertDialog open={!!cardToDelete} onOpenChange={(isOpen) => !isOpen && setCardToDelete(null)}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                    This will permanently delete the card "{cardToDelete?.name}" and all its steps. This action cannot be undone.
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => setCardToDelete(null)}>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDeleteCard} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={isAddCardOpen} onOpenChange={setIsAddCardOpen}>
         <DialogContent className="max-w-lg">
