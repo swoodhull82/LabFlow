@@ -16,7 +16,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subDays, subMonths } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
-import { Plus, Loader2, X, Check } from 'lucide-react';
+import { Plus, Loader2, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -25,7 +25,6 @@ import { useAuth } from '@/context/AuthContext';
 import { getEmployees } from '@/services/employeeService';
 import type { Employee } from '@/lib/types';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Progress } from '@/components/ui/progress';
 
 
 const today = new Date();
@@ -112,6 +111,7 @@ const Example = () => {
     if (kanbanOwners.length <= 1 && employees.length > 0) return []; // Wait for full employee list if possible
     
     const getOwner = (index: number) => kanbanOwners[index % kanbanOwners.length];
+    const getCreator = (index: number) => kanbanOwners[index % kanbanOwners.length];
 
     return [
       {
@@ -122,6 +122,7 @@ const Example = () => {
         status: exampleStatuses[2], // Done
         group: newGroups[0], // Customer Service
         owner: getOwner(0),
+        createdBy: getCreator(0),
         initiative: { id: '1', name: 'Client Relations Q3' },
         release: { id: '1', name: 'v1.0' },
         steps: [
@@ -138,6 +139,7 @@ const Example = () => {
         status: exampleStatuses[1], // In Progress
         group: newGroups[1], // Instrument Management
         owner: getOwner(1),
+        createdBy: getCreator(1),
         initiative: { id: '2', name: 'Lab Operations' },
         release: { id: '1', name: 'v1.0' },
         steps: [
@@ -154,6 +156,7 @@ const Example = () => {
         status: exampleStatuses[1], // In Progress
         group: newGroups[2], // Supply Chain & Ordering
         owner: getOwner(2),
+        createdBy: getCreator(2),
         initiative: { id: '3', name: 'Inventory Management' },
         release: { id: '2', name: 'v1.1' },
         steps: [
@@ -169,6 +172,7 @@ const Example = () => {
         status: exampleStatuses[0], // Planned
         group: newGroups[3], // General Projects
         owner: getOwner(3),
+        createdBy: getCreator(3),
         initiative: { id: '4', name: 'Compliance 2024' },
         release: { id: '2', name: 'v1.1' },
         steps: []
@@ -181,6 +185,7 @@ const Example = () => {
         status: exampleStatuses[1], // In Progress
         group: newGroups[0], // Customer Service
         owner: getOwner(4 % kanbanOwners.length),
+        createdBy: getCreator(0),
         initiative: { id: '1', name: 'Client Relations Q3' },
         release: { id: '2', name: 'v1.1' },
         steps: [
@@ -196,6 +201,7 @@ const Example = () => {
         status: exampleStatuses[2], // Done
         group: newGroups[1], // Instrument Management
         owner: getOwner(1),
+        createdBy: getCreator(1),
         initiative: { id: '2', name: 'Lab Operations' },
         release: { id: '3', name: 'v1.2' },
         steps: [
@@ -212,6 +218,7 @@ const Example = () => {
         status: exampleStatuses[0], // Planned
         group: newGroups[2], // Supply Chain & Ordering
         owner: getOwner(5 % kanbanOwners.length),
+        createdBy: getCreator(2),
         initiative: { id: '3', name: 'Inventory Management' },
         release: { id: '3', name: 'v1.2' },
         steps: []
@@ -313,12 +320,13 @@ const Example = () => {
   const handleAddCardSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!newCardName || !newCardAssignee || !newCardStatus || !newCardGroup) return;
+    if (!newCardName || !newCardAssignee || !newCardStatus || !newCardGroup || !user) return;
 
     const owner = kanbanOwners.find(o => o.id === newCardAssignee);
+    const creator = kanbanOwners.find(o => o.id === user.id);
     const status = exampleStatuses.find(s => s.id === newCardStatus);
 
-    if (!owner || !status) return;
+    if (!owner || !status || !creator) return;
 
     const newFeature = {
       id: `feature-${Date.now()}`,
@@ -328,6 +336,7 @@ const Example = () => {
       status: status,
       group: newCardGroup,
       owner: owner,
+      createdBy: creator,
       initiative: { id: 'temp-id', name: `${newCardGroup.name} Initiative` },
       release: { id: 'temp-id', name: 'Next Release' },
       steps: newCardSteps,
@@ -352,13 +361,6 @@ const Example = () => {
     }, {} as Record<string, Record<string, typeof features>>);
     return grouped;
   }, [features]);
-  
-  const getStepProgress = (steps: {completed: boolean}[]) => {
-    if (!steps || steps.length === 0) return { completed: 0, total: 0, percentage: 0 };
-    const completed = steps.filter(step => step.completed).length;
-    const total = steps.length;
-    return { completed, total, percentage: total > 0 ? (completed / total) * 100 : 0 };
-  };
 
   return (
     <>
@@ -393,9 +395,7 @@ const Example = () => {
               {exampleStatuses.map((status) => (
                 <KanbanBoard key={`${group.name}-${status.name}`} id={`${status.name}-${group.name}`}>
                   <KanbanCards>
-                    {(tasksByGroupAndStatus[group.name]?.[status.name] || []).map((feature, index) => {
-                      const progress = getStepProgress(feature.steps);
-                      return (
+                    {(tasksByGroupAndStatus[group.name]?.[status.name] || []).map((feature, index) => (
                       <KanbanCard
                         key={feature.id}
                         id={feature.id}
@@ -408,10 +408,10 @@ const Example = () => {
                             <p className="m-0 flex-1 font-medium text-sm">
                               {feature.name}
                             </p>
-                            {feature.owner && (
+                            {feature.createdBy && (
                               <Avatar className="h-4 w-4 shrink-0">
                                 <AvatarFallback>
-                                  {getInitials(feature.owner.name)}
+                                  {getInitials(feature.createdBy.name)}
                                 </AvatarFallback>
                               </Avatar>
                             )}
@@ -442,18 +442,10 @@ const Example = () => {
                                 {shortDateFormatter.format(feature.startAt)} -{' '}
                                 {dateFormatter.format(feature.endAt)}
                             </p>
-                            {progress.total > 0 && (
-                                <div className="flex items-center gap-1.5" title={`${progress.completed} of ${progress.total} steps completed`}>
-                                    <Check className="h-3 w-3" />
-                                    <span>{progress.completed}/{progress.total}</span>
-                                </div>
-                            )}
                           </div>
-                          {progress.total > 0 && <Progress value={progress.percentage} className="h-1 mt-1" />}
                         </div>
                       </KanbanCard>
-                      )
-                    })}
+                    ))}
                   </KanbanCards>
                 </KanbanBoard>
               ))}
