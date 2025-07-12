@@ -10,8 +10,8 @@ import {
   KanbanHeader,
   KanbanProvider,
 } from '@/components/ui/shadcn-io/kanban';
-import type { DragEndEvent, MouseSensor, TouchSensor } from '@dnd-kit/core';
-import { useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
+import type { DragEndEvent, MouseSensor } from '@dnd-kit/core';
+import { useSensor, useSensors, PointerSensor, TouchSensor } from '@dnd-kit/core';
 import { useState, useMemo } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subDays, subMonths } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
