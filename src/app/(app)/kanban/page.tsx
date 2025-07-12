@@ -1,4 +1,3 @@
-
 'use client';
 
 import React from 'react';
@@ -10,13 +9,18 @@ import {
   KanbanHeader,
   KanbanProvider,
 } from '@/components/ui/shadcn-io/kanban';
-import type { DragEndEvent, MouseSensor } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
 import { useSensor, useSensors, PointerSensor, TouchSensor } from '@dnd-kit/core';
 import { useState, useMemo } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subDays, subMonths } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 
 const today = new Date();
 
@@ -33,6 +37,15 @@ const newGroups = [
   { id: '4', name: 'General Projects' },
 ]
 
+const exampleOwners = [
+    { id: '1', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=1', name: 'Alice Johnson' },
+    { id: '2', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=2', name: 'Bob Smith' },
+    { id: '3', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=3', name: 'Charlie Brown' },
+    { id: '4', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=4', name: 'Diana Prince' },
+    { id: '5', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=5', name: 'Ethan Hunt' },
+    { id: '6', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=6', name: 'Fiona Gallagher' },
+];
+
 const initialFeatures = [
   {
     id: '1',
@@ -41,7 +54,7 @@ const initialFeatures = [
     endAt: endOfMonth(subMonths(today, 1)),
     status: exampleStatuses[2], // Done
     group: newGroups[0], // Customer Service
-    owner: { id: '1', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=1', name: 'Alice Johnson' },
+    owner: exampleOwners[0],
     initiative: { id: '1', name: 'Client Relations Q3' },
     release: { id: '1', name: 'v1.0' },
   },
@@ -52,7 +65,7 @@ const initialFeatures = [
     endAt: addMonths(endOfMonth(today), 1),
     status: exampleStatuses[1], // In Progress
     group: newGroups[1], // Instrument Management
-    owner: { id: '2', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=2', name: 'Bob Smith' },
+    owner: exampleOwners[1],
     initiative: { id: '2', name: 'Lab Operations' },
     release: { id: '1', name: 'v1.0' },
   },
@@ -63,7 +76,7 @@ const initialFeatures = [
     endAt: subDays(endOfMonth(today), 5),
     status: exampleStatuses[1], // In Progress
     group: newGroups[2], // Supply Chain & Ordering
-    owner: { id: '3', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=3', name: 'Charlie Brown' },
+    owner: exampleOwners[2],
     initiative: { id: '3', name: 'Inventory Management' },
     release: { id: '2', name: 'v1.1' },
   },
@@ -74,7 +87,7 @@ const initialFeatures = [
     endAt: addMonths(endOfMonth(today), 2),
     status: exampleStatuses[0], // Planned
     group: newGroups[3], // General Projects
-    owner: { id: '4', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=4', name: 'Diana Prince' },
+    owner: exampleOwners[3],
     initiative: { id: '4', name: 'Compliance 2024' },
     release: { id: '2', name: 'v1.1' },
   },
@@ -85,7 +98,7 @@ const initialFeatures = [
     endAt: endOfMonth(today),
     status: exampleStatuses[1], // In Progress
     group: newGroups[0], // Customer Service
-    owner: { id: '5', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=5', name: 'Ethan Hunt' },
+    owner: exampleOwners[4],
     initiative: { id: '1', name: 'Client Relations Q3' },
     release: { id: '2', name: 'v1.1' },
   },
@@ -96,7 +109,7 @@ const initialFeatures = [
     endAt: startOfMonth(today),
     status: exampleStatuses[2], // Done
     group: newGroups[1], // Instrument Management
-    owner: { id: '2', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=2', name: 'Bob Smith' },
+    owner: exampleOwners[1],
     initiative: { id: '2', name: 'Lab Operations' },
     release: { id: '3', name: 'v1.2' },
   },
@@ -107,7 +120,7 @@ const initialFeatures = [
     endAt: addMonths(endOfMonth(today), 2),
     status: exampleStatuses[0], // Planned
     group: newGroups[2], // Supply Chain & Ordering
-    owner: { id: '6', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=6', name: 'Fiona Gallagher' },
+    owner: exampleOwners[5],
     initiative: { id: '3', name: 'Inventory Management' },
     release: { id: '3', name: 'v1.2' },
   },
@@ -126,6 +139,9 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-US', {
 
 const Example = () => {
   const [features, setFeatures] = useState(initialFeatures);
+  const [isAddCardOpen, setIsAddCardOpen] = useState(false);
+  const [newCardGroup, setNewCardGroup] = useState<typeof newGroups[0] | null>(null);
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(TouchSensor, {
@@ -162,6 +178,42 @@ const Example = () => {
     );
   };
 
+  const handleAddCardClick = (group: typeof newGroups[0]) => {
+    setNewCardGroup(group);
+    setIsAddCardOpen(true);
+  };
+
+  const handleAddCardSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const cardName = formData.get('cardName') as string;
+    const ownerId = formData.get('ownerId') as string;
+    const statusId = formData.get('statusId') as string;
+
+    if (!cardName || !ownerId || !statusId || !newCardGroup) return;
+
+    const owner = exampleOwners.find(o => o.id === ownerId);
+    const status = exampleStatuses.find(s => s.id === statusId);
+
+    if (!owner || !status) return;
+
+    const newFeature = {
+      id: `feature-${Date.now()}`,
+      name: cardName,
+      startAt: today,
+      endAt: addMonths(today, 1),
+      status: status,
+      group: newCardGroup,
+      owner: owner,
+      initiative: { id: 'temp-id', name: `${newCardGroup.name} Initiative` },
+      release: { id: 'temp-id', name: 'Next Release' },
+    };
+
+    setFeatures(prev => [...prev, newFeature]);
+    setIsAddCardOpen(false);
+    setNewCardGroup(null);
+  };
+
   const tasksByGroupAndStatus = useMemo(() => {
     const grouped = features.reduce((acc, feature) => {
       const groupName = feature.group.name;
@@ -179,77 +231,138 @@ const Example = () => {
   }, [features]);
 
   return (
-    <KanbanProvider onDragEnd={handleDragEnd} className="p-4">
-      <div className="grid grid-cols-[200px_1fr_1fr_1fr] gap-4 w-full">
-        {/* Header Row */}
-        <div className="font-semibold text-lg p-2">Category</div>
-        {exampleStatuses.map((status) => (
-          <div key={status.name} className="p-2">
-            <KanbanHeader name={status.name} color={status.color} />
-          </div>
-        ))}
-        
-        <div className="col-span-4"><Separator /></div>
-
-        {/* Swimlane Rows */}
-        {newGroups.map((group) => (
-          <React.Fragment key={group.id}>
-            {/* Swimlane Label */}
-            <div className="p-2 h-full flex flex-col">
-              <h3 className="text-md font-semibold text-foreground sticky top-4">{group.name}</h3>
-               <Button
-                variant="ghost"
-                className="w-full mt-2 text-muted-foreground justify-start px-0"
-                onClick={() => console.log(`Add card to ${group.name}`)}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Add a card
-              </Button>
+    <>
+      <KanbanProvider onDragEnd={handleDragEnd} className="p-4">
+        <div className="grid grid-cols-[200px_1fr_1fr_1fr] gap-4 w-full">
+          {/* Header Row */}
+          <div className="font-semibold text-lg p-2">Category</div>
+          {exampleStatuses.map((status) => (
+            <div key={status.name} className="p-2">
+              <KanbanHeader name={status.name} color={status.color} />
             </div>
-            {/* Status Columns for the swimlane */}
-            {exampleStatuses.map((status) => (
-              <KanbanBoard key={`${group.name}-${status.name}`} id={`${status.name}-${group.name}`}>
-                <KanbanCards>
-                  {(tasksByGroupAndStatus[group.name]?.[status.name] || []).map((feature, index) => (
-                    <KanbanCard
-                      key={feature.id}
-                      id={feature.id}
-                      name={feature.name}
-                      parent={`${status.name}-${group.name}`}
-                      index={index}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex flex-col gap-1">
-                          <p className="m-0 flex-1 font-medium text-sm">
-                            {feature.name}
-                          </p>
-                          <p className="m-0 text-muted-foreground text-xs">
-                            {feature.initiative.name}
-                          </p>
+          ))}
+          
+          <div className="col-span-4"><Separator /></div>
+
+          {/* Swimlane Rows */}
+          {newGroups.map((group) => (
+            <React.Fragment key={group.id}>
+              {/* Swimlane Label */}
+              <div className="p-2 h-full flex flex-col">
+                <h3 className="text-md font-semibold text-foreground sticky top-4">{group.name}</h3>
+                <Button
+                  variant="ghost"
+                  className="w-full mt-2 text-muted-foreground justify-start px-0"
+                  onClick={() => handleAddCardClick(group)}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add a card
+                </Button>
+              </div>
+              {/* Status Columns for the swimlane */}
+              {exampleStatuses.map((status) => (
+                <KanbanBoard key={`${group.name}-${status.name}`} id={`${status.name}-${group.name}`}>
+                  <KanbanCards>
+                    {(tasksByGroupAndStatus[group.name]?.[status.name] || []).map((feature, index) => (
+                      <KanbanCard
+                        key={feature.id}
+                        id={feature.id}
+                        name={feature.name}
+                        parent={`${status.name}-${group.name}`}
+                        index={index}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-col gap-1">
+                            <p className="m-0 flex-1 font-medium text-sm">
+                              {feature.name}
+                            </p>
+                            <p className="m-0 text-muted-foreground text-xs">
+                              {feature.initiative.name}
+                            </p>
+                          </div>
+                          {feature.owner && (
+                            <Avatar className="h-4 w-4 shrink-0">
+                              <AvatarImage src={feature.owner.image} />
+                              <AvatarFallback>
+                                {feature.owner.name?.slice(0, 2)}
+                              </AvatarFallback>
+                            </Avatar>
+                          )}
                         </div>
-                        {feature.owner && (
-                          <Avatar className="h-4 w-4 shrink-0">
-                            <AvatarImage src={feature.owner.image} />
-                            <AvatarFallback>
-                              {feature.owner.name?.slice(0, 2)}
-                            </AvatarFallback>
-                          </Avatar>
-                        )}
-                      </div>
-                      <p className="m-0 text-muted-foreground text-xs">
-                        {shortDateFormatter.format(feature.startAt)} -{' '}
-                        {dateFormatter.format(feature.endAt)}
-                      </p>
-                    </KanbanCard>
-                  ))}
-                </KanbanCards>
-              </KanbanBoard>
-            ))}
-            <div className="col-span-4"><Separator /></div>
-          </React.Fragment>
-        ))}
-      </div>
-    </KanbanProvider>
+                        <p className="m-0 text-muted-foreground text-xs">
+                          {shortDateFormatter.format(feature.startAt)} -{' '}
+                          {dateFormatter.format(feature.endAt)}
+                        </p>
+                      </KanbanCard>
+                    ))}
+                  </KanbanCards>
+                </KanbanBoard>
+              ))}
+              <div className="col-span-4"><Separator /></div>
+            </React.Fragment>
+          ))}
+        </div>
+      </KanbanProvider>
+      <Dialog open={isAddCardOpen} onOpenChange={setIsAddCardOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Card to {newCardGroup?.name}</DialogTitle>
+            <DialogDescription>
+              Fill in the details for your new task.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAddCardSubmit}>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="cardName" className="text-right">
+                  Name
+                </Label>
+                <Input
+                  id="cardName"
+                  name="cardName"
+                  className="col-span-3"
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="ownerId" className="text-right">
+                  Owner
+                </Label>
+                <Select name="ownerId" required>
+                    <SelectTrigger className="col-span-3">
+                        <SelectValue placeholder="Select an owner" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {exampleOwners.map(owner => (
+                            <SelectItem key={owner.id} value={owner.id}>{owner.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="statusId" className="text-right">
+                  Status
+                </Label>
+                <Select name="statusId" defaultValue={exampleStatuses[0].id} required>
+                    <SelectTrigger className="col-span-3">
+                        <SelectValue placeholder="Select a status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {exampleStatuses.map(status => (
+                            <SelectItem key={status.id} value={status.id}>{status.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setIsAddCardOpen(false)}>Cancel</Button>
+              <Button type="submit">Add Card</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 
