@@ -184,7 +184,11 @@ const Example = () => {
   }, [initialFeatures]);
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
     useSensor(TouchSensor, {
       activationConstraint: {
         delay: 250,
@@ -228,7 +232,7 @@ const Example = () => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const cardName = formData.get('cardName') as string;
-    const ownerId = formData.get('ownerId') as string;
+    const ownerId = formData.get('assignee') as string;
     const statusId = formData.get('statusId') as string;
 
     if (!cardName || !ownerId || !statusId || !newCardGroup) return;
@@ -366,12 +370,12 @@ const Example = () => {
                 />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="ownerId" className="text-right">
-                  Owner
+                <Label htmlFor="assignee" className="text-right">
+                  Assignee
                 </Label>
-                <Select name="ownerId" defaultValue={user?.id} required disabled={isLoadingEmployees}>
+                <Select name="assignee" defaultValue={user?.id} required disabled={isLoadingEmployees}>
                     <SelectTrigger className="col-span-3">
-                        <SelectValue placeholder={isLoadingEmployees ? <div className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> <span>Loading...</span></div> : "Select an owner"} />
+                        <SelectValue placeholder={isLoadingEmployees ? <div className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> <span>Loading...</span></div> : "Select an assignee"} />
                     </SelectTrigger>
                     <SelectContent>
                         {!isLoadingEmployees && kanbanOwners.map(owner => (
