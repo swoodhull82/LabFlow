@@ -134,12 +134,13 @@ interface PersonalEventCreationData {
 
 export const createPersonalEvent = async (
   pb: PocketBase,
-  eventData: PersonalEventCreationData
+  eventData: PersonalEventCreationData,
+  options?: { signal?: AbortSignal }
 ): Promise<CalendarEvent> => {
   try {
     const record = await withRetry(() =>
       pb.collection(COLLECTION_NAME).create(eventData),
-      { context: "creating personal event" }
+      { context: "creating personal event", signal: options?.signal }
     );
     const personalEvent = pbRecordToPersonalEvent(record);
     if (!personalEvent) {

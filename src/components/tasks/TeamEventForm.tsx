@@ -129,6 +129,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
     }
     
     setIsSubmitting(true);
+    const controller = new AbortController();
 
     try {
       if (isEditMode && eventToEdit) {
@@ -186,7 +187,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
               eventType: data.eventType,
               recurrence: data.recurrence,
             };
-            return createPersonalEvent(pbClient, eventPayload);
+            return createPersonalEvent(pbClient, eventPayload, { signal: controller.signal });
         });
 
         await Promise.all(creationPromises);
@@ -197,11 +198,16 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
       onDialogClose();
 
     } catch (err: any) {
-      toast({
-        title: `Error ${isEditMode ? 'Updating' : 'Creating'} Event`,
-        description: err.data?.message || err.message || "An unexpected error occurred. Please check PocketBase permissions.",
-        variant: "destructive",
-      });
+       const isAutocancel = err?.isAbort === true || (typeof err?.message === 'string' && err.message.toLowerCase().includes("autocancelled"));
+        if (!isAutocancel) {
+            toast({
+                title: `Error ${isEditMode ? 'Updating' : 'Creating'} Event`,
+                description: err.data?.message || err.message || "An unexpected error occurred. Please check PocketBase permissions.",
+                variant: "destructive",
+            });
+        } else {
+             console.warn("Event creation was cancelled. This is expected if the component unmounts.");
+        }
     } finally {
       setIsSubmitting(false);
     }
