@@ -15,14 +15,16 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subDays, subMonths } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2, X, Check } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from '@/context/AuthContext';
 import { getEmployees } from '@/services/employeeService';
 import type { Employee } from '@/lib/types';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Progress } from '@/components/ui/progress';
 
 
 const today = new Date();
@@ -59,18 +61,30 @@ const Example = () => {
   const [isAddCardOpen, setIsAddCardOpen] = useState(false);
   const [newCardGroup, setNewCardGroup] = useState<typeof newGroups[0] | null>(null);
 
+  // State for the new card form
+  const [newCardName, setNewCardName] = useState('');
+  const [newCardAssignee, setNewCardAssignee] = useState(user?.id || '');
+  const [newCardStatus, setNewCardStatus] = useState(exampleStatuses[0].id);
+  const [newCardSteps, setNewCardSteps] = useState<{ id: string, name: string, completed: boolean }[]>([]);
+  const [currentStepInput, setCurrentStepInput] = useState('');
+
   const fetchTeamMembers = useCallback(async () => {
     if (!pbClient) return;
     setIsLoadingEmployees(true);
     try {
       const fetchedEmployees = await getEmployees(pbClient);
       setEmployees(fetchedEmployees);
+      if(user?.id) {
+        setNewCardAssignee(user.id);
+      } else if (fetchedEmployees.length > 0) {
+        setNewCardAssignee(fetchedEmployees[0].id);
+      }
     } catch (error) {
       console.error("Failed to fetch employees for Kanban:", error);
     } finally {
       setIsLoadingEmployees(false);
     }
-  }, [pbClient]);
+  }, [pbClient, user?.id]);
 
   useEffect(() => {
     fetchTeamMembers();
@@ -78,21 +92,21 @@ const Example = () => {
   
   const kanbanOwners = useMemo(() => {
     if (employees.length === 0) {
-      return [
-        { id: 'placeholder-1', image: 'https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=placeholder', name: 'Loading...' },
-      ];
+      if (isLoadingEmployees) {
+        return [{ id: 'placeholder-1', image: '', name: 'Loading...' }];
+      }
+      return [];
     }
     return employees.map(emp => ({
       id: emp.id,
       image: `https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=${emp.id}`,
       name: emp.name
     }));
-  }, [employees]);
+  }, [employees, isLoadingEmployees]);
 
   const initialFeatures = useMemo(() => {
     if (kanbanOwners.length <= 1 && employees.length > 0) return []; // Wait for full employee list if possible
     
-    // Helper to get an owner by index, cycling through available owners
     const getOwner = (index: number) => kanbanOwners[index % kanbanOwners.length];
 
     return [
@@ -106,6 +120,11 @@ const Example = () => {
         owner: getOwner(0),
         initiative: { id: '1', name: 'Client Relations Q3' },
         release: { id: '1', name: 'v1.0' },
+        steps: [
+            { id: 'step-1-1', name: 'Draft feedback questions', completed: true },
+            { id: 'step-1-2', name: 'Design form layout', completed: true },
+            { id: 'step-1-3', name: 'Implement and test form', completed: true },
+        ]
       },
       {
         id: '2',
@@ -117,6 +136,11 @@ const Example = () => {
         owner: getOwner(1),
         initiative: { id: '2', name: 'Lab Operations' },
         release: { id: '1', name: 'v1.0' },
+        steps: [
+            { id: 'step-2-1', name: 'Clean cones and injector', completed: true },
+            { id: 'step-2-2', name: 'Replace tubing', completed: false },
+            { id: 'step-2-3', name: 'Run performance check', completed: false },
+        ]
       },
       {
         id: '3',
@@ -128,6 +152,10 @@ const Example = () => {
         owner: getOwner(2),
         initiative: { id: '3', name: 'Inventory Management' },
         release: { id: '2', name: 'v1.1' },
+        steps: [
+             { id: 'step-3-1', name: 'Inventory check', completed: true },
+             { id: 'step-3-2', name: 'Create purchase order', completed: false },
+        ]
       },
       {
         id: '4',
@@ -139,6 +167,7 @@ const Example = () => {
         owner: getOwner(3),
         initiative: { id: '4', name: 'Compliance 2024' },
         release: { id: '2', name: 'v1.1' },
+        steps: []
       },
       {
         id: '5',
@@ -150,6 +179,10 @@ const Example = () => {
         owner: getOwner(4 % kanbanOwners.length),
         initiative: { id: '1', name: 'Client Relations Q3' },
         release: { id: '2', name: 'v1.1' },
+        steps: [
+            { id: 'step-5-1', name: 'Kickoff call', completed: true },
+            { id: 'step-5-2', name: 'Set up account in LIMS', completed: false },
+        ]
       },
       {
         id: '6',
@@ -161,6 +194,11 @@ const Example = () => {
         owner: getOwner(1),
         initiative: { id: '2', name: 'Lab Operations' },
         release: { id: '3', name: 'v1.2' },
+        steps: [
+            { id: 'step-6-1', name: 'Calibrate with pH 4 buffer', completed: true },
+            { id: 'step-6-2', name: 'Calibrate with pH 7 buffer', completed: true },
+            { id: 'step-6-3', name: 'Calibrate with pH 10 buffer', completed: true },
+        ]
       },
         {
         id: '7',
@@ -172,6 +210,7 @@ const Example = () => {
         owner: getOwner(5 % kanbanOwners.length),
         initiative: { id: '3', name: 'Inventory Management' },
         release: { id: '3', name: 'v1.2' },
+        steps: []
       },
     ];
   }, [kanbanOwners, employees.length]);
@@ -179,9 +218,27 @@ const Example = () => {
   const [features, setFeatures] = useState(initialFeatures);
 
   useEffect(() => {
-    // This effect synchronizes the features state once the initialFeatures are properly computed with fetched employees.
     setFeatures(initialFeatures);
   }, [initialFeatures]);
+  
+  const toggleStep = (featureId: string, stepId: string) => {
+    setFeatures(features =>
+      features.map(feature => {
+        if (feature.id === featureId) {
+          return {
+            ...feature,
+            steps: feature.steps.map(step => {
+              if (step.id === stepId) {
+                return { ...step, completed: !step.completed };
+              }
+              return step;
+            }),
+          };
+        }
+        return feature;
+      })
+    );
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -222,29 +279,46 @@ const Example = () => {
       })
     );
   };
+  
+  const resetAndCloseForm = () => {
+    setIsAddCardOpen(false);
+    setNewCardName('');
+    setNewCardAssignee(user?.id || '');
+    setNewCardStatus(exampleStatuses[0].id);
+    setNewCardSteps([]);
+    setCurrentStepInput('');
+    setNewCardGroup(null);
+  };
 
   const handleAddCardClick = (group: typeof newGroups[0]) => {
     setNewCardGroup(group);
     setIsAddCardOpen(true);
   };
+  
+  const handleAddStep = () => {
+    if (currentStepInput.trim()) {
+      setNewCardSteps([...newCardSteps, { id: `new-step-${Date.now()}`, name: currentStepInput.trim(), completed: false }]);
+      setCurrentStepInput('');
+    }
+  };
+  
+  const handleRemoveStep = (stepId: string) => {
+    setNewCardSteps(newCardSteps.filter(step => step.id !== stepId));
+  };
 
   const handleAddCardSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const cardName = formData.get('cardName') as string;
-    const ownerId = formData.get('assignee') as string;
-    const statusId = formData.get('statusId') as string;
 
-    if (!cardName || !ownerId || !statusId || !newCardGroup) return;
+    if (!newCardName || !newCardAssignee || !newCardStatus || !newCardGroup) return;
 
-    const owner = kanbanOwners.find(o => o.id === ownerId);
-    const status = exampleStatuses.find(s => s.id === statusId);
+    const owner = kanbanOwners.find(o => o.id === newCardAssignee);
+    const status = exampleStatuses.find(s => s.id === newCardStatus);
 
     if (!owner || !status) return;
 
     const newFeature = {
       id: `feature-${Date.now()}`,
-      name: cardName,
+      name: newCardName,
       startAt: today,
       endAt: addMonths(today, 1),
       status: status,
@@ -252,11 +326,11 @@ const Example = () => {
       owner: owner,
       initiative: { id: 'temp-id', name: `${newCardGroup.name} Initiative` },
       release: { id: 'temp-id', name: 'Next Release' },
+      steps: newCardSteps,
     };
 
     setFeatures(prev => [...prev, newFeature]);
-    setIsAddCardOpen(false);
-    setNewCardGroup(null);
+    resetAndCloseForm();
   };
 
   const tasksByGroupAndStatus = useMemo(() => {
@@ -274,6 +348,13 @@ const Example = () => {
     }, {} as Record<string, Record<string, typeof features>>);
     return grouped;
   }, [features]);
+  
+  const getStepProgress = (steps: {completed: boolean}[]) => {
+    if (!steps || steps.length === 0) return { completed: 0, total: 0, percentage: 0 };
+    const completed = steps.filter(step => step.completed).length;
+    const total = steps.length;
+    return { completed, total, percentage: total > 0 ? (completed / total) * 100 : 0 };
+  };
 
   return (
     <>
@@ -308,7 +389,9 @@ const Example = () => {
               {exampleStatuses.map((status) => (
                 <KanbanBoard key={`${group.name}-${status.name}`} id={`${status.name}-${group.name}`}>
                   <KanbanCards>
-                    {(tasksByGroupAndStatus[group.name]?.[status.name] || []).map((feature, index) => (
+                    {(tasksByGroupAndStatus[group.name]?.[status.name] || []).map((feature, index) => {
+                      const progress = getStepProgress(feature.steps);
+                      return (
                       <KanbanCard
                         key={feature.id}
                         id={feature.id}
@@ -316,30 +399,58 @@ const Example = () => {
                         parent={`${status.name}-${group.name}`}
                         index={index}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex flex-col gap-1">
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-start justify-between gap-2">
                             <p className="m-0 flex-1 font-medium text-sm">
                               {feature.name}
                             </p>
-                            <p className="m-0 text-muted-foreground text-xs">
-                              {feature.initiative.name}
-                            </p>
+                            {feature.owner && (
+                              <Avatar className="h-4 w-4 shrink-0">
+                                <AvatarImage src={feature.owner.image} />
+                                <AvatarFallback>
+                                  {feature.owner.name?.slice(0, 2)}
+                                </AvatarFallback>
+                              </Avatar>
+                            )}
                           </div>
-                          {feature.owner && (
-                            <Avatar className="h-4 w-4 shrink-0">
-                              <AvatarImage src={feature.owner.image} />
-                              <AvatarFallback>
-                                {feature.owner.name?.slice(0, 2)}
-                              </AvatarFallback>
-                            </Avatar>
+                          {feature.steps && feature.steps.length > 0 && (
+                            <div className="space-y-1.5">
+                                {feature.steps.map(step => (
+                                    <div key={step.id} className="flex items-center gap-2">
+                                        <Checkbox 
+                                            id={`step-${step.id}`} 
+                                            checked={step.completed} 
+                                            onCheckedChange={() => toggleStep(feature.id, step.id)}
+                                            className="h-3 w-3"
+                                        />
+                                        <label
+                                            htmlFor={`step-${step.id}`}
+                                            className="text-xs font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                        >
+                                            {step.name}
+                                        </label>
+                                    </div>
+                                ))}
+                            </div>
                           )}
+
+                          <div className="flex items-center justify-between text-muted-foreground text-xs mt-1">
+                             <p className="m-0">
+                                {shortDateFormatter.format(feature.startAt)} -{' '}
+                                {dateFormatter.format(feature.endAt)}
+                            </p>
+                            {progress.total > 0 && (
+                                <div className="flex items-center gap-1.5" title={`${progress.completed} of ${progress.total} steps completed`}>
+                                    <Check className="h-3 w-3" />
+                                    <span>{progress.completed}/{progress.total}</span>
+                                </div>
+                            )}
+                          </div>
+                          {progress.total > 0 && <Progress value={progress.percentage} className="h-1 mt-1" />}
                         </div>
-                        <p className="m-0 text-muted-foreground text-xs">
-                          {shortDateFormatter.format(feature.startAt)} -{' '}
-                          {dateFormatter.format(feature.endAt)}
-                        </p>
                       </KanbanCard>
-                    ))}
+                      )
+                    })}
                   </KanbanCards>
                 </KanbanBoard>
               ))}
@@ -365,6 +476,8 @@ const Example = () => {
                 <Input
                   id="cardName"
                   name="cardName"
+                  value={newCardName}
+                  onChange={(e) => setNewCardName(e.target.value)}
                   className="col-span-3"
                   required
                 />
@@ -373,7 +486,7 @@ const Example = () => {
                 <Label htmlFor="assignee" className="text-right">
                   Assignee
                 </Label>
-                <Select name="assignee" defaultValue={user?.id} required disabled={isLoadingEmployees}>
+                <Select name="assignee" value={newCardAssignee} onValueChange={setNewCardAssignee} required disabled={isLoadingEmployees}>
                     <SelectTrigger className="col-span-3">
                         <SelectValue placeholder={isLoadingEmployees ? <div className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> <span>Loading...</span></div> : "Select an assignee"} />
                     </SelectTrigger>
@@ -388,7 +501,7 @@ const Example = () => {
                 <Label htmlFor="statusId" className="text-right">
                   Status
                 </Label>
-                <Select name="statusId" defaultValue={exampleStatuses[0].id} required>
+                <Select name="statusId" value={newCardStatus} onValueChange={setNewCardStatus} required>
                     <SelectTrigger className="col-span-3">
                         <SelectValue placeholder="Select a status" />
                     </SelectTrigger>
@@ -399,9 +512,38 @@ const Example = () => {
                     </SelectContent>
                 </Select>
               </div>
+               <div className="grid grid-cols-4 items-start gap-4">
+                  <Label htmlFor="newStep" className="text-right pt-2">
+                    Steps
+                  </Label>
+                  <div className="col-span-3 space-y-2">
+                    {newCardSteps.length > 0 && (
+                      <div className="space-y-1 rounded-md border p-2">
+                        {newCardSteps.map(step => (
+                          <div key={step.id} className="flex items-center justify-between text-sm">
+                            <span>{step.name}</span>
+                            <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleRemoveStep(step.id)}>
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <Input
+                        id="newStep"
+                        placeholder="Add a new step..."
+                        value={currentStepInput}
+                        onChange={e => setCurrentStepInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddStep(); } }}
+                      />
+                      <Button type="button" onClick={handleAddStep}>Add</Button>
+                    </div>
+                  </div>
+                </div>
             </div>
             <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => setIsAddCardOpen(false)}>Cancel</Button>
+              <Button type="button" variant="ghost" onClick={resetAndCloseForm}>Cancel</Button>
               <Button type="submit" disabled={isLoadingEmployees}>Add Card</Button>
             </DialogFooter>
           </form>
