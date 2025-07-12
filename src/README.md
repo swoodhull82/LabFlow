@@ -126,7 +126,10 @@ Navigate to your PocketBase admin dashboard, select the `personal_events` collec
 -   **Update Rule**: `userId = @request.auth.id || @request.auth.role = "Supervisor"`
 -   **Delete Rule**: `userId = @request.auth.id || @request.auth.role = "Supervisor"`
 
-These rules ensure that a user can only interact with their own personal events, but can view events from users who have explicitly shared their calendar with them via the `sharesPersonalCalendarWith` field on the event owner's user record.
+These rules ensure that:
+1.  A user can always see and manage their own personal events.
+2.  A user can view events from other users who have explicitly shared their calendar.
+3.  A user with the "Supervisor" role can see and manage all events, which is necessary for scheduling events for employees who may not be system users.
 
 ### Securing the `users` Collection for Sharing
 
