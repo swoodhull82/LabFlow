@@ -115,7 +115,7 @@ export interface KanbanStep {
   card: string; // Relation to kanban_cards
   name: string;
   completed: boolean;
-  assignees: string[]; // Relation to users
+  assignees: string[]; // Relation to employees
   order: number;
 }
 
@@ -124,7 +124,7 @@ export interface KanbanCard {
   name: string;
   status: string; // Relation to kanban_statuses
   group: string; // Relation to kanban_groups
-  owners: string[]; // Relation to users
+  owners: string[]; // Relation to employees
   createdBy: string; // Relation to users
   startAt?: Date | string;
   endAt?: Date | string;
@@ -134,7 +134,7 @@ export interface KanbanCard {
   steps: KanbanStep[]; // Populated via expand or separate query
   expand?: {
     'kanban_steps(card)': KanbanStep[];
-    owners?: User[];
+    owners?: Employee[]; // Changed from User[]
     createdBy?: User;
     status?: KanbanStatus;
     group?: KanbanGroup;

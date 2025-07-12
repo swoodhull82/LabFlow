@@ -123,30 +123,6 @@ const KanbanPage = () => {
   }, [fetchData, pbClient]);
 
 
-  const allUsersForAssigning = useMemo(() => {
-    // This function creates a definitive list of people who can be assigned tasks.
-    // It prioritizes the employee record's name if a user is also an employee.
-    const peopleMap = new Map<string, { id: string; name: string; email: string }>();
-
-    // First, add all users to the map.
-    allUsers.forEach(u => {
-        if(u.id && u.name) {
-            peopleMap.set(u.id, { id: u.id, name: u.name, email: u.email });
-        }
-    });
-
-    // Then, go through employees. If an employee is linked to a user,
-    // update the name in the map to use the employee's name for consistency.
-    employees.forEach(emp => {
-        if (emp.userId && peopleMap.has(emp.userId)) {
-            peopleMap.set(emp.userId, { ...peopleMap.get(emp.userId)!, name: emp.name });
-        }
-    });
-
-    return Array.from(peopleMap.values());
-  }, [employees, allUsers]);
-
-
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || !pbClient) return;
@@ -222,7 +198,7 @@ const KanbanPage = () => {
         group: newCardGroup.id,
         createdBy: user.id,
         order: maxOrder + 10,
-        owners: newCardAssigneeIds.length > 0 ? newCardAssigneeIds : [user.id],
+        owners: newCardAssigneeIds.length > 0 ? newCardAssigneeIds : [], // Use employee IDs
     };
 
     try {
@@ -235,7 +211,7 @@ const KanbanPage = () => {
                     card: newCard.id,
                     name: step.name,
                     completed: false,
-                    assignees: step.assigneeIds,
+                    assignees: step.assigneeIds, // Expects employee IDs
                     order: (index + 1) * 10
                 })
             );
@@ -302,8 +278,8 @@ const KanbanPage = () => {
 
 
   const cardRenderer = (card: KanbanCardData) => {
-    const cardAssignees = allUsersForAssigning.filter(u => card.owners.includes(u.id));
-    const cardCreator = allUsersForAssigning.find(u => u.id === card.createdBy);
+    const cardAssignees = card.expand?.owners || [];
+    const cardCreator = allUsers.find(u => u.id === card.createdBy);
 
     return (
       <>
@@ -319,7 +295,7 @@ const KanbanPage = () => {
         {card.steps && card.steps.length > 0 && (
           <div className="space-y-1.5 mt-2 ml-2 pl-2 border-l">
               {card.steps.map(step => {
-                  const stepAssignees = allUsersForAssigning.filter(u => step.assignees.includes(u.id));
+                  const stepAssignees = employees.filter(e => step.assignees.includes(e.id));
                   return (
                       <div key={step.id} className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
@@ -526,7 +502,7 @@ const KanbanPage = () => {
                    <div className="col-span-3">
                       <MultiAssigneeSelect label="Assignees" selectedAssigneeIds={newCardAssigneeIds}
                           onSelectionChange={(id) => setNewCardAssigneeIds((prev) => prev.includes(id) ? prev.filter((prevId) => prevId !== id) : [...prev, id])}
-                          isLoading={isLoading} options={allUsersForAssigning} />
+                          isLoading={isLoading} options={employees} />
                   </div>
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
@@ -549,7 +525,7 @@ const KanbanPage = () => {
                               <div className="flex items-center gap-2">
                                   <MultiAssigneeSelect label="Assignees" selectedAssigneeIds={step.assigneeIds}
                                       onSelectionChange={(id) => handleStepAssigneeChange(step.id, id)}
-                                      isLoading={isLoading} options={allUsersForAssigning} className="h-7 text-xs" />
+                                      isLoading={isLoading} options={employees} className="h-7 text-xs" />
                                 <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleRemoveStep(step.id)}>
                                   <X className="h-3 w-3" />
                                 </Button>
@@ -579,6 +555,3 @@ const KanbanPage = () => {
 };
 
 export default KanbanPage;
-
-    
-    
