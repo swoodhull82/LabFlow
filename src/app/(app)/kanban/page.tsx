@@ -29,7 +29,6 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from '@/context/AuthContext';
 import { getEmployees } from '@/services/employeeService';
-import { getUsers } from '@/services/userService';
 import { getKanbanData, createKanbanCard, updateKanbanCardStatus, updateKanbanStep, createKanbanStep } from '@/services/kanbanService';
 import type { Employee, KanbanCard as KanbanCardData, KanbanStatus, KanbanGroup, KanbanStep, User as AuthUser } from '@/lib/types';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -63,7 +62,6 @@ const KanbanPage = () => {
   const [groups, setGroups] = useState<KanbanGroup[]>([]);
   const [cards, setCards] = useState<KanbanCardData[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [allUsers, setAllUsers] = useState<AuthUser[]>([]);
 
   // UI/Error states
   const [isLoading, setIsLoading] = useState(true);
@@ -85,10 +83,9 @@ const KanbanPage = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [kanbanData, fetchedEmployees, fetchedUsers] = await Promise.all([
+      const [kanbanData, fetchedEmployees] = await Promise.all([
         getKanbanData(pb, { signal }),
         getEmployees(pb, { signal }),
-        getUsers(pb, { signal }),
       ]);
 
       const liveStatuses = kanbanData.statuses.length > 0 ? kanbanData.statuses : DEFAULT_STATUSES;
@@ -98,7 +95,6 @@ const KanbanPage = () => {
       setGroups(liveGroups);
       setCards(kanbanData.cards);
       setEmployees(fetchedEmployees);
-      setAllUsers(fetchedUsers);
       if (liveStatuses.length > 0) {
         setNewCardStatusId(liveStatuses[0].id);
       }
@@ -198,7 +194,7 @@ const KanbanPage = () => {
         group: newCardGroup.id,
         createdBy: user.id,
         order: maxOrder + 10,
-        owners: newCardAssigneeIds.length > 0 ? newCardAssigneeIds : [], // Use employee IDs
+        owners: newCardAssigneeIds.length > 0 ? newCardAssigneeIds : [],
     };
 
     try {
@@ -211,7 +207,7 @@ const KanbanPage = () => {
                     card: newCard.id,
                     name: step.name,
                     completed: false,
-                    assignees: step.assigneeIds, // Expects employee IDs
+                    assignees: step.assigneeIds, // This is an array of Employee IDs
                     order: (index + 1) * 10
                 })
             );
@@ -279,7 +275,7 @@ const KanbanPage = () => {
 
   const cardRenderer = (card: KanbanCardData) => {
     const cardAssignees = card.expand?.owners || [];
-    const cardCreator = allUsers.find(u => u.id === card.createdBy);
+    const cardCreator = card.expand?.createdBy;
 
     return (
       <>
@@ -498,9 +494,9 @@ const KanbanPage = () => {
                 <Input id="cardName" name="cardName" value={newCardName} onChange={(e) => setNewCardName(e.target.value)} className="col-span-3" required />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="assignees" className="text-right">Assignees</Label>
+                  <Label htmlFor="assignees" className="text-right">Owners</Label>
                    <div className="col-span-3">
-                      <MultiAssigneeSelect label="Assignees" selectedAssigneeIds={newCardAssigneeIds}
+                      <MultiAssigneeSelect label="Owners" selectedAssigneeIds={newCardAssigneeIds}
                           onSelectionChange={(id) => setNewCardAssigneeIds((prev) => prev.includes(id) ? prev.filter((prevId) => prevId !== id) : [...prev, id])}
                           isLoading={isLoading} options={employees} />
                   </div>
