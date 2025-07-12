@@ -10,13 +10,20 @@ import {
   KanbanHeader,
   KanbanProvider,
 } from '@/components/ui/shadcn-io/kanban';
+import {
+  ListProvider,
+  ListGroup,
+  ListHeader as ListHeaderComponent,
+  ListItems,
+  ListItem
+} from '@/components/ui/shadcn-io/list';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { useSensor, useSensors, PointerSensor, TouchSensor } from '@dnd-kit/core';
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { addMonths, endOfMonth, startOfMonth, subDays, subMonths } from 'date-fns';
+import { addMonths, endOfMonth, startOfMonth, subMonths } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
-import { Plus, Loader2, X } from 'lucide-react';
+import { Plus, Loader2, X, List, Trello } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -25,6 +32,7 @@ import { useAuth } from '@/context/AuthContext';
 import { getEmployees } from '@/services/employeeService';
 import type { Employee } from '@/lib/types';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 
 const today = new Date();
@@ -72,11 +80,13 @@ const Example = () => {
   const [newCardSteps, setNewCardSteps] = useState<{ id: string, name: string, completed: boolean }[]>([]);
   const [currentStepInput, setCurrentStepInput] = useState('');
 
-  const fetchTeamMembers = useCallback(async () => {
-    if (!pbClient) return;
+  const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
+
+  const fetchTeamMembers = useCallback(async (pb, signal) => {
+    if (!pb) return;
     setIsLoadingEmployees(true);
     try {
-      const fetchedEmployees = await getEmployees(pbClient);
+      const fetchedEmployees = await getEmployees(pb, { signal });
       setEmployees(fetchedEmployees);
       if(user?.id) {
         setNewCardAssignee(user.id);
@@ -84,33 +94,35 @@ const Example = () => {
         setNewCardAssignee(fetchedEmployees[0].id);
       }
     } catch (error) {
-      console.error("Failed to fetch employees for Kanban:", error);
+      const isAutocancel = error?.isAbort === true || (typeof error?.message === 'string' && error.message.toLowerCase().includes("autocancelled"));
+      if (!isAutocancel) {
+        console.error("Failed to fetch employees for Kanban:", error);
+      }
     } finally {
       setIsLoadingEmployees(false);
     }
-  }, [pbClient, user?.id]);
+  }, [user?.id]);
 
   useEffect(() => {
-    fetchTeamMembers();
-  }, [fetchTeamMembers]);
+    const controller = new AbortController();
+    fetchTeamMembers(pbClient, controller.signal);
+    return () => controller.abort();
+  }, [fetchTeamMembers, pbClient]);
   
   const kanbanOwners = useMemo(() => {
     if (employees.length === 0) {
-        // If there are no employees but we have a logged in user, create an entry for them
         if (user) {
             return [{ id: user.id, name: user.name || user.email }];
         }
         return [];
     }
     
-    // Create a set of all employee IDs to check for the user's existence
     const employeeIds = new Set(employees.map(emp => emp.id));
     const allOwners = employees.map(emp => ({
         id: emp.id,
         name: emp.name
     }));
 
-    // If the logged-in user is not in the list of employees, add them
     if (user && !employeeIds.has(user.id)) {
         allOwners.unshift({ id: user.id, name: user.name || user.email });
     }
@@ -123,7 +135,12 @@ const Example = () => {
     if (kanbanOwners.length === 0) return [];
     
     const getOwner = (index: number) => kanbanOwners[index % kanbanOwners.length];
-    const getCreator = (index: number) => kanbanOwners[index % kanbanOwners.length];
+    
+    let creator = user ? { id: user.id, name: user.name || user.email } : getOwner(0);
+    if (kanbanOwners.length > 0 && !kanbanOwners.find(o => o.id === creator.id)) {
+        creator = { id: user!.id, name: user!.name || user!.email };
+    }
+
 
     return [
       {
@@ -134,7 +151,7 @@ const Example = () => {
         status: exampleStatuses[2], // Done
         group: newGroups[0], // Customer Service
         owner: getOwner(0),
-        createdBy: getCreator(0),
+        createdBy: creator,
         initiative: { id: '1', name: 'Client Relations Q3' },
         release: { id: '1', name: 'v1.0' },
         steps: [
@@ -151,7 +168,7 @@ const Example = () => {
         status: exampleStatuses[1], // In Progress
         group: newGroups[1], // Instrument Management
         owner: getOwner(1 % kanbanOwners.length),
-        createdBy: getCreator(1 % kanbanOwners.length),
+        createdBy: creator,
         initiative: { id: '2', name: 'Lab Operations' },
         release: { id: '1', name: 'v1.0' },
         steps: [
@@ -164,11 +181,11 @@ const Example = () => {
         id: '3',
         name: 'Restock common reagents',
         startAt: startOfMonth(today),
-        endAt: subDays(endOfMonth(today), 5),
+        endAt: subMonths(endOfMonth(today), 5),
         status: exampleStatuses[1], // In Progress
         group: newGroups[2], // Supply Chain & Ordering
         owner: getOwner(2 % kanbanOwners.length),
-        createdBy: getCreator(2 % kanbanOwners.length),
+        createdBy: creator,
         initiative: { id: '3', name: 'Inventory Management' },
         release: { id: '2', name: 'v1.1' },
         steps: [
@@ -184,7 +201,7 @@ const Example = () => {
         status: exampleStatuses[0], // Planned
         group: newGroups[3], // General Projects
         owner: getOwner(3 % kanbanOwners.length),
-        createdBy: getCreator(3 % kanbanOwners.length),
+        createdBy: creator,
         initiative: { id: '4', name: 'Compliance 2024' },
         release: { id: '2', name: 'v1.1' },
         steps: []
@@ -197,7 +214,7 @@ const Example = () => {
         status: exampleStatuses[1], // In Progress
         group: newGroups[0], // Customer Service
         owner: getOwner(4 % kanbanOwners.length),
-        createdBy: getCreator(0),
+        createdBy: creator,
         initiative: { id: '1', name: 'Client Relations Q3' },
         release: { id: '2', name: 'v1.1' },
         steps: [
@@ -208,12 +225,12 @@ const Example = () => {
       {
         id: '6',
         name: 'Calibrate pH meters',
-        startAt: subDays(startOfMonth(today), 10),
+        startAt: subMonths(startOfMonth(today), 10),
         endAt: startOfMonth(today),
         status: exampleStatuses[2], // Done
         group: newGroups[1], // Instrument Management
         owner: getOwner(1 % kanbanOwners.length),
-        createdBy: getCreator(1 % kanbanOwners.length),
+        createdBy: creator,
         initiative: { id: '2', name: 'Lab Operations' },
         release: { id: '3', name: 'v1.2' },
         steps: [
@@ -230,19 +247,17 @@ const Example = () => {
         status: exampleStatuses[0], // Planned
         group: newGroups[2], // Supply Chain & Ordering
         owner: getOwner(5 % kanbanOwners.length),
-        createdBy: getCreator(2 % kanbanOwners.length),
+        createdBy: creator,
         initiative: { id: '3', name: 'Inventory Management' },
         release: { id: '3', name: 'v1.2' },
         steps: []
       },
     ];
-  }, [kanbanOwners]);
+  }, [kanbanOwners, user]);
 
   const [features, setFeatures] = useState(initialFeatures);
 
   useEffect(() => {
-    // This effect ensures that the example features are re-initialized
-    // once the dynamic kanbanOwners list is populated.
     setFeatures(initialFeatures);
   }, [initialFeatures]);
   
@@ -336,16 +351,13 @@ const Example = () => {
 
     if (!newCardName || !newCardAssignee || !newCardStatus || !newCardGroup || !user) return;
     
-    // Find the assignee in the comprehensive kanbanOwners list
     const owner = kanbanOwners.find(o => o.id === newCardAssignee);
-    
-    // The creator is always the logged-in user.
-    const creator = { id: user.id, name: user.name || user.email };
+    let creator = { id: user.id, name: user.name || user.email };
 
     const status = exampleStatuses.find(s => s.id === newCardStatus);
 
     if (!owner || !status) {
-        console.error("Could not create card. Owner or Status not found.", { owner, status });
+        console.error("Could not create card. Assignee or Status not found.", { owner, status });
         return;
     }
 
@@ -383,98 +395,148 @@ const Example = () => {
     return grouped;
   }, [features]);
 
+  const tasksByStatus = useMemo(() => {
+    return features.reduce((acc, feature) => {
+      const statusName = feature.status.name;
+      if (!acc[statusName]) {
+        acc[statusName] = [];
+      }
+      acc[statusName].push(feature);
+      return acc;
+    }, {} as Record<string, typeof features[0][]>);
+  }, [features]);
+
+  const cardRenderer = (feature: typeof features[0]) => (
+    <>
+      <div className="flex items-start justify-between gap-2">
+        <p className="m-0 flex-1 font-medium text-sm">
+          {feature.name}
+        </p>
+        {feature.owner && (
+          <Avatar className="h-5 w-5 shrink-0">
+            <AvatarFallback>
+              {getInitials(feature.owner.name)}
+            </AvatarFallback>
+          </Avatar>
+        )}
+      </div>
+      {feature.steps && feature.steps.length > 0 && (
+        <div className="space-y-1.5 mt-2 ml-2 pl-2 border-l">
+            {feature.steps.map(step => (
+                <div key={step.id} className="flex items-center gap-2">
+                    <Checkbox 
+                        id={`step-${step.id}`} 
+                        checked={step.completed} 
+                        onCheckedChange={() => toggleStep(feature.id, step.id)}
+                        className="h-3 w-3"
+                    />
+                    <label
+                        htmlFor={`step-${step.id}`}
+                        className="text-xs font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                        {step.name}
+                    </label>
+                </div>
+            ))}
+        </div>
+      )}
+      <div className="flex items-center justify-between text-muted-foreground text-xs mt-2">
+         <p className="m-0">
+            {shortDateFormatter.format(feature.startAt)} -{' '}
+            {dateFormatter.format(feature.endAt)}
+        </p>
+        {feature.createdBy && (
+            <div className="flex items-center gap-1" title={`Created by ${feature.createdBy.name}`}>
+                <Avatar className="h-4 w-4 shrink-0">
+                    <AvatarFallback className="text-[10px]">
+                    {getInitials(feature.createdBy.name)}
+                    </AvatarFallback>
+                </Avatar>
+            </div>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <>
-      <KanbanProvider onDragEnd={handleDragEnd} className="p-4">
-        <div className="grid grid-cols-[200px_1fr_1fr_1fr] gap-4 w-full">
-          {/* Header Row */}
-          <div className="font-semibold text-lg p-2">Category</div>
-          {exampleStatuses.map((status) => (
-            <div key={status.name} className="p-2">
-              <KanbanHeader name={status.name} color={status.color} />
-            </div>
-          ))}
-          
-          <div className="col-span-4"><Separator /></div>
+      <div className="flex justify-end p-4">
+        <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as 'board' | 'list')}>
+          <TabsList>
+            <TabsTrigger value="board"><Trello className="mr-2 h-4 w-4" /> Board</TabsTrigger>
+            <TabsTrigger value="list"><List className="mr-2 h-4 w-4" /> List</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
 
-          {/* Swimlane Rows */}
-          {newGroups.map((group) => (
-            <React.Fragment key={group.id}>
-              {/* Swimlane Label */}
-              <div className="p-2 h-full flex flex-col">
-                <h3 className="text-md font-semibold text-foreground sticky top-4">{group.name}</h3>
-                <Button
-                  variant="ghost"
-                  className="w-full mt-2 text-muted-foreground justify-start px-0"
-                  onClick={() => handleAddCardClick(group)}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add a card
-                </Button>
+      {viewMode === 'board' ? (
+        <KanbanProvider onDragEnd={handleDragEnd} className="p-4 pt-0">
+          <div className="grid grid-cols-[200px_1fr_1fr_1fr] gap-4 w-full">
+            {/* Header Row */}
+            <div className="font-semibold text-lg p-2">Category</div>
+            {exampleStatuses.map((status) => (
+              <div key={status.name} className="p-2">
+                <KanbanHeader name={status.name} color={status.color} />
               </div>
-              {/* Status Columns for the swimlane */}
-              {exampleStatuses.map((status) => (
-                <KanbanBoard key={`${group.name}-${status.name}`} id={`${status.name}-${group.name}`}>
-                  <KanbanCards>
-                    {(tasksByGroupAndStatus[group.name]?.[status.name] || []).map((feature, index) => (
-                      <KanbanCard
-                        key={feature.id}
-                        id={feature.id}
-                        name={feature.name}
-                        parent={`${status.name}-${group.name}`}
-                        index={index}
-                      >
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="m-0 flex-1 font-medium text-sm">
-                              {feature.name}
-                            </p>
-                            {feature.createdBy && (
-                              <Avatar className="h-4 w-4 shrink-0">
-                                <AvatarFallback>
-                                  {getInitials(feature.createdBy.name)}
-                                </AvatarFallback>
-                              </Avatar>
-                            )}
-                          </div>
-                          {feature.steps && feature.steps.length > 0 && (
-                            <div className="space-y-1.5">
-                                {feature.steps.map(step => (
-                                    <div key={step.id} className="flex items-center gap-2">
-                                        <Checkbox 
-                                            id={`step-${step.id}`} 
-                                            checked={step.completed} 
-                                            onCheckedChange={() => toggleStep(feature.id, step.id)}
-                                            className="h-3 w-3"
-                                        />
-                                        <label
-                                            htmlFor={`step-${step.id}`}
-                                            className="text-xs font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                        >
-                                            {step.name}
-                                        </label>
-                                    </div>
-                                ))}
-                            </div>
-                          )}
+            ))}
+            
+            <div className="col-span-4"><Separator /></div>
 
-                          <div className="flex items-center justify-between text-muted-foreground text-xs mt-1">
-                             <p className="m-0">
-                                {shortDateFormatter.format(feature.startAt)} -{' '}
-                                {dateFormatter.format(feature.endAt)}
-                            </p>
-                          </div>
-                        </div>
-                      </KanbanCard>
-                    ))}
-                  </KanbanCards>
-                </KanbanBoard>
-              ))}
-              <div className="col-span-4"><Separator /></div>
-            </React.Fragment>
-          ))}
-        </div>
-      </KanbanProvider>
+            {/* Swimlane Rows */}
+            {newGroups.map((group) => (
+              <React.Fragment key={group.id}>
+                {/* Swimlane Label */}
+                <div className="p-2 h-full flex flex-col">
+                  <h3 className="text-md font-semibold text-foreground sticky top-4">{group.name}</h3>
+                  <Button
+                    variant="ghost"
+                    className="w-full mt-2 text-muted-foreground justify-start px-0"
+                    onClick={() => handleAddCardClick(group)}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add a card
+                  </Button>
+                </div>
+                {/* Status Columns for the swimlane */}
+                {exampleStatuses.map((status) => (
+                  <KanbanBoard key={`${group.name}-${status.name}`} id={`${status.name}-${group.name}`}>
+                    <KanbanCards>
+                      {(tasksByGroupAndStatus[group.name]?.[status.name] || []).map((feature, index) => (
+                        <KanbanCard
+                          key={feature.id}
+                          id={feature.id}
+                          name={feature.name}
+                          parent={`${status.name}-${group.name}`}
+                          index={index}
+                        >
+                          {cardRenderer(feature)}
+                        </KanbanCard>
+                      ))}
+                    </KanbanCards>
+                  </KanbanBoard>
+                ))}
+                <div className="col-span-4"><Separator /></div>
+              </React.Fragment>
+            ))}
+          </div>
+        </KanbanProvider>
+      ) : (
+        <ListProvider onDragEnd={handleDragEnd}>
+            {exampleStatuses.map((status) => (
+            <ListGroup key={status.id} id={`${status.name}-list`}>
+                <ListHeaderComponent name={status.name} color={status.color} />
+                <ListItems>
+                {(tasksByStatus[status.name] || []).map((feature, index) => (
+                    <ListItem key={feature.id} id={feature.id} name={feature.name} parent={`${status.name}-list`} index={index}>
+                        {cardRenderer(feature)}
+                    </ListItem>
+                ))}
+                </ListItems>
+            </ListGroup>
+            ))}
+        </ListProvider>
+      )}
+
       <Dialog open={isAddCardOpen} onOpenChange={setIsAddCardOpen}>
         <DialogContent>
           <DialogHeader>
