@@ -194,10 +194,8 @@ const KanbanPage = () => {
       // Revert on failure
       setCards(currentCards => currentCards.map(card => {
         if (card.id === cardId) {
-          return {
-            ...card,
-            steps: card.steps.map(s => s.id === step.id ? step : s)
-          };
+          const originalCard = cards.find(c => c.id === cardId);
+          return originalCard || card;
         }
         return card;
       }));
@@ -209,12 +207,15 @@ const KanbanPage = () => {
     event.preventDefault();
     if (!newCardName || !newCardStatusId || !newCardGroup || !user || !pbClient) return;
     
+    const cardsInGroup = cards.filter(c => c.group === newCardGroup.id);
+    const maxOrder = cardsInGroup.reduce((max, card) => Math.max(card.order, max), 0);
+    
     const cardPayload = {
         name: newCardName,
         status: newCardStatusId,
         group: newCardGroup.id,
         createdBy: user.id,
-        order: (cards.filter(c => c.group === newCardGroup.id).length + 1) * 10,
+        order: maxOrder + 10,
         owners: newCardAssigneeIds.length > 0 ? newCardAssigneeIds : [user.id],
     };
 
