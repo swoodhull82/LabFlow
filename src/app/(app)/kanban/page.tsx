@@ -119,7 +119,7 @@ const Example = () => {
     // Add the current user first
     allPeople.set(user.id, { id: user.id, name: user.name || user.email });
 
-    // Add employees, overwriting if the user ID matches to avoid duplicates
+    // Add employees, ensuring not to add duplicates if the current user is also in the employees list
     employees.forEach(emp => {
       const idToUse = emp.userId || emp.id;
       if (!allPeople.has(idToUse)) {
@@ -361,8 +361,13 @@ const Example = () => {
 
     if (!newCardName || newCardAssignees.length === 0 || !newCardStatus || !newCardGroup || !user) return;
     
-    let creator = { id: user.id, name: user.name || user.email };
+    const creator = { id: user.id, name: user.name || user.email };
+    
     const owners = kanbanOwners.filter(o => newCardAssignees.includes(o.id));
+    if(newCardAssignees.includes(user.id) && !owners.some(o => o.id === user.id)){
+        owners.push(creator);
+    }
+    
     const status = exampleStatuses.find(s => s.id === newCardStatus);
 
     if (owners.length === 0 || !status) {
@@ -412,10 +417,10 @@ const Example = () => {
       }
       acc[statusName].push(feature);
       return acc;
-    }, {} as Record<string, typeof features[0]>);
+    }, {} as Record<string, (typeof features)[0]>);
   }, [features]);
 
-  const cardRenderer = (feature: typeof features[0]) => {
+  const cardRenderer = (feature: (typeof features)[0]) => {
     const assignees = kanbanOwners.filter(o => feature.owners.map(fo => fo.id).includes(o.id));
 
     return (
@@ -536,7 +541,7 @@ const Example = () => {
                               {options.map((option) => (
                                   <CommandItem
                                       key={option.id}
-                                      onSelect={(currentValue) => {
+                                      onSelect={() => {
                                         onSelectionChange(option.id);
                                       }}
                                   >
