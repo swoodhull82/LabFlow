@@ -393,9 +393,7 @@ const KanbanPage = () => {
                           <CommandEmpty>No results found.</CommandEmpty>
                           <CommandGroup>
                               {options.map((option) => (
-                                  <CommandItem key={option.id} onSelect={(currentValue) => {
-                                      onSelectionChange(option.id);
-                                  }}>
+                                  <CommandItem key={option.id} onSelect={() => onSelectionChange(option.id)}>
                                       <div className={cn("mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary", selectedAssigneeIds.includes(option.id) ? 'bg-primary text-primary-foreground' : 'opacity-50 [&_svg]:invisible')}>
                                           <Check className="h-4 w-4" />
                                       </div>
