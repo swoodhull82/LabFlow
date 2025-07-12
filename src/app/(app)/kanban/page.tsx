@@ -79,7 +79,7 @@ const Example = () => {
 
   // State for the new card form
   const [newCardName, setNewCardName] = useState('');
-  const [newCardAssignees, setNewCardAssignees] = useState<string[]>(user ? [user.id] : []);
+  const [newCardAssignees, setNewCardAssignees] = useState<string[]>([]);
   const [newCardStatus, setNewCardStatus] = useState(exampleStatuses[0].id);
   const [newCardSteps, setNewCardSteps] = useState<{ id: string, name: string, completed: boolean, assigneeIds: string[] }[]>([]);
   const [currentStepInput, setCurrentStepInput] = useState('');
@@ -94,7 +94,9 @@ const Example = () => {
       setEmployees(fetchedEmployees);
     } catch (error: any) {
       const isAutocancel = error?.isAbort === true || (typeof error?.message === 'string' && error.message.toLowerCase().includes("autocancelled"));
-      if (!isAutocancel) {
+      if (isAutocancel) {
+        console.warn('Kanban: Employees fetch request was cancelled.');
+      } else {
         console.error("Failed to fetch employees for Kanban:", error);
       }
     } finally {
@@ -113,15 +115,13 @@ const Example = () => {
 
     const allPeople = new Map<string, { id: string; name: string }>();
 
-    // Add the current user first
+    // Add the current user first to ensure they are always in the list.
     allPeople.set(user.id, { id: user.id, name: user.name || user.email });
 
-    // Add employees, ensuring not to add duplicates if the current user is also in the employees list
+    // Add employees, overwriting if the user is also an employee (to get their official employee name)
     employees.forEach(emp => {
       const idToUse = emp.userId || emp.id;
-      if (!allPeople.has(idToUse)) {
-        allPeople.set(idToUse, { id: idToUse, name: emp.name });
-      }
+      allPeople.set(idToUse, { id: idToUse, name: emp.name });
     });
 
     return Array.from(allPeople.values());
@@ -330,7 +330,7 @@ const Example = () => {
   const resetAndCloseForm = () => {
     setIsAddCardOpen(false);
     setNewCardName('');
-    setNewCardAssignees(user ? [user.id] : []);
+    setNewCardAssignees([]);
     setNewCardStatus(exampleStatuses[0].id);
     setNewCardSteps([]);
     setCurrentStepInput('');
@@ -344,7 +344,7 @@ const Example = () => {
   
   const handleAddStep = () => {
     if (currentStepInput.trim()) {
-      setNewCardSteps([...newCardSteps, { id: `new-step-${Date.now()}`, name: currentStepInput.trim(), completed: false, assigneeIds: newCardAssignees }]);
+      setNewCardSteps([...newCardSteps, { id: `new-step-${Date.now()}`, name: currentStepInput.trim(), completed: false, assigneeIds: [] }]);
       setCurrentStepInput('');
     }
   };
@@ -358,14 +358,21 @@ const Example = () => {
 
     if (!newCardName || !newCardStatus || !newCardGroup || !user) return;
     
-    const creator = { id: user.id, name: user.name || user.email };
+    // The creator is always the currently logged-in user.
+    const createdBy = { id: user.id, name: user.name || user.email };
     
-    const owners = kanbanOwners.filter(o => newCardAssignees.includes(o.id));
+    // The owners (assignees) are those selected in the form.
+    let owners = kanbanOwners.filter(o => newCardAssignees.includes(o.id));
+    
+    // If no one is assigned, default the owner to the creator.
+    if (owners.length === 0) {
+      owners.push(createdBy);
+    }
     
     const status = exampleStatuses.find(s => s.id === newCardStatus);
 
-    if (owners.length === 0 || !status) {
-        console.error("Could not create card. Assignees or Status not found.", { owners, status });
+    if (!status) {
+        console.error("Could not create card. Status not found.");
         return;
     }
 
@@ -377,7 +384,7 @@ const Example = () => {
       status: status,
       group: newCardGroup,
       owners: owners,
-      createdBy: creator,
+      createdBy: createdBy,
       initiative: { id: 'temp-id', name: `${newCardGroup.name} Initiative` },
       release: { id: 'temp-id', name: 'Next Release' },
       steps: newCardSteps,
