@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/shadcn-io/kanban';
 import type { DragEndEvent } from '@/components/ui/shadcn-io/kanban';
 import { useState, useMemo } from 'react';
-import { addMonths, endOfMonth, startOfMonth, subDays } from 'date-fns';
+import { addMonths, endOfMonth, startOfMonth, subDays, subMonths } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
