@@ -158,7 +158,8 @@ export default function CalendarPage() {
     try {
       let fetchedEvents: CalendarEvent[] = [];
        if (tab === 'personal') {
-          fetchedEvents = await getPersonalEvents(pb, currentUserId, { signal });
+          const projectionHorizon = addYears(new Date(), 2);
+          fetchedEvents = await getPersonalEvents(pb, currentUserId, { signal, projectionHorizon });
       } else { // 'task' tab
           const projectionHorizon = addYears(new Date(), 2);
           fetchedEvents = await getCalendarEvents(pb, { signal, projectionHorizon }); 

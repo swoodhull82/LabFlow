@@ -18,8 +18,8 @@ import { useToast } from "@/hooks/use-toast";
 import { createPersonalEvent, updatePersonalEvent, type PersonalEventUpdateData } from "@/services/personalEventService";
 import { useState } from "react";
 import { format, addHours, set, getHours } from "date-fns";
-import { PERSONAL_EVENT_TYPES } from "@/lib/constants";
-import type { CalendarEvent, PersonalEventType } from "@/lib/types";
+import { PERSONAL_EVENT_TYPES, TASK_RECURRENCES } from "@/lib/constants";
+import type { CalendarEvent, PersonalEventType, TaskRecurrence } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const quickTaskFormSchema = z.object({
@@ -30,6 +30,7 @@ const quickTaskFormSchema = z.object({
   startTime: z.string().optional(),
   endTime: z.string().optional(),
   eventType: z.string().default('Available') as z.ZodType<PersonalEventType>,
+  recurrence: z.string().default('None') as z.ZodType<TaskRecurrence>,
 }).superRefine((data, ctx) => {
     if (!data.isAllDay) {
         if (!data.startTime) {
@@ -98,6 +99,7 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
       isAllDay: eventToEdit?.isAllDay || false,
       startTime: eventToEdit && !eventToEdit.isAllDay ? format(new Date(eventToEdit.startDate), 'HH:mm') : defaultStartTime,
       endTime: eventToEdit && !eventToEdit.isAllDay ? format(new Date(eventToEdit.endDate), 'HH:mm') : defaultEndTime,
+      recurrence: eventToEdit?.recurrence || "None",
     },
   });
   
@@ -133,6 +135,7 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
           endDate,
           isAllDay: data.isAllDay,
           eventType: data.eventType,
+          recurrence: data.recurrence,
         };
         await updatePersonalEvent(pbClient, eventToEdit.id, eventPayload);
         toast({ title: "Success", description: "Personal event updated." });
@@ -145,6 +148,7 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
           userId: user.id,
           isAllDay: data.isAllDay,
           eventType: data.eventType,
+          recurrence: data.recurrence,
         };
         await createPersonalEvent(pbClient, eventPayload);
         toast({ title: "Success", description: "Personal event added to your calendar." });
@@ -243,6 +247,28 @@ export function QuickTaskForm({ onTaskCreated, onDialogClose, onDelete, defaultD
                 <FormMessage />
               </FormItem>
           )}
+        />
+        <FormField
+            control={form.control}
+            name="recurrence"
+            render={({ field }) => (
+                <FormItem>
+                <FormLabel>Recurrence</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                    <SelectTrigger>
+                        <SelectValue placeholder="Select recurrence" />
+                    </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                    {TASK_RECURRENCES.map(r => (
+                      <SelectItem key={r} value={r}>{r}</SelectItem>
+                    ))}
+                    </SelectContent>
+                </Select>
+                <FormMessage />
+                </FormItem>
+            )}
         />
         <FormField
             control={form.control}

@@ -1,9 +1,9 @@
 
 'use client';
-import type { CalendarEvent, PersonalEventType } from "@/lib/types";
+import type { CalendarEvent, PersonalEventType, TaskRecurrence } from "@/lib/types";
 import PocketBase, { ClientResponseError } from 'pocketbase';
 import { withRetry } from '@/lib/retry';
-import { isValid } from 'date-fns';
+import { isValid, addYears, addMonths, addWeeks, addDays, isBefore } from 'date-fns';
 
 const COLLECTION_NAME = "personal_events";
 
@@ -53,6 +53,7 @@ const pbRecordToPersonalEvent = (record: any, currentUserId: string): CalendarEv
     userId: record.userId,
     isAllDay: record.isAllDay || false,
     eventType: record.eventType || 'Available',
+    recurrence: record.recurrence || 'None',
     created: new Date(record.created),
     updated: new Date(record.updated),
     collectionId: record.collectionId,
@@ -64,6 +65,7 @@ const pbRecordToPersonalEvent = (record: any, currentUserId: string): CalendarEv
 
 interface PocketBaseRequestOptions {
   signal?: AbortSignal;
+  projectionHorizon?: Date;
   [key: string]: any;
 }
 
@@ -75,7 +77,7 @@ export const getPersonalEvents = async (pb: PocketBase, userId: string, options?
   try {
     // With correct API rules, we no longer need to manually build the filter.
     // PocketBase will automatically filter the results based on the logged-in user's auth context.
-    const { signal, ...otherOptions } = options || {};
+    const { signal, projectionHorizon, ...otherOptions } = options || {};
     const requestParams = {
       sort: 'startDate',
       expand: 'userId', // expand the user relation to get owner info
@@ -88,9 +90,14 @@ export const getPersonalEvents = async (pb: PocketBase, userId: string, options?
     );
 
     // Map and filter out any records that are invalid
-    return records
+    const rawEvents = records
       .map(record => pbRecordToPersonalEvent(record, userId))
       .filter((event): event is CalendarEvent => event !== null);
+      
+    if (projectionHorizon) {
+      return generateProjectedPersonalEvents(rawEvents, projectionHorizon);
+    }
+    return rawEvents;
 
   } catch (error: any) {
     const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
@@ -114,6 +121,7 @@ interface PersonalEventCreationData {
     userId: string;
     isAllDay?: boolean;
     eventType?: PersonalEventType;
+    recurrence?: TaskRecurrence;
 }
 
 export const createPersonalEvent = async (
@@ -142,6 +150,7 @@ export interface PersonalEventUpdateData {
     endDate?: Date;
     isAllDay?: boolean;
     eventType?: PersonalEventType;
+    recurrence?: TaskRecurrence;
 }
 
 export const updatePersonalEvent = async (
@@ -185,3 +194,58 @@ export const deletePersonalEvent = async (
     throw error;
   }
 };
+
+function generateProjectedPersonalEvents(events: CalendarEvent[], horizonDate: Date): CalendarEvent[] {
+  const allEvents: CalendarEvent[] = [];
+
+  events.forEach(originalEvent => {
+    allEvents.push(originalEvent);
+
+    if (originalEvent.recurrence === 'None' || !originalEvent.endDate) {
+      return;
+    }
+
+    let nextDueDate = new Date(originalEvent.endDate);
+    const originalDuration = new Date(originalEvent.endDate).getTime() - new Date(originalEvent.startDate).getTime();
+    
+    let i = 1;
+
+    while (true) {
+      const lastDueDate = new Date(nextDueDate);
+      switch (originalEvent.recurrence) {
+        case 'Daily':
+          nextDueDate = addDays(lastDueDate, 1);
+          break;
+        case 'Weekly':
+          nextDueDate = addWeeks(lastDueDate, 1);
+          break;
+        case 'Monthly':
+          nextDueDate = addMonths(lastDueDate, 1);
+          break;
+        case 'Yearly':
+          nextDueDate = addYears(lastDueDate, 1);
+          break;
+        default:
+          return;
+      }
+
+      if (isBefore(nextDueDate, horizonDate)) {
+        const newStartDate = new Date(nextDueDate.getTime() - originalDuration);
+        
+        const projectedEvent: CalendarEvent = {
+          ...originalEvent,
+          id: `${originalEvent.id}_proj_${i}`,
+          startDate: newStartDate,
+          endDate: nextDueDate,
+          description: `Recurring instance of: ${originalEvent.title}`,
+        };
+        allEvents.push(projectedEvent);
+        i++;
+      } else {
+        break;
+      }
+    }
+  });
+
+  return allEvents;
+}

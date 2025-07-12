@@ -59,6 +59,7 @@ Based on the application's frontend code, the 'tasks' collection in PocketBase i
 *   **`userId`**: (Relation to `users`, Optional but Recommended) - Links to the system user account if the employee is also a user.
 *   **`created`**: (Date, System Field) - Timestamp of creation.
 *   **`updated`**: (Date, System Field) - Timestamp of last update.
+*   **`color`**: (Text, Optional) - Hex color code for the employee's events on team calendars (e.g., "#3b82f6").
 
 ## PocketBase 'personal_events' Collection Schema (New)
 
@@ -72,6 +73,7 @@ A new collection is required to store personal calendar events separately from t
 *   **`eventType`**: (Select, Optional, Default: "Available") - The type of event. Options: "Available", "Busy", "Out of Office".
 *   **`userId`**: (Relation to 'users', Required) - The ID of the user who owns this event.
 *   **`isAllDay`**: (Boolean, Optional, Default: false) - Indicates if the event is for the whole day.
+*   **`recurrence`**: (Select, Optional, Default: "None") - Recurrence pattern. Options: "None", "Daily", "Weekly", "Monthly", "Yearly".
 *   **`created`**: (Date, System Field) - Timestamp of creation.
 *   **`updated`**: (Date, System Field) - Timestamp of last update.
 
@@ -108,6 +110,7 @@ The Kanban board currently uses in-memory example data. To make it persistent an
 *   `id`: (System Field) - Unique identifier.
 *   `name`: (Text, Required, Unique) - e.g., "Customer Service", "Instrument Management".
 *   `order`: (Number, Required) - The display order of the swimlanes.
+*   `description`: (Text, Optional) - A short description of the group's purpose.
 
 
 ### Securing Personal Events in PocketBase

@@ -1,4 +1,5 @@
 
+
 export type UserRole = "Supervisor" | "Team Lead" | "Chem I" | "Chem II";
 
 export interface User {
@@ -70,6 +71,7 @@ export interface CalendarEvent {
   eventType?: PersonalEventType;
   ownerId?: string;
   ownerName?: string;
+  recurrence?: TaskRecurrence;
 }
 
 export interface Employee {

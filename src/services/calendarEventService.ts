@@ -12,7 +12,7 @@ interface PocketBaseRequestOptions {
   [key: string]: any;
 }
 
-const pbTaskToCalendarEvent = (taskRecord: Task): CalendarEvent => {
+const pbTaskToCalendarEvent = (taskRecord: any): CalendarEvent => {
   return {
     id: taskRecord.id,
     title: taskRecord.title,
@@ -30,6 +30,7 @@ const pbTaskToCalendarEvent = (taskRecord: Task): CalendarEvent => {
     assignedTo: taskRecord.assignedTo,
     priority: taskRecord.priority,
     progress: taskRecord.progress,
+    recurrence: taskRecord.recurrence || 'None',
   };
 };
 
