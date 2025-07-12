@@ -9,7 +9,7 @@ import type { CalendarEvent, Employee } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertTriangle, PlusCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import WeeklyView from "@/components/calendar/WeeklyView";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type PocketBase from "pocketbase";
 import { TeamEventForm } from "@/components/tasks/TeamEventForm";
@@ -51,8 +51,6 @@ export default function TeamSchedulePage() {
     setIsLoading(true);
     setError(null);
     try {
-      // For a team view, we fetch ALL personal events and let the component logic handle it.
-      // PocketBase API rules will enforce who can see what if needed, but for a supervisor view, this is okay.
       const [fetchedEvents, fetchedEmployees] = await Promise.all([
         getPersonalEvents(pb, user?.id, { signal, expand: 'userId' }),
         getEmployees(pb, { signal }),
@@ -119,7 +117,7 @@ export default function TeamSchedulePage() {
 
   const handleHourSlotClick = (date: Date) => {
     if (isSupervisor) {
-      setEditingEvent(null);
+      setEditingEvent(null); // Ensure we are creating a new event
       setIsFormOpen(true);
     }
   };

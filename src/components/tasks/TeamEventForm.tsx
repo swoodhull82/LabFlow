@@ -20,7 +20,7 @@ import { PERSONAL_EVENT_TYPES } from "@/lib/constants";
 import type { CalendarEvent, PersonalEventType, TaskRecurrence, Employee } from "@/lib/types";
 
 const teamEventFormSchema = z.object({
-  userId: z.string().min(1, { message: "An employee must be selected." }),
+  employeeId: z.string().min(1, { message: "An employee must be selected." }),
   title: z.string().min(2, { message: "Title must be at least 2 characters." }),
   description: z.string().optional(),
   selectedDays: z.array(z.number()).min(1, { message: "Please select at least one day." }),
@@ -95,7 +95,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
   const form = useForm<TeamEventFormData>({
     resolver: zodResolver(teamEventFormSchema),
     defaultValues: isEditMode && eventToEdit ? {
-      userId: eventToEdit.ownerId || "",
+      employeeId: employees.find(e => e.userId === eventToEdit.ownerId)?.id || "",
       title: eventToEdit.title || "",
       description: eventToEdit.description || "",
       eventType: eventToEdit.eventType || "Available",
@@ -105,7 +105,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
       endTime: !eventToEdit.isAllDay ? format(new Date(eventToEdit.endDate), 'HH:mm') : defaultEndTime,
       recurrence: eventToEdit.recurrence || "None",
     } : {
-      userId: "",
+      employeeId: "",
       title: "",
       description: "",
       eventType: "Available",
@@ -124,6 +124,17 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
       toast({ title: "Error", description: "You must be logged in.", variant: "destructive" });
       return;
     }
+    
+    const selectedEmployee = employees.find(e => e.id === data.employeeId);
+    if (!selectedEmployee?.userId) {
+        toast({
+            title: "Cannot Create Event",
+            description: `The employee "${selectedEmployee?.name || 'Unknown'}" is not linked to a system user account. A schedule can only be added for employees who are also users.`,
+            variant: "destructive"
+        });
+        return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -168,7 +179,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
                 endDate = set(eventDate, { hours: endHour, minutes: endMinute, seconds: 0 });
             }
             const eventPayload = {
-              userId: data.userId,
+              userId: selectedEmployee.userId!,
               title: data.title,
               description: data.description,
               startDate,
@@ -203,7 +214,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <FormField
             control={form.control}
-            name="userId"
+            name="employeeId"
             render={({ field }) => (
                 <FormItem>
                 <FormLabel>Employee</FormLabel>
@@ -214,8 +225,8 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
                     </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                    {employees.filter(employee => employee.userId).map(employee => (
-                        <SelectItem key={employee.id} value={employee.userId!}>{employee.name}</SelectItem>
+                    {employees.map(employee => (
+                        <SelectItem key={employee.id} value={employee.id}>{employee.name}</SelectItem>
                     ))}
                     </SelectContent>
                 </Select>
