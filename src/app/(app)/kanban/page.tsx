@@ -1,3 +1,4 @@
+
 'use client';
 
 import React from 'react';
@@ -53,6 +54,10 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
 });
 
+const getInitials = (name: string = "") => {
+  return name.split(' ').map((n) => n[0]).join('');
+}
+
 const Example = () => {
   const { pbClient, user } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -93,13 +98,12 @@ const Example = () => {
   const kanbanOwners = useMemo(() => {
     if (employees.length === 0) {
       if (isLoadingEmployees) {
-        return [{ id: 'placeholder-1', image: '', name: 'Loading...' }];
+        return [{ id: 'placeholder-1', name: 'Loading...' }];
       }
       return [];
     }
     return employees.map(emp => ({
       id: emp.id,
-      image: `https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=${emp.id}`,
       name: emp.name
     }));
   }, [employees, isLoadingEmployees]);
@@ -406,9 +410,8 @@ const Example = () => {
                             </p>
                             {feature.owner && (
                               <Avatar className="h-4 w-4 shrink-0">
-                                <AvatarImage src={feature.owner.image} />
                                 <AvatarFallback>
-                                  {feature.owner.name?.slice(0, 2)}
+                                  {getInitials(feature.owner.name)}
                                 </AvatarFallback>
                               </Avatar>
                             )}
