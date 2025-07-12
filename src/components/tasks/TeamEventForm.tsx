@@ -214,8 +214,8 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
                     </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                    {employees.map(employee => (
-                        <SelectItem key={employee.userId} value={employee.userId!}>{employee.name}</SelectItem>
+                    {employees.filter(employee => employee.userId).map(employee => (
+                        <SelectItem key={employee.id} value={employee.userId!}>{employee.name}</SelectItem>
                     ))}
                     </SelectContent>
                 </Select>
