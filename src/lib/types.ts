@@ -80,6 +80,7 @@ export interface Employee {
   reportsTo_text?: string;
   department_text?: string;
   userId?: string; 
+  color?: string; // For team schedule calendar
   created?: Date | string;
   updated?: Date | string;
   collectionId?: string;
@@ -107,6 +108,7 @@ export interface KanbanStatus {
 export interface KanbanGroup {
   id: string;
   name: string;
+  description?: string;
   order: number;
 }
 
@@ -134,7 +136,7 @@ export interface KanbanCard {
   steps: KanbanStep[]; // Populated via expand or separate query
   expand?: {
     'kanban_steps(card)': KanbanStep[];
-    owners?: Employee[]; // Changed from User[]
+    owners?: Employee[];
     createdBy?: User;
     status?: KanbanStatus;
     group?: KanbanGroup;

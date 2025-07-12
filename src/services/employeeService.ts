@@ -44,7 +44,8 @@ const pbRecordToEmployee = (record: any): Employee => {
     role: record.role, 
     reportsTo_text: record.reportsTo_text,
     department_text: record.department_text,
-    userId: record.userId, 
+    userId: record.userId,
+    color: record.color, 
     created: record.created ? new Date(record.created) : undefined,
     updated: record.updated ? new Date(record.updated) : undefined,
     collectionId: record.collectionId,
@@ -53,7 +54,7 @@ const pbRecordToEmployee = (record: any): Employee => {
   };
 };
 
-const DEFAULT_EMPLOYEE_FIELDS = 'id,name,email,role,department_text,reportsTo_text,userId,created,updated';
+const DEFAULT_EMPLOYEE_FIELDS = 'id,name,email,role,department_text,reportsTo_text,userId,color,created,updated';
 
 export const getEmployees = async (pb: PocketBase, options?: PocketBaseRequestOptions): Promise<Employee[]> => {
   try {

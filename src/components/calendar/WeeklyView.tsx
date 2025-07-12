@@ -6,7 +6,7 @@ import { add, format, startOfWeek, eachDayOfInterval, isToday, getHours, getMinu
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardHeader } from '@/components/ui/card';
-import type { CalendarEvent } from '@/lib/types';
+import type { CalendarEvent, Employee } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { User } from 'lucide-react';
 
@@ -22,7 +22,14 @@ const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
     return `${hour} AM`;
 });
 
-const getEventColorClass = (event: CalendarEvent): string => {
+const getEventColorClass = (event: CalendarEvent, employeeColorMap?: Map<string, string>): string => {
+    if (employeeColorMap && event.ownerId) {
+        const color = employeeColorMap.get(event.ownerId);
+        if (color) {
+            return 'text-white border-l-4';
+        }
+    }
+    // Fallback to original color logic if no map or ownerId
     switch (event.eventType) {
         case 'Out of Office':
             return "border-green-500 bg-green-50 text-green-900 dark:bg-green-900/20 dark:border-green-500/70 dark:text-green-100";
@@ -68,14 +75,15 @@ const NowIndicator = ({ dayColumns }: { dayColumns: Date[] }) => {
     );
 };
 
-
 interface WeeklyViewProps {
     events: CalendarEvent[];
-    onHourSlotClick: (date: Date) => void;
-    onEventClick: (event: CalendarEvent) => void;
+    onHourSlotClick?: (date: Date) => void;
+    onEventClick?: (event: CalendarEvent) => void;
+    employeeColorMap?: Map<string, string>;
+    isTeamView?: boolean;
 }
 
-export default function WeeklyView({ events, onHourSlotClick, onEventClick }: WeeklyViewProps) {
+export default function WeeklyView({ events, onHourSlotClick, onEventClick, employeeColorMap, isTeamView = false }: WeeklyViewProps) {
     const [currentDate, setCurrentDate] = useState(new Date());
     const containerRef = useRef<HTMLDivElement>(null);
     const headerRef = useRef<HTMLDivElement>(null);
@@ -192,7 +200,7 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
                                         return (
                                             <div
                                                 key={`${dayIndex}-${hourIndex}`}
-                                                onClick={() => onHourSlotClick(slotDate)}
+                                                onClick={() => onHourSlotClick?.(slotDate)}
                                                 className="border-b border-border/70 hover:bg-accent transition-colors cursor-pointer"
                                                 style={{height: `${HOUR_HEIGHT_PX}px`}}
                                             />
@@ -219,14 +227,19 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
 
                                     const durationMinutes = Math.max(15, differenceInMinutes(endDate, startDate));
                                     const height = (durationMinutes / 60) * HOUR_HEIGHT_PX - 2;
+                                    
+                                    const eventColorStyle = (isTeamView && employeeColorMap && event.ownerId)
+                                      ? { borderColor: employeeColorMap.get(event.ownerId), backgroundColor: `${employeeColorMap.get(event.ownerId)}33` } // Add alpha for background
+                                      : {};
 
                                     return (
                                         <div 
                                             key={event.id}
-                                            onClick={() => onEventClick(event)}
+                                            onClick={() => onEventClick?.(event)}
                                             className={cn(
-                                                "absolute p-2 rounded-md cursor-pointer transition-all shadow-sm hover:shadow-md overflow-hidden z-[5] border-l-4",
-                                                getEventColorClass(event),
+                                                "absolute p-2 rounded-md transition-all shadow-sm overflow-hidden z-[5]",
+                                                getEventColorClass(event, employeeColorMap),
+                                                !isTeamView && "cursor-pointer hover:shadow-md",
                                                 event.isAllDay && "opacity-90"
                                             )}
                                             style={{ 
@@ -234,6 +247,7 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
                                               height: `${height}px`,
                                               left: `calc(${dayIndex * 20}% + 4px)`, // 20% width per column
                                               width: 'calc(20% - 8px)',
+                                              ...eventColorStyle
                                             }}
                                             title={`${event.title}${event.isAllDay ? ' (All-day)' : ` - ${format(startDate, 'h:mm a')}`}`}
                                         >
