@@ -74,16 +74,14 @@ const NowIndicator = ({ dayColumns }: { dayColumns: Date[] }) => {
 
 interface WeeklyViewProps {
     events: CalendarEvent[];
+    weekStartDate: Date;
     onHourSlotClick?: (date: Date) => void;
     onEventClick?: (event: CalendarEvent) => void;
     isTeamView?: boolean;
-    onWeekChange?: (weekStartDate: Date) => void;
 }
 
-export default function WeeklyView({ events, onHourSlotClick, onEventClick, isTeamView = false, onWeekChange }: WeeklyViewProps) {
-    const [currentDate, setCurrentDate] = useState(new Date());
+export default function WeeklyView({ events, weekStartDate, onHourSlotClick, onEventClick, isTeamView = false }: WeeklyViewProps) {
     const containerRef = useRef<HTMLDivElement>(null);
-    const headerRef = useRef<HTMLDivElement>(null);
     const timeGutterRef = useRef<HTMLDivElement>(null);
 
     // Scroll to 8 AM on initial load
@@ -108,15 +106,10 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick, isTe
         return () => mainEl.removeEventListener('scroll', handleScroll);
     }, []);
 
-    const startOfCurrentWeek = startOfWeek(currentDate, { weekStartsOn: 1 }); // Monday
-    const daysInWeek = eachDayOfInterval({
-        start: startOfCurrentWeek,
-        end: add(startOfCurrentWeek, { days: 4 }), // Monday to Friday
-    });
-
-    useEffect(() => {
-        onWeekChange?.(startOfCurrentWeek);
-    }, [startOfCurrentWeek, onWeekChange]);
+    const daysInWeek = useMemo(() => eachDayOfInterval({
+        start: weekStartDate,
+        end: add(weekStartDate, { days: 4 }), // Monday to Friday
+    }), [weekStartDate]);
 
 
     const eventsByDay = useMemo(() => {
@@ -140,26 +133,13 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick, isTe
         return map;
     }, [events, daysInWeek]);
 
-    const handlePrevWeek = () => setCurrentDate(current => add(current, { weeks: -1 }));
-    const handleNextWeek = () => setCurrentDate(current => add(current, { weeks: 1 }));
-    const handleToday = () => setCurrentDate(new Date());
     
     return (
-        <Card className="shadow-md overflow-hidden flex flex-col h-[calc(100vh-200px)]">
-            <CardHeader className="flex flex-row items-center justify-between gap-4 border-b p-3 flex-shrink-0">
-                 <div className="flex items-center gap-4">
-                    <span className="text-lg font-semibold">{format(startOfCurrentWeek, 'MMMM yyyy')}</span>
-                    <Button variant="outline" size="sm" onClick={handleToday}>Today</Button>
-                 </div>
-                 <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" onClick={handlePrevWeek}><ChevronLeft className="h-5 w-5" /></Button>
-                    <Button variant="ghost" size="icon" onClick={handleNextWeek}><ChevronRight className="h-5 w-5" /></Button>
-                </div>
-            </CardHeader>
+        <div className="flex flex-col h-[calc(100vh-270px)]">
             <div className="flex flex-grow min-h-0">
                 {/* Time Gutter */}
                 <div className="w-20 text-sm text-right flex-shrink-0">
-                     <div ref={headerRef} className="h-20" /> {/* Spacer for header */}
+                     <div className="h-20" /> {/* Spacer for header */}
                      <div ref={timeGutterRef} className="overflow-hidden" style={{ height: `calc(100% - 5rem)` }}>
                         {hours.map((hour, index) => (
                             <div key={hour} className="relative pr-2" style={{height: `${HOUR_HEIGHT_PX}px`}}>
@@ -275,6 +255,6 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick, isTe
                     </div>
                 </div>
             </div>
-        </Card>
+        </div>
     );
 }

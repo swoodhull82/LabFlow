@@ -7,14 +7,14 @@ import { getPersonalEvents, deletePersonalEvent } from "@/services/personalEvent
 import { getEmployees } from "@/services/employeeService";
 import type { CalendarEvent, Employee } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, PlusCircle } from "lucide-react";
+import { Loader2, AlertTriangle, PlusCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import WeeklyView from "@/components/calendar/WeeklyView";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type PocketBase from "pocketbase";
 import { TeamEventForm } from "@/components/tasks/TeamEventForm";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { startOfWeek, add } from 'date-fns';
+import { startOfWeek, add, format } from 'date-fns';
 
 const getDetailedErrorMessage = (error: any): string => {
   let message = "An unexpected error occurred.";
@@ -41,16 +41,20 @@ export default function TeamSchedulePage() {
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
-  const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [currentDate, setCurrentDate] = useState(new Date());
+
+  const currentWeekStart = useMemo(() => startOfWeek(currentDate, { weekStartsOn: 1 }), [currentDate]);
 
   const isSupervisor = user?.role === 'Supervisor';
 
-  const fetchData = useCallback(async (pb: PocketBase, currentUserId: string, signal?: AbortSignal) => {
+  const fetchData = useCallback(async (pb: PocketBase, signal?: AbortSignal) => {
     setIsLoading(true);
     setError(null);
     try {
+      // For a team view, we fetch ALL personal events and let the component logic handle it.
+      // PocketBase API rules will enforce who can see what if needed, but for a supervisor view, this is okay.
       const [fetchedEvents, fetchedEmployees] = await Promise.all([
-        getPersonalEvents(pb, currentUserId, { signal, expand: 'userId' }), // Ensure userId is expanded
+        getPersonalEvents(pb, user?.id, { signal, expand: 'userId' }),
         getEmployees(pb, { signal }),
       ]);
       setEvents(fetchedEvents);
@@ -66,12 +70,12 @@ export default function TeamSchedulePage() {
     } finally {
       setIsLoading(false);
     }
-  }, [toast]);
+  }, [toast, user?.id]);
 
   useEffect(() => {
     const controller = new AbortController();
     if (pbClient && user) {
-      fetchData(pbClient, user.id, controller.signal);
+      fetchData(pbClient, controller.signal);
     }
     return () => controller.abort();
   }, [pbClient, user, fetchData]);
@@ -97,7 +101,7 @@ export default function TeamSchedulePage() {
 
   const handleDataChanged = () => {
     if (pbClient && user) {
-      fetchData(pbClient, user.id);
+      fetchData(pbClient);
     }
   };
 
@@ -115,8 +119,6 @@ export default function TeamSchedulePage() {
 
   const handleHourSlotClick = (date: Date) => {
     if (isSupervisor) {
-      // For multi-day creation, we don't pre-fill a specific date/time from a slot click
-      // Instead, just open the form in "create" mode
       setEditingEvent(null);
       setIsFormOpen(true);
     }
@@ -137,9 +139,13 @@ export default function TeamSchedulePage() {
 
   const refetchData = () => {
     if (pbClient && user) {
-      fetchData(pbClient, user.id);
+      fetchData(pbClient);
     }
   };
+
+  const handlePrevWeek = () => setCurrentDate(current => add(current, { weeks: -1 }));
+  const handleNextWeek = () => setCurrentDate(current => add(current, { weeks: 1 }));
+  const handleToday = () => setCurrentDate(new Date());
 
   return (
     <div className="space-y-6">
@@ -170,13 +176,17 @@ export default function TeamSchedulePage() {
       </div>
 
       <Card className="shadow-md">
-        <CardHeader>
-          <CardTitle className="font-headline">Weekly Team Availability</CardTitle>
-          <CardDescription>
-            A combined view of all employee schedules. {isSupervisor ? "Click on an event to edit or create a new team event." : "Events are color-coded by employee."}
-          </CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 border-b p-3 flex-shrink-0">
+          <div className="flex items-center gap-4">
+            <span className="text-lg font-semibold">{format(currentWeekStart, 'MMMM yyyy')}</span>
+            <Button variant="outline" size="sm" onClick={handleToday}>Today</Button>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" onClick={handlePrevWeek}><ChevronLeft className="h-5 w-5" /></Button>
+            <Button variant="ghost" size="icon" onClick={handleNextWeek}><ChevronRight className="h-5 w-5" /></Button>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {isLoading ? (
             <div className="flex justify-center items-center h-96">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -191,10 +201,10 @@ export default function TeamSchedulePage() {
           ) : (
             <WeeklyView
               events={eventsWithColor}
+              weekStartDate={currentWeekStart}
               isTeamView={true}
               onEventClick={isSupervisor ? handleEventClick : undefined}
               onHourSlotClick={isSupervisor ? handleHourSlotClick : undefined}
-              onWeekChange={setCurrentWeekStart}
             />
           )}
         </CardContent>
