@@ -75,6 +75,41 @@ A new collection is required to store personal calendar events separately from t
 *   **`created`**: (Date, System Field) - Timestamp of creation.
 *   **`updated`**: (Date, System Field) - Timestamp of last update.
 
+## PocketBase Kanban Schema (Proposed)
+
+The Kanban board currently uses in-memory example data. To make it persistent and collaborative, the following collections should be created in PocketBase.
+
+### 1. `kanban_cards` Collection (The main tasks on the board)
+*   `id`: (System Field) - Unique identifier.
+*   `name`: (Text, Required) - The title of the card.
+*   `status`: (Relation to `kanban_statuses`, Required, Single) - Links to a status column (e.g., "In Progress").
+*   `group`: (Relation to `kanban_groups`, Required, Single) - Links to a swimlane group (e.g., "Customer Service").
+*   `owners`: (Relation to `users`, Multiple) - List of user IDs assigned to the card.
+*   `createdBy`: (Relation to `users`, Required, Single) - The user who created the card.
+*   `startAt`: (Date, Optional) - Start date for the card.
+*   `endAt`: (Date, Optional) - Due date for the card.
+*   `order`: (Number, Required) - For sorting cards within a column.
+
+### 2. `kanban_steps` Collection (Sub-tasks within a card)
+*   `id`: (System Field) - Unique identifier.
+*   `card`: (Relation to `kanban_cards`, Required, Single) - The parent card this step belongs to.
+*   `name`: (Text, Required) - The description of the step.
+*   `completed`: (Boolean, Default: false) - Whether the step is checked off.
+*   `assignees`: (Relation to `users`, Multiple) - Users assigned to this specific step.
+*   `order`: (Number, Required) - For sorting steps within a card.
+
+### 3. `kanban_statuses` Collection (The columns of the board)
+*   `id`: (System Field) - Unique identifier.
+*   `name`: (Text, Required, Unique) - e.g., "Planned", "In Progress", "Done".
+*   `color`: (Text, Optional) - Hex color code (e.g., "#F59E0B").
+*   `order`: (Number, Required) - The display order of the columns.
+
+### 4. `kanban_groups` Collection (The swimlanes/rows of the board)
+*   `id`: (System Field) - Unique identifier.
+*   `name`: (Text, Required, Unique) - e.g., "Customer Service", "Instrument Management".
+*   `order`: (Number, Required) - The display order of the swimlanes.
+
+
 ### Securing Personal Events in PocketBase
 
 For personal calendar events to be private (or shared with specific users), you must set API rules on the `personal_events` collection in your PocketBase Admin UI.
