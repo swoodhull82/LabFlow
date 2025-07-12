@@ -23,7 +23,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subMonths } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
-import { Plus, Loader2, X, List, Trello, User } from 'lucide-react';
+import { Plus, Loader2, X, List, Trello, User, Users, Check } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,6 +33,10 @@ import { getEmployees } from '@/services/employeeService';
 import type { Employee } from '@/lib/types';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 
 
 const today = new Date();
@@ -75,9 +79,9 @@ const Example = () => {
 
   // State for the new card form
   const [newCardName, setNewCardName] = useState('');
-  const [newCardAssignee, setNewCardAssignee] = useState(user?.id || '');
+  const [newCardAssignees, setNewCardAssignees] = useState<string[]>(user ? [user.id] : []);
   const [newCardStatus, setNewCardStatus] = useState(exampleStatuses[0].id);
-  const [newCardSteps, setNewCardSteps] = useState<{ id: string, name: string, completed: boolean, assigneeId: string | null }[]>([]);
+  const [newCardSteps, setNewCardSteps] = useState<{ id: string, name: string, completed: boolean, assigneeIds: string[] }[]>([]);
   const [currentStepInput, setCurrentStepInput] = useState('');
 
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
@@ -88,10 +92,8 @@ const Example = () => {
     try {
       const fetchedEmployees = await getEmployees(pb, { signal });
       setEmployees(fetchedEmployees);
-      if(user?.id) {
-        setNewCardAssignee(user.id);
-      } else if (fetchedEmployees.length > 0) {
-        setNewCardAssignee(fetchedEmployees[0].id);
+      if(user?.id && newCardAssignees.length === 0) {
+        setNewCardAssignees([user.id]);
       }
     } catch (error: any) {
       const isAutocancel = error?.isAbort === true || (typeof error?.message === 'string' && error.message.toLowerCase().includes("autocancelled"));
@@ -101,7 +103,7 @@ const Example = () => {
     } finally {
       setIsLoadingEmployees(false);
     }
-  }, [user?.id]);
+  }, [user?.id, newCardAssignees.length]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -149,14 +151,14 @@ const Example = () => {
         endAt: endOfMonth(subMonths(today, 1)),
         status: exampleStatuses[2], // Done
         group: newGroups[0], // Customer Service
-        owner: getOwner(0),
+        owners: [getOwner(0)],
         createdBy: creator,
         initiative: { id: '1', name: 'Client Relations Q3' },
         release: { id: '1', name: 'v1.0' },
         steps: [
-            { id: 'step-1-1', name: 'Draft feedback questions', completed: true, assigneeId: getOwner(0)?.id },
-            { id: 'step-1-2', name: 'Design form layout', completed: true, assigneeId: getOwner(1 % kanbanOwners.length)?.id },
-            { id: 'step-1-3', name: 'Implement and test form', completed: true, assigneeId: getOwner(0)?.id },
+            { id: 'step-1-1', name: 'Draft feedback questions', completed: true, assigneeIds: [getOwner(0)?.id] },
+            { id: 'step-1-2', name: 'Design form layout', completed: true, assigneeIds: [getOwner(1 % kanbanOwners.length)?.id] },
+            { id: 'step-1-3', name: 'Implement and test form', completed: true, assigneeIds: [getOwner(0)?.id] },
         ]
       },
       {
@@ -166,14 +168,14 @@ const Example = () => {
         endAt: addMonths(endOfMonth(today), 1),
         status: exampleStatuses[1], // In Progress
         group: newGroups[1], // Instrument Management
-        owner: getOwner(1 % kanbanOwners.length),
+        owners: [getOwner(1 % kanbanOwners.length)],
         createdBy: creator,
         initiative: { id: '2', name: 'Lab Operations' },
         release: { id: '1', name: 'v1.0' },
         steps: [
-            { id: 'step-2-1', name: 'Clean cones and injector', completed: true, assigneeId: getOwner(1 % kanbanOwners.length)?.id },
-            { id: 'step-2-2', name: 'Replace tubing', completed: false, assigneeId: getOwner(1 % kanbanOwners.length)?.id },
-            { id: 'step-2-3', name: 'Run performance check', completed: false, assigneeId: null },
+            { id: 'step-2-1', name: 'Clean cones and injector', completed: true, assigneeIds: [getOwner(1 % kanbanOwners.length)?.id] },
+            { id: 'step-2-2', name: 'Replace tubing', completed: false, assigneeIds: [getOwner(1 % kanbanOwners.length)?.id] },
+            { id: 'step-2-3', name: 'Run performance check', completed: false, assigneeIds: [] },
         ]
       },
       {
@@ -183,13 +185,13 @@ const Example = () => {
         endAt: subMonths(endOfMonth(today), 5),
         status: exampleStatuses[1], // In Progress
         group: newGroups[2], // Supply Chain & Ordering
-        owner: getOwner(2 % kanbanOwners.length),
+        owners: [getOwner(2 % kanbanOwners.length)],
         createdBy: creator,
         initiative: { id: '3', name: 'Inventory Management' },
         release: { id: '2', name: 'v1.1' },
         steps: [
-             { id: 'step-3-1', name: 'Inventory check', completed: true, assigneeId: getOwner(2 % kanbanOwners.length)?.id },
-             { id: 'step-3-2', name: 'Create purchase order', completed: false, assigneeId: getOwner(2 % kanbanOwners.length)?.id },
+             { id: 'step-3-1', name: 'Inventory check', completed: true, assigneeIds: [getOwner(2 % kanbanOwners.length)?.id] },
+             { id: 'step-3-2', name: 'Create purchase order', completed: false, assigneeIds: [getOwner(2 % kanbanOwners.length)?.id] },
         ]
       },
       {
@@ -199,7 +201,7 @@ const Example = () => {
         endAt: addMonths(endOfMonth(today), 2),
         status: exampleStatuses[0], // Planned
         group: newGroups[3], // General Projects
-        owner: getOwner(3 % kanbanOwners.length),
+        owners: [getOwner(3 % kanbanOwners.length)],
         createdBy: creator,
         initiative: { id: '4', name: 'Compliance 2024' },
         release: { id: '2', name: 'v1.1' },
@@ -212,13 +214,13 @@ const Example = () => {
         endAt: endOfMonth(today),
         status: exampleStatuses[1], // In Progress
         group: newGroups[0], // Customer Service
-        owner: getOwner(4 % kanbanOwners.length),
+        owners: [getOwner(4 % kanbanOwners.length)],
         createdBy: creator,
         initiative: { id: '1', name: 'Client Relations Q3' },
         release: { id: '2', name: 'v1.1' },
         steps: [
-            { id: 'step-5-1', name: 'Kickoff call', completed: true, assigneeId: getOwner(4 % kanbanOwners.length)?.id },
-            { id: 'step-5-2', name: 'Set up account in LIMS', completed: false, assigneeId: null },
+            { id: 'step-5-1', name: 'Kickoff call', completed: true, assigneeIds: [getOwner(4 % kanbanOwners.length)?.id] },
+            { id: 'step-5-2', name: 'Set up account in LIMS', completed: false, assigneeIds: [] },
         ]
       },
       {
@@ -228,14 +230,14 @@ const Example = () => {
         endAt: startOfMonth(today),
         status: exampleStatuses[2], // Done
         group: newGroups[1], // Instrument Management
-        owner: getOwner(1 % kanbanOwners.length),
+        owners: [getOwner(1 % kanbanOwners.length)],
         createdBy: creator,
         initiative: { id: '2', name: 'Lab Operations' },
         release: { id: '3', name: 'v1.2' },
         steps: [
-            { id: 'step-6-1', name: 'Calibrate with pH 4 buffer', completed: true, assigneeId: getOwner(1 % kanbanOwners.length)?.id },
-            { id: 'step-6-2', name: 'Calibrate with pH 7 buffer', completed: true, assigneeId: getOwner(1 % kanbanOwners.length)?.id },
-            { id: 'step-6-3', name: 'Calibrate with pH 10 buffer', completed: true, assigneeId: getOwner(1 % kanbanOwners.length)?.id },
+            { id: 'step-6-1', name: 'Calibrate with pH 4 buffer', completed: true, assigneeIds: [getOwner(1 % kanbanOwners.length)?.id] },
+            { id: 'step-6-2', name: 'Calibrate with pH 7 buffer', completed: true, assigneeIds: [getOwner(1 % kanbanOwners.length)?.id] },
+            { id: 'step-6-3', name: 'Calibrate with pH 10 buffer', completed: true, assigneeIds: [getOwner(1 % kanbanOwners.length)?.id] },
         ]
       },
         {
@@ -245,7 +247,7 @@ const Example = () => {
         endAt: addMonths(endOfMonth(today), 2),
         status: exampleStatuses[0], // Planned
         group: newGroups[2], // Supply Chain & Ordering
-        owner: getOwner(5 % kanbanOwners.length),
+        owners: [getOwner(5 % kanbanOwners.length)],
         createdBy: creator,
         initiative: { id: '3', name: 'Inventory Management' },
         release: { id: '3', name: 'v1.2' },
@@ -282,7 +284,10 @@ const Example = () => {
   const handleStepAssigneeChange = (stepId: string, assigneeId: string) => {
     setNewCardSteps(currentSteps => currentSteps.map(step => {
       if (step.id === stepId) {
-        return { ...step, assigneeId };
+        const newAssignees = step.assigneeIds.includes(assigneeId)
+          ? step.assigneeIds.filter(id => id !== assigneeId)
+          : [...step.assigneeIds, assigneeId];
+        return { ...step, assigneeIds: newAssignees };
       }
       return step;
     }));
@@ -331,7 +336,7 @@ const Example = () => {
   const resetAndCloseForm = () => {
     setIsAddCardOpen(false);
     setNewCardName('');
-    setNewCardAssignee(user?.id || '');
+    setNewCardAssignees(user ? [user.id] : []);
     setNewCardStatus(exampleStatuses[0].id);
     setNewCardSteps([]);
     setCurrentStepInput('');
@@ -345,7 +350,7 @@ const Example = () => {
   
   const handleAddStep = () => {
     if (currentStepInput.trim()) {
-      setNewCardSteps([...newCardSteps, { id: `new-step-${Date.now()}`, name: currentStepInput.trim(), completed: false, assigneeId: newCardAssignee }]);
+      setNewCardSteps([...newCardSteps, { id: `new-step-${Date.now()}`, name: currentStepInput.trim(), completed: false, assigneeIds: newCardAssignees }]);
       setCurrentStepInput('');
     }
   };
@@ -357,18 +362,15 @@ const Example = () => {
   const handleAddCardSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!newCardName || !newCardAssignee || !newCardStatus || !newCardGroup || !user) return;
+    if (!newCardName || newCardAssignees.length === 0 || !newCardStatus || !newCardGroup || !user) return;
     
-    const owner = kanbanOwners.find(o => o.id === newCardAssignee);
-    let creator = kanbanOwners.find(o => o.id === user.id);
-    if (!creator) {
-      creator = { id: user.id, name: user.name || user.email };
-    }
+    const owners = kanbanOwners.filter(o => newCardAssignees.includes(o.id));
+    let creator = { id: user.id, name: user.name || user.email };
 
     const status = exampleStatuses.find(s => s.id === newCardStatus);
 
-    if (!owner || !status) {
-        console.error("Could not create card. Assignee or Status not found.", { owner, status });
+    if (owners.length === 0 || !status) {
+        console.error("Could not create card. Assignees or Status not found.", { owners, status });
         return;
     }
 
@@ -379,7 +381,7 @@ const Example = () => {
       endAt: addMonths(today, 1),
       status: status,
       group: newCardGroup,
-      owner: owner,
+      owners: owners,
       createdBy: creator,
       initiative: { id: 'temp-id', name: `${newCardGroup.name} Initiative` },
       release: { id: 'temp-id', name: 'Next Release' },
@@ -414,11 +416,11 @@ const Example = () => {
       }
       acc[statusName].push(feature);
       return acc;
-    }, {} as Record<string, typeof features[0][]>);
+    }, {} as Record<string, Record<string, typeof features[0][]>>);
   }, [features]);
 
   const cardRenderer = (feature: typeof features[0]) => {
-    const assignee = kanbanOwners.find(o => o.id === feature.owner.id);
+    const assignees = kanbanOwners.filter(o => feature.owners.map(fo => fo.id).includes(o.id));
 
     return (
       <>
@@ -426,18 +428,25 @@ const Example = () => {
           <p className="m-0 flex-1 font-medium text-sm">
             {feature.name}
           </p>
-          {assignee && (
-            <Avatar className="h-5 w-5 shrink-0" title={`Assigned to: ${assignee.name}`}>
-              <AvatarFallback>
-                {getInitials(assignee.name)}
-              </AvatarFallback>
-            </Avatar>
+          {assignees.length > 0 && (
+            <div className="flex -space-x-2">
+              {assignees.slice(0, 2).map(assignee => (
+                <Avatar key={assignee.id} className="h-5 w-5 shrink-0 border-2 border-background" title={`Assigned to: ${assignee.name}`}>
+                  <AvatarFallback>{getInitials(assignee.name)}</AvatarFallback>
+                </Avatar>
+              ))}
+              {assignees.length > 2 && (
+                <Avatar className="h-5 w-5 shrink-0 border-2 border-background" title={`And ${assignees.length - 2} more`}>
+                  <AvatarFallback className="text-[10px]">{`+${assignees.length - 2}`}</AvatarFallback>
+                </Avatar>
+              )}
+            </div>
           )}
         </div>
         {feature.steps && feature.steps.length > 0 && (
           <div className="space-y-1.5 mt-2 ml-2 pl-2 border-l">
               {feature.steps.map(step => {
-                  const stepAssignee = kanbanOwners.find(o => o.id === step.assigneeId);
+                  const stepAssignees = kanbanOwners.filter(o => step.assigneeIds.includes(o.id));
                   return (
                       <div key={step.id} className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
@@ -454,10 +463,19 @@ const Example = () => {
                                   {step.name}
                               </label>
                           </div>
-                          {stepAssignee && (
-                              <Avatar className="h-4 w-4 shrink-0" title={`Step assigned to: ${stepAssignee.name}`}>
-                                  <AvatarFallback className="text-[10px]">{getInitials(stepAssignee.name)}</AvatarFallback>
-                              </Avatar>
+                          {stepAssignees.length > 0 && (
+                            <div className="flex -space-x-1">
+                                {stepAssignees.slice(0, 2).map(assignee => (
+                                    <Avatar key={assignee.id} className="h-4 w-4 shrink-0 border border-background" title={`Step assigned to: ${assignee.name}`}>
+                                        <AvatarFallback className="text-[10px]">{getInitials(assignee.name)}</AvatarFallback>
+                                    </Avatar>
+                                ))}
+                                {stepAssignees.length > 2 && (
+                                    <Avatar className="h-4 w-4 shrink-0 border border-background" title={`And ${stepAssignees.length-2} more`}>
+                                        <AvatarFallback className="text-[8px]">{`+${stepAssignees.length-2}`}</AvatarFallback>
+                                    </Avatar>
+                                )}
+                            </div>
                           )}
                       </div>
                   );
@@ -481,6 +499,61 @@ const Example = () => {
         </div>
       </>
     );
+  };
+  
+  const MultiAssigneeSelect = ({
+      label,
+      selectedAssignees,
+      onSelectionChange,
+      isLoading,
+      options,
+      className,
+  }: {
+      label: string;
+      selectedAssignees: string[];
+      onSelectionChange: (id: string) => void;
+      isLoading: boolean;
+      options: { id: string; name: string }[];
+      className?: string;
+  }) => {
+      const selectedText =
+          selectedAssignees.length === 0
+              ? `Select ${label}...`
+              : selectedAssignees.length === 1
+              ? options.find((o) => o.id === selectedAssignees[0])?.name ?? '1 selected'
+              : `${selectedAssignees.length} selected`;
+
+      return (
+          <Popover>
+              <PopoverTrigger asChild>
+                  <Button variant="outline" className={cn("w-full justify-start font-normal", className)} disabled={isLoading}>
+                      <Users className="mr-2 h-4 w-4" />
+                      {selectedText}
+                  </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                  <Command>
+                      <CommandInput placeholder={`Search ${label}...`} />
+                      <CommandList>
+                          <CommandEmpty>No results found.</CommandEmpty>
+                          <CommandGroup>
+                              {options.map((option) => (
+                                  <CommandItem
+                                      key={option.id}
+                                      onSelect={() => onSelectionChange(option.id)}
+                                  >
+                                      <div className={cn("mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary", selectedAssignees.includes(option.id) ? 'bg-primary text-primary-foreground' : 'opacity-50 [&_svg]:invisible')}>
+                                          <Check className="h-4 w-4" />
+                                      </div>
+                                      <span>{option.name}</span>
+                                  </CommandItem>
+                              ))}
+                          </CommandGroup>
+                      </CommandList>
+                  </Command>
+              </PopoverContent>
+          </Popover>
+      );
   };
 
   return (
@@ -586,19 +659,24 @@ const Example = () => {
                 />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="assignee" className="text-right">
-                  Assignee
-                </Label>
-                <Select name="assignee" value={newCardAssignee} onValueChange={setNewCardAssignee} required disabled={isLoadingEmployees}>
-                    <SelectTrigger className="col-span-3">
-                        <SelectValue placeholder={isLoadingEmployees ? <div className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> <span>Loading...</span></div> : "Select an assignee"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {!isLoadingEmployees && kanbanOwners.map(owner => (
-                            <SelectItem key={owner.id} value={owner.id}>{owner.name}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                  <Label htmlFor="assignees" className="text-right">
+                      Assignees
+                  </Label>
+                   <div className="col-span-3">
+                      <MultiAssigneeSelect
+                          label="Assignees"
+                          selectedAssignees={newCardAssignees}
+                          onSelectionChange={(id) =>
+                              setNewCardAssignees((prev) =>
+                                  prev.includes(id)
+                                      ? prev.filter((prevId) => prevId !== id)
+                                      : [...prev, id]
+                              )
+                          }
+                          isLoading={isLoadingEmployees}
+                          options={kanbanOwners}
+                      />
+                  </div>
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="statusId" className="text-right">
@@ -624,19 +702,16 @@ const Example = () => {
                       <div className="space-y-2 rounded-md border p-2">
                         {newCardSteps.map(step => (
                           <div key={step.id} className="flex items-center justify-between text-sm gap-2">
-                              <span className="flex-1">{step.name}</span>
+                              <span className="flex-1 truncate">{step.name}</span>
                               <div className="flex items-center gap-2">
-                                <Select onValueChange={(value) => handleStepAssigneeChange(step.id, value)} defaultValue={step.assigneeId ?? undefined}>
-                                  <SelectTrigger className="w-[120px] h-7 text-xs">
-                                      <SelectValue placeholder="Assign..." />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="UNASSIGNED_STEP_VALUE">Unassigned</SelectItem>
-                                    {kanbanOwners.map(owner => (
-                                      <SelectItem key={owner.id} value={owner.id}>{owner.name}</SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                  <MultiAssigneeSelect
+                                      label="Assignees"
+                                      selectedAssignees={step.assigneeIds}
+                                      onSelectionChange={(id) => handleStepAssigneeChange(step.id, id)}
+                                      isLoading={isLoadingEmployees}
+                                      options={kanbanOwners}
+                                      className="h-7 text-xs"
+                                  />
                                 <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleRemoveStep(step.id)}>
                                   <X className="h-3 w-3" />
                                 </Button>
@@ -670,5 +745,3 @@ const Example = () => {
 };
 
 export default Example;
-
-    
