@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useForm, Controller } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Button } from "@/components/ui/button";
@@ -10,15 +10,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Save, Trash2, Calendar, Clock } from "lucide-react";
+import { Loader2, Save, Trash2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { createPersonalEvent, updatePersonalEvent, type PersonalEventUpdateData } from "@/services/personalEventService";
 import { useState } from "react";
 import { format, set, addDays, startOfWeek } from "date-fns";
-import { PERSONAL_EVENT_TYPES, TASK_RECURRENCES } from "@/lib/constants";
+import { PERSONAL_EVENT_TYPES } from "@/lib/constants";
 import type { CalendarEvent, PersonalEventType, TaskRecurrence, Employee } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
 const teamEventFormSchema = z.object({
   userId: z.string().min(1, { message: "An employee must be selected." }),
@@ -215,7 +214,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
                     </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                    {employees.filter(emp => emp.userId).map(employee => (
+                    {employees.map(employee => (
                         <SelectItem key={employee.userId} value={employee.userId!}>{employee.name}</SelectItem>
                     ))}
                     </SelectContent>
