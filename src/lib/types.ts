@@ -95,3 +95,48 @@ export interface ActivityLogEntry {
   created: Date | string; 
   updated: Date | string;
 }
+
+// Kanban Types
+export interface KanbanStatus {
+  id: string;
+  name: string;
+  color: string;
+  order: number;
+}
+
+export interface KanbanGroup {
+  id: string;
+  name: string;
+  order: number;
+}
+
+export interface KanbanStep {
+  id: string;
+  card: string; // Relation to kanban_cards
+  name: string;
+  completed: boolean;
+  assignees: string[]; // Relation to users
+  order: number;
+}
+
+export interface KanbanCard {
+  id: string;
+  name: string;
+  status: string; // Relation to kanban_statuses
+  group: string; // Relation to kanban_groups
+  owners: string[]; // Relation to users
+  createdBy: string; // Relation to users
+  startAt?: Date | string;
+  endAt?: Date | string;
+  order: number;
+  created: Date | string;
+  updated: Date | string;
+  steps: KanbanStep[]; // Populated via expand or separate query
+  expand?: {
+    'kanban_steps(card)': KanbanStep[];
+    owners?: User[];
+    createdBy?: User;
+    status?: KanbanStatus;
+    group?: KanbanGroup;
+  }
+}
