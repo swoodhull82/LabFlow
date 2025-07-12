@@ -42,6 +42,7 @@ const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
   }
   
   const owner = record.expand?.userId;
+  const employee = record.expand?.employeeId;
 
   return {
     id: record.id,
@@ -50,6 +51,7 @@ const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
     endDate: endDate,
     description: record.description,
     userId: record.userId,
+    employeeId: record.employeeId,
     isAllDay: record.isAllDay || false,
     eventType: record.eventType || 'Available',
     recurrence: record.recurrence || 'None',
@@ -58,7 +60,7 @@ const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
     collectionId: record.collectionId,
     collectionName: record.collectionName,
     ownerId: owner?.id,
-    ownerName: owner?.name, // Always include owner name for team view
+    ownerName: employee?.name || owner?.name,
     expand: record.expand,
   } as CalendarEvent;
 };
@@ -69,26 +71,30 @@ interface PocketBaseRequestOptions {
   [key: string]: any;
 }
 
-export const getPersonalEvents = async (pb: PocketBase, userId: string, options?: PocketBaseRequestOptions): Promise<CalendarEvent[]> => {
-  if (!userId) {
-    console.warn("[personalEventService] getPersonalEvents called without a userId. Returning empty array to protect privacy.");
+export const getPersonalEvents = async (pb: PocketBase, userId?: string, options?: PocketBaseRequestOptions): Promise<CalendarEvent[]> => {
+  if (!userId && pb.authStore.model?.role !== 'Supervisor') {
+    console.warn("[personalEventService] getPersonalEvents called without a userId for a non-supervisor. Returning empty array.");
     return [];
   }
   try {
-    // With correct API rules, PocketBase will automatically filter the results based on the logged-in user's auth context.
     const { signal, projectionHorizon, ...otherOptions } = options || {};
-    const requestParams = {
+    const requestParams: any = {
       sort: 'startDate',
-      expand: 'userId', // expand the user relation to get owner info
+      expand: 'userId,employeeId',
       ...otherOptions,
     };
+    
+    // If a specific userId is provided, filter for it. Otherwise, a supervisor gets all.
+    // The API rules on the server provide the actual security.
+    if(userId) {
+        requestParams.filter = `userId = "${userId}"`;
+    }
 
     const records = await withRetry(() =>
       pb.collection(COLLECTION_NAME).getFullList(requestParams, { signal }),
       { ...options, context: "fetching personal events" }
     );
 
-    // Map and filter out any records that are invalid
     const rawEvents = records
       .map(record => pbRecordToPersonalEvent(record))
       .filter((event): event is CalendarEvent => event !== null);
@@ -117,7 +123,8 @@ interface PersonalEventCreationData {
     description?: string;
     startDate: Date;
     endDate: Date;
-    userId: string;
+    userId?: string; // Optional now
+    employeeId?: string; // Add employeeId
     isAllDay?: boolean;
     eventType?: PersonalEventType;
     recurrence?: TaskRecurrence;
@@ -148,6 +155,7 @@ export interface PersonalEventUpdateData {
     isAllDay?: boolean;
     eventType?: PersonalEventType;
     recurrence?: TaskRecurrence;
+    employeeId?: string;
 }
 
 export const updatePersonalEvent = async (

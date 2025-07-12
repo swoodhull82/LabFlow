@@ -56,6 +56,7 @@ export interface CalendarEvent {
   description?: string;
   status?: TaskStatus; 
   userId?: string; 
+  employeeId?: string; // New field to link directly to an employee
   created: Date | string;
   updated: Date | string;
   collectionId?: string;
@@ -63,6 +64,8 @@ export interface CalendarEvent {
   expand?: {
     assignedTo?: Employee[];
     createdBy?: User;
+    userId?: User;
+    employeeId?: Employee;
     [key: string]: any;
   };
   assignedTo?: string[];

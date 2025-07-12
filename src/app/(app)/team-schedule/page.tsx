@@ -52,7 +52,8 @@ export default function TeamSchedulePage() {
     setError(null);
     try {
       const [fetchedEvents, fetchedEmployees] = await Promise.all([
-        getPersonalEvents(pb, user?.id, { signal, expand: 'userId' }),
+        // Fetch all personal events if supervisor, otherwise just user's own
+        getPersonalEvents(pb, isSupervisor ? undefined : user?.id, { signal, expand: 'userId,employeeId' }),
         getEmployees(pb, { signal }),
       ]);
       setEvents(fetchedEvents);
@@ -68,7 +69,7 @@ export default function TeamSchedulePage() {
     } finally {
       setIsLoading(false);
     }
-  }, [toast, user?.id]);
+  }, [toast, user?.id, isSupervisor]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -81,8 +82,9 @@ export default function TeamSchedulePage() {
   const employeeColorMap = useMemo(() => {
     const map = new Map<string, string>();
     employees.forEach(employee => {
-      if (employee.color && employee.userId) {
-        map.set(employee.userId, employee.color);
+      // Use employeeId for mapping, as it's the direct link
+      if (employee.color && employee.id) {
+        map.set(employee.id, employee.color);
       }
     });
     return map;
@@ -90,8 +92,13 @@ export default function TeamSchedulePage() {
 
   const eventsWithColor = useMemo(() => {
     return events.map(event => {
-      if (event.ownerId && employeeColorMap.has(event.ownerId)) {
-        return { ...event, color: employeeColorMap.get(event.ownerId) };
+      // Prioritize employeeId for color lookup
+      if (event.employeeId && employeeColorMap.has(event.employeeId)) {
+        return { ...event, color: employeeColorMap.get(event.employeeId) };
+      }
+      // Fallback for user's own events if they are also an employee with a color set
+      if (event.userId && employeeColorMap.has(event.userId)) {
+          return { ...event, color: employeeColorMap.get(event.userId)};
       }
       return event;
     });

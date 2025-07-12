@@ -95,7 +95,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
   const form = useForm<TeamEventFormData>({
     resolver: zodResolver(teamEventFormSchema),
     defaultValues: isEditMode && eventToEdit ? {
-      employeeId: employees.find(e => e.userId === eventToEdit.ownerId)?.id || "",
+      employeeId: eventToEdit.employeeId || "",
       title: eventToEdit.title || "",
       description: eventToEdit.description || "",
       eventType: eventToEdit.eventType || "Available",
@@ -125,16 +125,6 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
       return;
     }
     
-    const selectedEmployee = employees.find(e => e.id === data.employeeId);
-    if (!selectedEmployee?.userId) {
-        toast({
-            title: "Cannot Create Event",
-            description: `The employee "${selectedEmployee?.name || 'Unknown'}" is not linked to a system user account. A schedule can only be added for employees who are also users.`,
-            variant: "destructive"
-        });
-        return;
-    }
-
     setIsSubmitting(true);
 
     try {
@@ -159,6 +149,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
           isAllDay: data.isAllDay,
           eventType: data.eventType,
           recurrence: data.recurrence,
+          employeeId: data.employeeId,
         };
         await updatePersonalEvent(pbClient, eventToEdit.id, eventPayload);
         toast({ title: "Success", description: "Event updated." });
@@ -179,7 +170,7 @@ export function TeamEventForm({ onEventUpserted, onDialogClose, onDelete, eventT
                 endDate = set(eventDate, { hours: endHour, minutes: endMinute, seconds: 0 });
             }
             const eventPayload = {
-              userId: selectedEmployee.userId!,
+              employeeId: data.employeeId,
               title: data.title,
               description: data.description,
               startDate,

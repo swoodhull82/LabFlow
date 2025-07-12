@@ -71,28 +71,12 @@ A new collection is required to store personal calendar events separately from t
 *   **`startDate`**: (Date, Required) - The start date and time of the event.
 *   **`endDate`**: (Date, Required) - The end date and time of the event.
 *   **`eventType`**: (Select, Optional, Default: "Available") - The type of event. Options: "Available", "Busy", "Out of Office".
-*   **`userId`**: (Relation to 'users', Required) - The ID of the user who owns this event.
+*   **`userId`**: (Relation to 'users', Optional) - The ID of the user who owns this event.
+*   **`employeeId`**: (Relation to 'employees', Optional) - The ID of the employee this event belongs to. A supervisor can create events for employees.
 *   **`isAllDay`**: (Boolean, Optional, Default: false) - Indicates if the event is for the whole day.
 *   **`recurrence`**: (Select, Optional, Default: "None") - Recurrence pattern. Options: "None", "Daily", "Weekly", "Monthly", "Yearly".
 *   **`created`**: (Date, System Field) - Timestamp of creation.
 *   **`updated`**: (Date, System Field) - Timestamp of last update.
-
-## PocketBase 'team_events' Collection Schema (New)
-
-A new collection is required to store team-wide calendar events separately from tasks and personal events.
-
-*   **`id`**: (Text, System Field) - Unique identifier.
-*   **`title`**: (Text, Required) - The name of the team event (e.g., "All-hands Meeting").
-*   **`description`**: (Text, Optional) - A longer description for the event.
-*   **`startDate`**: (Date, Required) - The start date and time of the event.
-*   **`endDate`**: (Date, Required) - The end date and time of the event.
-*   **`assignedTo`**: (Relation to 'employees', Multiple, Optional) - A list of employee IDs involved in the event.
-*   **`createdBy`**: (Relation to 'users', Required) - The ID of the user who created the event.
-*   **`isAllDay`**: (Boolean, Optional, Default: false) - Indicates if the event is for the whole day.
-*   **`color`**: (Text, Optional) - A specific hex color for this event, overrides employee color.
-*   **`created`**: (Date, System Field) - Timestamp of creation.
-*   **`updated`**: (Date, System Field) - Timestamp of last update.
-
 
 ## PocketBase Kanban Schema (Proposed)
 
@@ -136,11 +120,11 @@ For personal calendar events to be private (or shared with specific users), you 
 
 Navigate to your PocketBase admin dashboard, select the `personal_events` collection, and go to the **"API Rules"** tab. In these rules, `@request.auth.id` refers to the currently logged-in user, and `userId` refers to the relation field on the `personal_events` record itself.
 
--   **List Rule**: `userId = @request.auth.id || userId.sharesPersonalCalendarWith ~ @request.auth.id`
--   **View Rule**: `userId = @request.auth.id || userId.sharesPersonalCalendarWith ~ @request.auth.id`
--   **Create Rule**: `userId = @request.auth.id`
--   **Update Rule**: `userId = @request.auth.id`
--   **Delete Rule**: `userId = @request.auth.id`
+-   **List Rule**: `userId = @request.auth.id || userId.sharesPersonalCalendarWith ~ @request.auth.id || @request.auth.role = "Supervisor"`
+-   **View Rule**: `userId = @request.auth.id || userId.sharesPersonalCalendarWith ~ @request.auth.id || @request.auth.role = "Supervisor"`
+-   **Create Rule**: `userId = @request.auth.id || @request.auth.role = "Supervisor"`
+-   **Update Rule**: `userId = @request.auth.id || @request.auth.role = "Supervisor"`
+-   **Delete Rule**: `userId = @request.auth.id || @request.auth.role = "Supervisor"`
 
 These rules ensure that a user can only interact with their own personal events, but can view events from users who have explicitly shared their calendar with them via the `sharesPersonalCalendarWith` field on the event owner's user record.
 
@@ -193,5 +177,3 @@ While less likely to cause "works locally, fails deployed" if the same user is t
 Verify that `POCKETBASE_URL` in `src/context/AuthContext.tsx` (currently `https://swoodhu.pockethost.io/`) is correct and publicly accessible.
 
 By systematically checking these points, you can usually identify why data fetching fails on deployment.
-
-    
