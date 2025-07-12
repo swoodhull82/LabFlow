@@ -118,4 +118,20 @@ export const updateKanbanStep = async (pb: PocketBase, stepId: string, data: Par
     }
 };
 
-// You can add delete functions here as needed
+export const deleteKanbanCard = async (pb: PocketBase, cardId: string): Promise<void> => {
+    try {
+        // Find and delete all associated steps first to prevent orphaned records
+        const steps = await withRetry(() => pb.collection('kanban_steps').getFullList({ filter: `card = "${cardId}"` }), { context: `finding steps for card ${cardId}` });
+        
+        const deleteStepPromises = steps.map(step =>
+            withRetry(() => pb.collection('kanban_steps').delete(step.id), { context: `deleting step ${step.id}` })
+        );
+        await Promise.all(deleteStepPromises);
+        
+        // After all steps are deleted, delete the card itself
+        await withRetry(() => pb.collection('kanban_cards').delete(cardId), { context: `deleting card ${cardId}` });
+    } catch (error) {
+        console.error(`Failed to delete card ${cardId} and its steps:`, error);
+        throw error;
+    }
+};

@@ -22,14 +22,15 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subMonths, format, formatDistanceToNow } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
-import { Plus, Loader2, X, List, Trello, Users, Check, AlertTriangle, Inbox } from 'lucide-react';
+import { Plus, Loader2, X, List, Trello, Users, Check, AlertTriangle, Inbox, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from '@/context/AuthContext';
 import { getEmployees } from '@/services/employeeService';
-import { getKanbanData, createKanbanCard, updateKanbanCardStatus, updateKanbanStep, createKanbanStep } from '@/services/kanbanService';
+import { getKanbanData, createKanbanCard, updateKanbanCardStatus, updateKanbanStep, createKanbanStep, deleteKanbanCard } from '@/services/kanbanService';
 import type { Employee, KanbanCard as KanbanCardData, KanbanStatus, KanbanGroup, KanbanStep, User as AuthUser } from '@/lib/types';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -68,6 +69,7 @@ const KanbanPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [isAddCardOpen, setIsAddCardOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
+  const [cardToDelete, setCardToDelete] = useState<KanbanCardData | null>(null);
 
   // New Card Form states
   const [newCardGroup, setNewCardGroup] = useState<KanbanGroup | null>(null);
@@ -168,7 +170,7 @@ const KanbanPage = () => {
 
     try {
       await updateKanbanStep(pbClient, step.id, { completed: newCompletedState });
-    } catch (err) {
+    } catch (err: any) {
       // Revert on failure
       setCards(currentCards => currentCards.map(card => {
         if (card.id === cardId) {
@@ -224,6 +226,24 @@ const KanbanPage = () => {
     }
   };
 
+  const handleDeleteCard = async () => {
+    if (!cardToDelete || !pbClient) return;
+
+    const originalCards = [...cards];
+    // Optimistic update
+    setCards(currentCards => currentCards.filter(c => c.id !== cardToDelete.id));
+
+    try {
+        await deleteKanbanCard(pbClient, cardToDelete.id);
+        toast({ title: "Card Deleted", description: `"${cardToDelete.name}" has been removed.` });
+    } catch (err: any) {
+        console.error("Failed to delete card:", err);
+        setCards(originalCards); // Revert on failure
+        toast({ title: "Delete Failed", description: err.message, variant: "destructive" });
+    } finally {
+        setCardToDelete(null);
+    }
+  };
 
   // Helper functions for the new card dialog
   const resetAndCloseForm = () => {
@@ -278,9 +298,37 @@ const KanbanPage = () => {
     const cardCreator = card.expand?.createdBy;
 
     return (
-      <>
+      <div className="group relative">
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-0 top-0 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+              onClick={(e) => { e.stopPropagation(); setCardToDelete(card); }}
+            >
+              <Trash2 className="h-4 w-4 text-destructive" />
+              <span className="sr-only">Delete card</span>
+            </Button>
+          </AlertDialogTrigger>
+          {cardToDelete && cardToDelete.id === card.id && (
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will permanently delete the card "{cardToDelete.name}" and all its steps. This action cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setCardToDelete(null)}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDeleteCard} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+          )}
+        </AlertDialog>
+
         <div className="flex items-start justify-between gap-2">
-          <p className="m-0 flex-1 font-medium text-sm">{card.name}</p>
+          <p className="m-0 flex-1 font-medium text-sm pr-6">{card.name}</p>
           {cardCreator && (
              <Avatar className="h-5 w-5 shrink-0 border-2 border-background" title={`Created by: ${cardCreator.name}`}>
                <AvatarFallback>{getInitials(cardCreator.name)}</AvatarFallback>
@@ -343,7 +391,7 @@ const KanbanPage = () => {
             </div>
           )}
         </div>
-      </>
+      </div>
     );
   };
   
