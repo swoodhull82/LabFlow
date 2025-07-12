@@ -82,7 +82,12 @@ export const getCalendarEvents = async (pb: PocketBase, options?: PocketBaseRequ
     const allTasks = projectionHorizon ? generateProjectedTasks(rawTasks, projectionHorizon) : rawTasks;
 
     return allTasks.map(pbTaskToCalendarEvent).filter(event => event.startDate && event.endDate); 
-  } catch (error) {
+  } catch (error: any) {
+    const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
+    if (isCancellation) {
+        throw error;
+    }
+    console.error("Failed to fetch calendar events:", error);
     throw error;
   }
 };

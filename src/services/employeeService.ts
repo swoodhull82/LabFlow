@@ -72,7 +72,12 @@ export const getEmployees = async (pb: PocketBase, options?: PocketBaseRequestOp
       }
     );
     return records.map(pbRecordToEmployee);
-  } catch (error) {
+  } catch (error: any) {
+    const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
+    if (isCancellation) {
+        throw error;
+    }
+    console.error("Failed to fetch employees:", error);
     throw error;
   }
 };
@@ -128,10 +133,15 @@ export const getEmployeeById = async (pb: PocketBase, id: string, options?: Pock
       onRetry 
     });
     return pbRecordToEmployee(record);
-  } catch (error) {
+  } catch (error: any) {
      if ((error as any).status === 404) {
         return null;
     }
+    const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
+    if (isCancellation) {
+        throw error;
+    }
+    console.error(`Failed to fetch employee by ID ${id}:`, error);
     throw error;
   }
 };

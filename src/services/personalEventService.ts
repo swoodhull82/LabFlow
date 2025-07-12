@@ -92,11 +92,16 @@ export const getPersonalEvents = async (pb: PocketBase, userId: string, options?
       .map(record => pbRecordToPersonalEvent(record, userId))
       .filter((event): event is CalendarEvent => event !== null);
 
-  } catch (error) {
+  } catch (error: any) {
+    const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
+    if (isCancellation) {
+        throw error;
+    }
     if (error instanceof ClientResponseError && error.status === 404) {
       console.warn(`[personalEventService] The '${COLLECTION_NAME}' collection was not found. Returning empty array. Please create it in PocketBase.`);
       return [];
     }
+    console.error("Failed to fetch personal events:", error);
     throw error;
   }
 };

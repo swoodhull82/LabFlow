@@ -92,7 +92,12 @@ export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOption
     }
 
     return rawTasks;
-  } catch (error) {
+  } catch (error: any) {
+    const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
+    if (isCancellation) {
+        throw error;
+    }
+    console.error("Failed to fetch tasks:", error);
     throw error;
   }
 };
@@ -112,10 +117,15 @@ export const getTaskById = async (pb: PocketBase, id: string, options?: PocketBa
       onRetry
     });
     return pbRecordToTask(record);
-  } catch (error) {
+  } catch (error: any) {
     if ((error as any).status === 404) {
         return null;
     }
+    const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
+    if (isCancellation) {
+        throw error;
+    }
+    console.error(`Failed to fetch task by ID ${id}:`, error);
     throw error;
   }
 };
