@@ -88,7 +88,7 @@ export const getPersonalEvents = async (pb: PocketBase, userId?: string, options
     // If a specific userId is provided, filter for it. Otherwise, a supervisor gets all.
     // The API rules on the server provide the actual security.
     if(userId) {
-        requestParams.filter = `userId = "${userId}"`;
+        requestParams.filter = `(userId = "${userId}" || employeeId.userId = "${userId}")`;
     }
 
     const records = await withRetry(() =>
@@ -137,7 +137,10 @@ export const createPersonalEvent = async (
   eventData: PersonalEventCreationData
 ): Promise<CalendarEvent> => {
   try {
-    const record = await pb.collection(COLLECTION_NAME).create(eventData);
+    const record = await withRetry(() =>
+      pb.collection(COLLECTION_NAME).create(eventData),
+      { context: "creating personal event" }
+    );
     const personalEvent = pbRecordToPersonalEvent(record);
     if (!personalEvent) {
         throw new Error("Failed to process the created event record.");
