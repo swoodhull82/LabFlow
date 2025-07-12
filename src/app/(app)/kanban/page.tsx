@@ -10,7 +10,8 @@ import {
   KanbanHeader,
   KanbanProvider,
 } from '@/components/ui/shadcn-io/kanban';
-import type { DragEndEvent } from '@/components/ui/shadcn-io/kanban';
+import type { DragEndEvent, MouseSensor, TouchSensor } from '@dnd-kit/core';
+import { useSensor, useSensors } from '@dnd-kit/core';
 import { useState, useMemo } from 'react';
 import { addMonths, endOfMonth, startOfMonth, subDays, subMonths } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
@@ -125,6 +126,15 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-US', {
 
 const Example = () => {
   const [features, setFeatures] = useState(initialFeatures);
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 5,
+      },
+    })
+  );
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -185,8 +195,16 @@ const Example = () => {
         {newGroups.map((group) => (
           <React.Fragment key={group.id}>
             {/* Swimlane Label */}
-            <div className="p-2 h-full">
+            <div className="p-2 h-full flex flex-col">
               <h3 className="text-md font-semibold text-foreground sticky top-4">{group.name}</h3>
+               <Button
+                variant="ghost"
+                className="w-full mt-2 text-muted-foreground justify-start px-0"
+                onClick={() => console.log(`Add card to ${group.name}`)}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add a card
+              </Button>
             </div>
             {/* Status Columns for the swimlane */}
             {exampleStatuses.map((status) => (
@@ -224,14 +242,6 @@ const Example = () => {
                       </p>
                     </KanbanCard>
                   ))}
-                  <Button
-                    variant="ghost"
-                    className="w-full mt-2 text-muted-foreground"
-                    onClick={() => console.log(`Add card to ${group.name} in ${status.name}`)}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add a card
-                  </Button>
                 </KanbanCards>
               </KanbanBoard>
             ))}
