@@ -112,6 +112,26 @@ The Kanban board currently uses in-memory example data. To make it persistent an
 *   `order`: (Number, Required) - The display order of the swimlanes.
 *   `description`: (Text, Optional) - A short description of the group's purpose.
 
+## Preventing Record Deletion Issues (Data Integrity)
+
+By default, PocketBase prevents you from deleting a record (like an employee or a user) if another record still refers to it. To avoid getting blocked, you can configure the "On delete" action for your relation fields.
+
+### Allowing Employee Deletion
+To delete an `employee` record that is assigned to tasks or events:
+1.  **In `tasks` collection**: Edit the `assignedTo` field. Change "On delete" from "No action" to **"Set to null"**.
+2.  **In `personal_events` collection**: Edit the `employeeId` field. Change "On delete" to **"Set to null"**.
+3.  **In `kanban_cards` collection**: Edit the `owners` field. Change "On delete" to **"Set to null"**.
+4.  **In `kanban_steps` collection**: Edit the `assignees` field. Change "On delete" to **"Set to null"**.
+
+### Allowing User Deletion
+To delete a `user` record that has created tasks, events, etc.:
+1.  **In `tasks` collection**: Edit the `userId` field. Change "On delete" to **"Set to null"**.
+2.  **In `employees` collection**: Edit the `userId` field. Change "On delete" to **"Set to null"**.
+3.  **In `personal_events` collection**: Edit the `userId` field. Change "On delete" to **"Set to null"**.
+4.  **In `kanban_cards` collection**: Edit the `createdBy` field. Change "On delete" to **"Set to null"**.
+5.  **In `users` collection**: Edit the `sharesPersonalCalendarWith` field. Change "On delete" to **"Set to null"**.
+
+## API Rules & Security
 
 ### Securing Personal Events in PocketBase
 
@@ -177,4 +197,4 @@ Verify that `POCKETBASE_URL` in `src/context/AuthContext.tsx` (currently `https:
 
 By systematically checking these points, you can usually identify why data fetching fails on deployment.
 
-    
+      

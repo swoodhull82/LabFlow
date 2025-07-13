@@ -114,12 +114,30 @@ The Kanban board currently uses in-memory example data. To make it persistent an
 *   `order`: (Number, Required) - The display order of the swimlanes.
 *   `description`: (Text, Optional) - A short description of the group's purpose.
 
+## Preventing Record Deletion Issues (Data Integrity)
 
-### Securing Personal Events in PocketBase
+By default, PocketBase prevents you from deleting a record (like an employee or a user) if another record still refers to it. To avoid getting blocked, you can configure the "On delete" action for your relation fields.
 
+### Allowing Employee Deletion
+To delete an `employee` record that is assigned to tasks or events:
+1.  **In `tasks` collection**: Edit the `assignedTo` field. Change "On delete" from "No action" to **"Set to null"**.
+2.  **In `personal_events` collection**: Edit the `employeeId` field. Change "On delete" to **"Set to null"**.
+3.  **In `kanban_cards` collection**: Edit the `owners` field. Change "On delete" to **"Set to null"**.
+4.  **In `kanban_steps` collection**: Edit the `assignees` field. Change "On delete" to **"Set to null"**.
+
+### Allowing User Deletion
+To delete a `user` record that has created tasks, events, etc.:
+1.  **In `tasks` collection**: Edit the `userId` field. Change "On delete" to **"Set to null"**.
+2.  **In `employees` collection**: Edit the `userId` field. Change "On delete" to **"Set to null"**.
+3.  **In `personal_events` collection**: Edit the `userId` field. Change "On delete" to **"Set to null"**.
+4.  **In `kanban_cards` collection**: Edit the `createdBy` field. Change "On delete" to **"Set to null"**.
+5.  **In `users` collection**: Edit the `sharesPersonalCalendarWith` field. Change "On delete" to **"Set to null"**.
+
+
+## API Rules & Security
+
+### Securing Personal Events
 For personal calendar events to be private (or shared with specific users), you must set API rules on the `personal_events` collection in your PocketBase Admin UI.
-
-Navigate to your PocketBase admin dashboard, select the `personal_events` collection, and go to the **"API Rules"** tab. In these rules, `@request.auth.id` refers to the currently logged-in user, and `userId` refers to the relation field on the `personal_events` record itself.
 
 -   **List Rule**: `userId = @request.auth.id || userId.sharesPersonalCalendarWith ~ @request.auth.id || @request.auth.role = "Supervisor"`
 -   **View Rule**: `userId = @request.auth.id || userId.sharesPersonalCalendarWith ~ @request.auth.id || @request.auth.role = "Supervisor"`
@@ -127,24 +145,9 @@ Navigate to your PocketBase admin dashboard, select the `personal_events` collec
 -   **Update Rule**: `userId = @request.auth.id || @request.auth.role = "Supervisor"`
 -   **Delete Rule**: `userId = @request.auth.id || @request.auth.role = "Supervisor"`
 
-These rules ensure that:
-1.  A user can always see and manage their own personal events.
-2.  A user can view events from other users who have explicitly shared their calendar.
-3.  A user with the "Supervisor" role can see and manage all events, which is necessary for scheduling events for employees who may not be system users.
-
 ### Securing the `users` Collection for Sharing
-
-To allow users to find and share their calendars with others, you must adjust the API rules on the `users` collection. By default, users can only see their own records, which will prevent the sharing list from populating.
-
-1.  Navigate to your PocketBase admin dashboard.
-2.  Select the `users` collection and go to the **"API Rules"** tab.
-3.  Find the **"List Rule"** field. It is likely empty or restricted.
-4.  Set the **"List Rule"** to the following:
-    ```
-    @request.auth.id != ""
-    ```
-
-This rule ensures that any authenticated user (`@request.auth.id != ""`) can see the list of other users, which is necessary for the sharing feature to work. The application only requests non-sensitive fields (`id`, `name`, `email`) for this purpose.
+To allow users to find and share their calendars with others, you must adjust the API rules on the `users` collection.
+-   **List Rule**: `@request.auth.id != ""`
 
 ## Deployment Troubleshooting (GitHub Pages & PocketBase)
 
@@ -181,3 +184,5 @@ While less likely to cause "works locally, fails deployed" if the same user is t
 Verify that `POCKETBASE_URL` in `src/context/AuthContext.tsx` (currently `https://swoodhu.pockethost.io/`) is correct and publicly accessible.
 
 By systematically checking these points, you can usually identify why data fetching fails on deployment.
+
+      
