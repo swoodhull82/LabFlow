@@ -14,10 +14,12 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
 import { useState, useEffect } from "react";
 import { Loader2, LogIn } from "lucide-react";
+import Link from "next/link";
+import { Separator } from "@/components/ui/separator";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
@@ -97,6 +99,15 @@ export default function LoginForm() {
           </form>
         </Form>
       </CardContent>
+       <CardFooter className="flex flex-col items-center justify-center text-sm">
+        <Separator className="my-4" />
+        <p className="text-muted-foreground">
+            Don&apos;t have an account?{' '}
+            <Link href="/signup" className="font-semibold text-primary hover:underline">
+                Sign up
+            </Link>
+        </p>
+      </CardFooter>
     </Card>
   );
 }

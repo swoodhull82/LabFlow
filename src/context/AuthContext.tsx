@@ -29,6 +29,7 @@ const chemistryIconMapByName = new Map(chemistryIconData.map(d => [d.name, d.com
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, passwordConfirm: string, name: string) => Promise<void>;
   logout: () => void;
   loading: boolean;
   pbClient: PocketBase;
@@ -48,6 +49,11 @@ const createUserFromModel = (pbUserModel: any): User | null => {
   let userRole: UserRole = (pbUserModel as any).role as UserRole;
 
   if (userRole === "Analyst" as any) {
+    userRole = "Chem I";
+  }
+  
+  // Default new users to Chem I if no role is set
+  if (!userRole) {
     userRole = "Chem I";
   }
 
@@ -189,6 +195,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // No setLoading(false) here if successful, as handleAuthChange will do it.
   }, [toast]); 
 
+  const signup = useCallback(async (email: string, password: string, passwordConfirm: string, name: string) => {
+    setLoading(true);
+    try {
+      const data = {
+          email,
+          password,
+          passwordConfirm,
+          name,
+          role: "Chem I", // Default new users to the base role
+      };
+      await client.collection('users').create(data);
+      // After creation, log the user in
+      await login(email, password);
+      toast({ title: "Welcome!", description: "Your account has been created successfully." });
+    } catch (error: any) {
+      console.error("Signup failed (raw error object):", error);
+      let errorMessage = "An unexpected error occurred during signup.";
+      if (error?.data?.data) {
+        const fieldErrors = Object.values(error.data.data).map((err: any) => err.message).join(' ');
+        errorMessage = `Signup failed: ${fieldErrors}`;
+      } else if (error?.data?.message) {
+        errorMessage = error.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      toast({ title: "Signup Failed", description: errorMessage, variant: "destructive" });
+      setLoading(false); // Ensure loading is false if signup fails
+      throw error; // Re-throw to be caught in the form
+    }
+    // No setLoading(false) on success, login handles it
+  }, [toast, login]);
+
   const logout = useCallback(() => {
     setLoading(true); // setLoading true here is appropriate for logout action
     client.authStore.clear();
@@ -269,13 +307,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const contextValue = useMemo(() => ({
     user,
     login,
+    signup,
     logout,
     loading,
     pbClient: client,
     updateUserAvatar,
     updateUserSelectedIcon,
     clearAvatarAndSelection,
-  }), [user, login, logout, loading, updateUserAvatar, updateUserSelectedIcon, clearAvatarAndSelection]);
+  }), [user, login, signup, logout, loading, updateUserAvatar, updateUserSelectedIcon, clearAvatarAndSelection]);
 
   return (
     <AuthContext.Provider value={contextValue}>
