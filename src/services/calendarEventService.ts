@@ -12,7 +12,7 @@ interface PocketBaseRequestOptions {
   [key: string]: any;
 }
 
-const pbTaskToCalendarEvent = (taskRecord: Task): CalendarEvent => {
+const pbTaskToCalendarEvent = (taskRecord: any): CalendarEvent => {
   return {
     id: taskRecord.id,
     title: taskRecord.title,
@@ -27,9 +27,10 @@ const pbTaskToCalendarEvent = (taskRecord: Task): CalendarEvent => {
     collectionId: taskRecord.collectionId,
     collectionName: taskRecord.collectionName, 
     expand: taskRecord.expand,
-    assignedTo_text: taskRecord.assignedTo_text,
+    assignedTo: taskRecord.assignedTo,
     priority: taskRecord.priority,
     progress: taskRecord.progress,
+    recurrence: taskRecord.recurrence || 'None',
   };
 };
 
@@ -43,7 +44,7 @@ const pbRecordToTask = (record: any): Task => {
     priority: record.priority,
     startDate: record.startDate ? new Date(record.startDate) : undefined,
     dueDate: record.dueDate ? new Date(record.dueDate) : undefined,
-    assignedTo_text: record.assignedTo_text,
+    assignedTo: record.assignedTo || [],
     recurrence: (record.recurrence as TaskRecurrence) || "None",
     attachments: record.attachments,
     userId: record.userId,
@@ -64,11 +65,12 @@ const pbRecordToTask = (record: any): Task => {
 export const getCalendarEvents = async (pb: PocketBase, options?: PocketBaseRequestOptions & { projectionHorizon?: Date }): Promise<CalendarEvent[]> => {
   try {
     const { signal, projectionHorizon, ...otherOptions } = options || {};
-    const defaultFields = 'id,title,task_type,dueDate,description,status,userId,created,updated,recurrence,startDate,priority,progress,isMilestone,dependencies,instrument_subtype,method,assignedTo_text';
+    const defaultFields = 'id,title,task_type,dueDate,description,status,userId,created,updated,recurrence,startDate,priority,progress,isMilestone,dependencies,instrument_subtype,method,assignedTo';
     const requestParams = {
       filter: 'startDate != null && startDate != "" && dueDate != null && dueDate != ""', 
       sort: '-dueDate', 
       fields: defaultFields,
+      expand: 'assignedTo',
       ...otherOptions,
     };
 
@@ -81,7 +83,12 @@ export const getCalendarEvents = async (pb: PocketBase, options?: PocketBaseRequ
     const allTasks = projectionHorizon ? generateProjectedTasks(rawTasks, projectionHorizon) : rawTasks;
 
     return allTasks.map(pbTaskToCalendarEvent).filter(event => event.startDate && event.endDate); 
-  } catch (error) {
+  } catch (error: any) {
+    const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
+    if (isCancellation) {
+        throw error;
+    }
+    console.error("Failed to fetch calendar events:", error);
     throw error;
   }
 };

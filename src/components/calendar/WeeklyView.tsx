@@ -6,7 +6,7 @@ import { add, format, startOfWeek, eachDayOfInterval, isToday, getHours, getMinu
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardHeader } from '@/components/ui/card';
-import type { CalendarEvent } from '@/lib/types';
+import type { CalendarEvent, Employee } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { User } from 'lucide-react';
 
@@ -23,6 +23,10 @@ const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
 });
 
 const getEventColorClass = (event: CalendarEvent): string => {
+    if (event.color) {
+        return 'text-white border-l-4';
+    }
+    // Fallback to original color logic if no owner color
     switch (event.eventType) {
         case 'Out of Office':
             return "border-green-500 bg-green-50 text-green-900 dark:bg-green-900/20 dark:border-green-500/70 dark:text-green-100";
@@ -68,17 +72,16 @@ const NowIndicator = ({ dayColumns }: { dayColumns: Date[] }) => {
     );
 };
 
-
 interface WeeklyViewProps {
     events: CalendarEvent[];
-    onHourSlotClick: (date: Date) => void;
-    onEventClick: (event: CalendarEvent) => void;
+    weekStartDate: Date;
+    onHourSlotClick?: (date: Date) => void;
+    onEventClick?: (event: CalendarEvent) => void;
+    isTeamView?: boolean;
 }
 
-export default function WeeklyView({ events, onHourSlotClick, onEventClick }: WeeklyViewProps) {
-    const [currentDate, setCurrentDate] = useState(new Date());
+export default function WeeklyView({ events, weekStartDate, onHourSlotClick, onEventClick, isTeamView = false }: WeeklyViewProps) {
     const containerRef = useRef<HTMLDivElement>(null);
-    const headerRef = useRef<HTMLDivElement>(null);
     const timeGutterRef = useRef<HTMLDivElement>(null);
 
     // Scroll to 8 AM on initial load
@@ -103,11 +106,11 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
         return () => mainEl.removeEventListener('scroll', handleScroll);
     }, []);
 
-    const startOfCurrentWeek = startOfWeek(currentDate, { weekStartsOn: 1 }); // Monday
-    const daysInWeek = eachDayOfInterval({
-        start: startOfCurrentWeek,
-        end: add(startOfCurrentWeek, { days: 4 }), // Monday to Friday
-    });
+    const daysInWeek = useMemo(() => eachDayOfInterval({
+        start: weekStartDate,
+        end: add(weekStartDate, { days: 4 }), // Monday to Friday
+    }), [weekStartDate]);
+
 
     const eventsByDay = useMemo(() => {
         const map = new Map<string, CalendarEvent[]>();
@@ -130,26 +133,13 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
         return map;
     }, [events, daysInWeek]);
 
-    const handlePrevWeek = () => setCurrentDate(current => add(current, { weeks: -1 }));
-    const handleNextWeek = () => setCurrentDate(current => add(current, { weeks: 1 }));
-    const handleToday = () => setCurrentDate(new Date());
-
+    
     return (
-        <Card className="shadow-md overflow-hidden flex flex-col h-[calc(100vh-200px)]">
-            <CardHeader className="flex flex-row items-center justify-between gap-4 border-b p-3 flex-shrink-0">
-                 <div className="flex items-center gap-4">
-                    <span className="text-lg font-semibold">{format(startOfCurrentWeek, 'MMMM yyyy')}</span>
-                    <Button variant="outline" size="sm" onClick={handleToday}>Today</Button>
-                 </div>
-                 <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" onClick={handlePrevWeek}><ChevronLeft className="h-5 w-5" /></Button>
-                    <Button variant="ghost" size="icon" onClick={handleNextWeek}><ChevronRight className="h-5 w-5" /></Button>
-                </div>
-            </CardHeader>
+        <div className="flex flex-col h-[calc(100vh-270px)]">
             <div className="flex flex-grow min-h-0">
                 {/* Time Gutter */}
                 <div className="w-20 text-sm text-right flex-shrink-0">
-                     <div ref={headerRef} className="h-20" /> {/* Spacer for header */}
+                     <div className="h-20" /> {/* Spacer for header */}
                      <div ref={timeGutterRef} className="overflow-hidden" style={{ height: `calc(100% - 5rem)` }}>
                         {hours.map((hour, index) => (
                             <div key={hour} className="relative pr-2" style={{height: `${HOUR_HEIGHT_PX}px`}}>
@@ -184,22 +174,26 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
                     <div ref={containerRef} className="overflow-y-auto h-full">
                         <div className="grid grid-cols-5 relative min-h-full">
                             {/* Background grid lines and clickable slots */}
-                            {daysInWeek.map((day, dayIndex) => (
-                                <div key={`col-${day.toString()}`} className="relative border-l">
-                                    {Array.from({ length: END_HOUR - START_HOUR }).map((_, hourIndex) => {
-                                        const hour = START_HOUR + hourIndex;
-                                        const slotDate = set(day, { hours: hour, minutes: 0, seconds: 0, milliseconds: 0});
-                                        return (
-                                            <div
-                                                key={`${dayIndex}-${hourIndex}`}
-                                                onClick={() => onHourSlotClick(slotDate)}
-                                                className="border-b border-border/70 hover:bg-accent transition-colors cursor-pointer"
-                                                style={{height: `${HOUR_HEIGHT_PX}px`}}
-                                            />
-                                        );
-                                    })}
-                                </div>
-                            ))}
+                            {daysInWeek.map((day, dayIndex) => {
+                                const hourSlots = Array.from({ length: (END_HOUR - START_HOUR) * 2 }); // 30-min slots
+                                return (
+                                    <div key={`col-${day.toString()}`} className="relative border-l">
+                                        {hourSlots.map((_, slotIndex) => {
+                                            const hour = START_HOUR + Math.floor(slotIndex / 2);
+                                            const minute = (slotIndex % 2) * 30;
+                                            const slotDate = set(day, { hours: hour, minutes: minute, seconds: 0, milliseconds: 0});
+                                            return (
+                                                <div
+                                                    key={`${dayIndex}-${hour}-${minute}`}
+                                                    onClick={() => onHourSlotClick?.(slotDate)}
+                                                    className={cn("border-b border-border/70 hover:bg-accent transition-colors", onHourSlotClick && 'cursor-pointer', minute === 0 && 'border-dashed')}
+                                                    style={{height: `${HOUR_HEIGHT_PX / 2}px`}}
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })}
                             
                             {/* Render events */}
                             {Array.from(eventsByDay.entries()).map(([dayString, dayEvents], dayIndex) => {
@@ -219,14 +213,19 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
 
                                     const durationMinutes = Math.max(15, differenceInMinutes(endDate, startDate));
                                     const height = (durationMinutes / 60) * HOUR_HEIGHT_PX - 2;
-
+                                    
+                                    const eventColorStyle = event.color
+                                      ? { borderColor: event.color, backgroundColor: `${event.color}33` } // Add alpha for background
+                                      : {};
+                                    
                                     return (
                                         <div 
                                             key={event.id}
-                                            onClick={() => onEventClick(event)}
+                                            onClick={() => onEventClick?.(event)}
                                             className={cn(
-                                                "absolute p-2 rounded-md cursor-pointer transition-all shadow-sm hover:shadow-md overflow-hidden z-[5] border-l-4",
+                                                "absolute p-2 rounded-md transition-all shadow-sm overflow-hidden z-[5]",
                                                 getEventColorClass(event),
+                                                onEventClick && "cursor-pointer hover:shadow-md",
                                                 event.isAllDay && "opacity-90"
                                             )}
                                             style={{ 
@@ -234,13 +233,14 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
                                               height: `${height}px`,
                                               left: `calc(${dayIndex * 20}% + 4px)`, // 20% width per column
                                               width: 'calc(20% - 8px)',
+                                              ...eventColorStyle
                                             }}
                                             title={`${event.title}${event.isAllDay ? ' (All-day)' : ` - ${format(startDate, 'h:mm a')}`}`}
                                         >
                                             <p className="font-semibold text-xs truncate">{event.title}</p>
                                             {!event.isAllDay && <p className="text-[10px] opacity-80">{format(startDate, 'h:mm a')} - {format(endDate, 'h:mm a')}</p>}
-                                            {event.ownerName && (
-                                                <div className="flex items-center text-[10px] opacity-70 italic mt-1">
+                                            {isTeamView && event.ownerName && (
+                                                <div className="flex items-center text-[10px] opacity-90 font-medium mt-1">
                                                     <User className="w-2.5 h-2.5 mr-1"/> {event.ownerName}
                                                 </div>
                                             )}
@@ -255,6 +255,6 @@ export default function WeeklyView({ events, onHourSlotClick, onEventClick }: We
                     </div>
                 </div>
             </div>
-        </Card>
+        </div>
     );
 }

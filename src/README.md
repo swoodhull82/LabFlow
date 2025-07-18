@@ -61,7 +61,7 @@ Based on the application's frontend code, the 'tasks' collection in PocketBase i
 *   **`updated`**: (Date, System Field) - Timestamp of last update.
 *   **`color`**: (Text, Optional) - Hex color code for the employee's events on team calendars (e.g., "#3b82f6").
 
-## PocketBase 'personal_events' Collection Schema (New)
+## PocketBase 'personal_events' Collection Schema (Updated)
 
 A new collection is required to store personal calendar events separately from the main tasks.
 
@@ -71,7 +71,9 @@ A new collection is required to store personal calendar events separately from t
 *   **`startDate`**: (Date, Required) - The start date and time of the event.
 *   **`endDate`**: (Date, Required) - The end date and time of the event.
 *   **`eventType`**: (Select, Optional, Default: "Available") - The type of event. Options: "Available", "Busy", "Out of Office".
-*   **`userId`**: (Relation to 'users', Required) - The ID of the user who owns this event.
+*   **`userId`**: (Relation to 'users', Optional) - The ID of the user who owns this event OR the supervisor who created it.
+*   **`employeeId`**: (Relation to 'employees', Optional) - The ID of the employee this event belongs to. A supervisor can create events for employees.
+*   **`priority`**: (Select, Required) - Priority level. Options: "Low", "Medium", "High", "Urgent".
 *   **`isAllDay`**: (Boolean, Optional, Default: false) - Indicates if the event is for the whole day.
 *   **`recurrence`**: (Select, Optional, Default: "None") - Recurrence pattern. Options: "None", "Daily", "Weekly", "Monthly", "Yearly".
 *   **`created`**: (Date, System Field) - Timestamp of creation.
@@ -131,35 +133,21 @@ To delete a `user` record that has created tasks, events, etc.:
 4.  **In `kanban_cards` collection**: Edit the `createdBy` field. Change "On delete" to **"Set to null"**.
 5.  **In `users` collection**: Edit the `sharesPersonalCalendarWith` field. Change "On delete" to **"Set to null"**.
 
+
 ## API Rules & Security
 
-### Securing Personal Events in PocketBase
-
+### Securing Personal Events
 For personal calendar events to be private (or shared with specific users), you must set API rules on the `personal_events` collection in your PocketBase Admin UI.
 
-Navigate to your PocketBase admin dashboard, select the `personal_events` collection, and go to the **"API Rules"** tab. In these rules, `@request.auth.id` refers to the currently logged-in user, and `userId` refers to the relation field on the `personal_events` record itself.
-
--   **List Rule**: `userId = @request.auth.id || userId.sharesPersonalCalendarWith ~ @request.auth.id`
--   **View Rule**: `userId = @request.auth.id || userId.sharesPersonalCalendarWith ~ @request.auth.id`
--   **Create Rule**: `userId = @request.auth.id`
--   **Update Rule**: `userId = @request.auth.id`
--   **Delete Rule**: `userId = @request.auth.id`
-
-These rules ensure that a user can only interact with their own personal events, but can view events from users who have explicitly shared their calendar with them via the `sharesPersonalCalendarWith` field on the event owner's user record.
+-   **List Rule**: `userId = @request.auth.id || userId.sharesPersonalCalendarWith ~ @request.auth.id || @request.auth.role = "Supervisor"`
+-   **View Rule**: `userId = @request.auth.id || userId.sharesPersonalCalendarWith ~ @request.auth.id || @request.auth.role = "Supervisor"`
+-   **Create Rule**: `userId = @request.auth.id || @request.auth.role = "Supervisor"`
+-   **Update Rule**: `userId = @request.auth.id || @request.auth.role = "Supervisor"`
+-   **Delete Rule**: `userId = @request.auth.id || @request.auth.role = "Supervisor"`
 
 ### Securing the `users` Collection for Sharing
-
-To allow users to find and share their calendars with others, you must adjust the API rules on the `users` collection. By default, users can only see their own records, which will prevent the sharing list from populating.
-
-1.  Navigate to your PocketBase admin dashboard.
-2.  Select the `users` collection and go to the **"API Rules"** tab.
-3.  Find the **"List Rule"** field. It is likely empty or restricted.
-4.  Set the **"List Rule"** to the following:
-    ```
-    @request.auth.id != ""
-    ```
-
-This rule ensures that any authenticated user (`@request.auth.id != ""`) can see the list of other users, which is necessary for the sharing feature to work. The application only requests non-sensitive fields (`id`, `name`, `email`) for this purpose.
+To allow users to find and share their calendars with others, you must adjust the API rules on the `users` collection.
+-   **List Rule**: `@request.auth.id != ""`
 
 ## Deployment Troubleshooting (GitHub Pages & PocketBase)
 

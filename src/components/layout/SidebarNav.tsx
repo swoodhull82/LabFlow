@@ -24,7 +24,10 @@ import {
   ChevronsLeft,
   ChevronsRight,
   History,
-  ListChecks, 
+  ListChecks,
+  Trello, 
+  Users2,
+  Presentation,
 } from "lucide-react";
 import { useSidebar } from "@/components/ui/sidebar";
 
@@ -37,8 +40,11 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/calendar", label: "Calendar", icon: CalendarDays },
+  { href: "/calendar", label: "My Calendar", icon: CalendarDays },
+  { href: "/team-schedule", label: "Team Schedule", icon: Users2, supervisorOnly: true },
   { href: "/tasks", label: "Tasks", icon: ClipboardList },
+  { href: "/kanban", label: "Kanban", icon: Trello },
+  { href: "/timeline", label: "Timeline", icon: Presentation },
   { href: "/validations", label: "Validations", icon: ListChecks },
   { href: "/employees", label: "Employees", icon: Users, supervisorOnly: true }, 
   { href: "/activity-log", label: "Activity Log", icon: History, supervisorOnly: true }, 
@@ -51,11 +57,8 @@ export function SidebarNav() {
   const { toggleSidebar, state } = useSidebar();
 
   const filteredNavItems = navItems.filter(item => {
-    if (item.href === "/activity-log" || item.href === "/employees") {
-      return user && user.role === "Supervisor";
-    }
-    if (item.supervisorOnly) { 
-      return user && (user.role === "Supervisor" || user.role === "Team Lead");
+    if (item.supervisorOnly) {
+      return user?.role === 'Supervisor';
     }
     return true;
   }).sort((a, b) => { 

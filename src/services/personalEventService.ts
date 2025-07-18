@@ -1,9 +1,9 @@
 
 'use client';
-import type { CalendarEvent, PersonalEventType } from "@/lib/types";
+import type { CalendarEvent, PersonalEventType, TaskRecurrence, TaskPriority } from "@/lib/types";
 import PocketBase, { ClientResponseError } from 'pocketbase';
 import { withRetry } from '@/lib/retry';
-import { isValid } from 'date-fns';
+import { isValid, addYears, addMonths, addWeeks, addDays, isBefore } from 'date-fns';
 
 const COLLECTION_NAME = "personal_events";
 
@@ -32,7 +32,7 @@ const handleCreateError = (error: any, collectionName: string) => {
 
 
 // Helper to convert PocketBase record to a CalendarEvent-compatible object
-const pbRecordToPersonalEvent = (record: any, currentUserId: string): CalendarEvent | null => {
+const pbRecordToPersonalEvent = (record: any): CalendarEvent | null => {
   const startDate = record.startDate ? new Date(record.startDate) : null;
   const endDate = record.endDate ? new Date(record.endDate) : null;
 
@@ -42,7 +42,7 @@ const pbRecordToPersonalEvent = (record: any, currentUserId: string): CalendarEv
   }
   
   const owner = record.expand?.userId;
-  const isOwner = !owner || owner.id === currentUserId;
+  const employee = record.expand?.employeeId;
 
   return {
     id: record.id,
@@ -50,53 +50,71 @@ const pbRecordToPersonalEvent = (record: any, currentUserId: string): CalendarEv
     startDate: startDate,
     endDate: endDate,
     description: record.description,
+    priority: record.priority,
     userId: record.userId,
+    employeeId: record.employeeId,
     isAllDay: record.isAllDay || false,
     eventType: record.eventType || 'Available',
+    recurrence: record.recurrence || 'None',
     created: new Date(record.created),
     updated: new Date(record.updated),
     collectionId: record.collectionId,
     collectionName: record.collectionName,
     ownerId: owner?.id,
-    ownerName: isOwner ? undefined : owner?.name,
+    ownerName: employee?.name || owner?.name,
+    expand: record.expand,
   } as CalendarEvent;
 };
 
 interface PocketBaseRequestOptions {
   signal?: AbortSignal;
+  projectionHorizon?: Date;
   [key: string]: any;
 }
 
-export const getPersonalEvents = async (pb: PocketBase, userId: string, options?: PocketBaseRequestOptions): Promise<CalendarEvent[]> => {
-  if (!userId) {
-    console.warn("[personalEventService] getPersonalEvents called without a userId. Returning empty array to protect privacy.");
+export const getPersonalEvents = async (pb: PocketBase, userId?: string, options?: PocketBaseRequestOptions): Promise<CalendarEvent[]> => {
+  if (!userId && pb.authStore.model?.role !== 'Supervisor') {
+    console.warn("[personalEventService] getPersonalEvents called without a userId for a non-supervisor. Returning empty array.");
     return [];
   }
   try {
-    // With correct API rules, we no longer need to manually build the filter.
-    // PocketBase will automatically filter the results based on the logged-in user's auth context.
-    const { signal, ...otherOptions } = options || {};
-    const requestParams = {
+    const { signal, projectionHorizon, ...otherOptions } = options || {};
+    const requestParams: any = {
       sort: 'startDate',
-      expand: 'userId', // expand the user relation to get owner info
+      expand: 'userId,employeeId',
       ...otherOptions,
     };
+    
+    // If a specific userId is provided, filter for it. Otherwise, a supervisor gets all.
+    // The API rules on the server provide the actual security.
+    if(userId) {
+        requestParams.filter = `(userId = "${userId}" || employeeId.userId = "${userId}")`;
+    }
 
     const records = await withRetry(() =>
       pb.collection(COLLECTION_NAME).getFullList(requestParams, { signal }),
       { ...options, context: "fetching personal events" }
     );
 
-    // Map and filter out any records that are invalid
-    return records
-      .map(record => pbRecordToPersonalEvent(record, userId))
+    const rawEvents = records
+      .map(record => pbRecordToPersonalEvent(record))
       .filter((event): event is CalendarEvent => event !== null);
+      
+    if (projectionHorizon) {
+      return generateProjectedPersonalEvents(rawEvents, projectionHorizon);
+    }
+    return rawEvents;
 
-  } catch (error) {
+  } catch (error: any) {
+    const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
+    if (isCancellation) {
+        throw error;
+    }
     if (error instanceof ClientResponseError && error.status === 404) {
       console.warn(`[personalEventService] The '${COLLECTION_NAME}' collection was not found. Returning empty array. Please create it in PocketBase.`);
       return [];
     }
+    console.error("Failed to fetch personal events:", error);
     throw error;
   }
 };
@@ -104,28 +122,33 @@ export const getPersonalEvents = async (pb: PocketBase, userId: string, options?
 interface PersonalEventCreationData {
     title: string;
     description?: string;
+    priority?: TaskPriority;
     startDate: Date;
     endDate: Date;
-    userId: string;
+    userId?: string; 
+    employeeId?: string;
     isAllDay?: boolean;
     eventType?: PersonalEventType;
+    recurrence?: TaskRecurrence;
 }
 
 export const createPersonalEvent = async (
   pb: PocketBase,
-  eventData: PersonalEventCreationData
+  eventData: PersonalEventCreationData,
+  options?: { signal?: AbortSignal }
 ): Promise<CalendarEvent> => {
   try {
-    const record = await pb.collection(COLLECTION_NAME).create(eventData);
-    // For a newly created event, the owner is always the creator.
-    const personalEvent = pbRecordToPersonalEvent(record, eventData.userId);
+    const record = await withRetry(() =>
+      pb.collection(COLLECTION_NAME).create(eventData),
+      { context: "creating personal event", signal: options?.signal }
+    );
+    const personalEvent = pbRecordToPersonalEvent(record);
     if (!personalEvent) {
         throw new Error("Failed to process the created event record.");
     }
     return personalEvent;
   } catch (error) {
     handleCreateError(error, COLLECTION_NAME);
-    // The line below is for TypeScript's benefit, as handleCreateError always throws.
     throw error;
   }
 };
@@ -133,10 +156,14 @@ export const createPersonalEvent = async (
 export interface PersonalEventUpdateData {
     title?: string;
     description?: string;
+    priority?: TaskPriority;
     startDate?: Date;
     endDate?: Date;
     isAllDay?: boolean;
     eventType?: PersonalEventType;
+    recurrence?: TaskRecurrence;
+    employeeId?: string;
+    userId?: string;
 }
 
 export const updatePersonalEvent = async (
@@ -149,8 +176,7 @@ export const updatePersonalEvent = async (
         pb.collection(COLLECTION_NAME).update(eventId, eventData),
         { context: `updating personal event ${eventId}` }
     );
-    // We don't know the current user ID here, but for an update, it must be the owner.
-    const personalEvent = pbRecordToPersonalEvent(record, record.userId);
+    const personalEvent = pbRecordToPersonalEvent(record);
     if (!personalEvent) {
         throw new Error("Failed to process the updated event record.");
     }
@@ -180,3 +206,58 @@ export const deletePersonalEvent = async (
     throw error;
   }
 };
+
+function generateProjectedPersonalEvents(events: CalendarEvent[], horizonDate: Date): CalendarEvent[] {
+  const allEvents: CalendarEvent[] = [];
+
+  events.forEach(originalEvent => {
+    allEvents.push(originalEvent);
+
+    if (originalEvent.recurrence === 'None' || !originalEvent.endDate) {
+      return;
+    }
+
+    let nextDueDate = new Date(originalEvent.endDate);
+    const originalDuration = new Date(originalEvent.endDate).getTime() - new Date(originalEvent.startDate).getTime();
+    
+    let i = 1;
+
+    while (true) {
+      const lastDueDate = new Date(nextDueDate);
+      switch (originalEvent.recurrence) {
+        case 'Daily':
+          nextDueDate = addDays(lastDueDate, 1);
+          break;
+        case 'Weekly':
+          nextDueDate = addWeeks(lastDueDate, 1);
+          break;
+        case 'Monthly':
+          nextDueDate = addMonths(lastDueDate, 1);
+          break;
+        case 'Yearly':
+          nextDueDate = addYears(lastDueDate, 1);
+          break;
+        default:
+          return;
+      }
+
+      if (isBefore(nextDueDate, horizonDate)) {
+        const newStartDate = new Date(nextDueDate.getTime() - originalDuration);
+        
+        const projectedEvent: CalendarEvent = {
+          ...originalEvent,
+          id: `${originalEvent.id}_proj_${i}`,
+          startDate: newStartDate,
+          endDate: nextDueDate,
+          description: `Recurring instance of: ${originalEvent.title}`,
+        };
+        allEvents.push(projectedEvent);
+        i++;
+      } else {
+        break;
+      }
+    }
+  });
+
+  return allEvents;
+}

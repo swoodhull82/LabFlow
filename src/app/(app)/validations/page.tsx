@@ -1,9 +1,8 @@
-
 "use client";
 
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import GanttChart from "@/components/gantt/GanttChart";
+import { GanttChart } from "@/components/ui/gantt-chart";
 
 export default function ValidationsPage() {
   return (

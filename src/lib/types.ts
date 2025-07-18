@@ -1,4 +1,5 @@
 
+
 export type UserRole = "Supervisor" | "Team Lead" | "Chem I" | "Chem II";
 
 export interface User {
@@ -27,7 +28,7 @@ export interface Task {
   priority: TaskPriority;
   startDate?: Date | string;
   dueDate?: Date | string;
-  assignedTo_text?: string;
+  assignedTo?: string[]; // Array of employee IDs
   recurrence: TaskRecurrence;
   attachments?: File[] | string[];
   userId: string;
@@ -35,7 +36,10 @@ export interface Task {
   updated: Date | string;
   collectionId?: string;
   collectionName?: string;
-  expand?: any;
+  expand?: {
+    assignedTo?: Employee[];
+    [key: string]: any;
+  };
   progress?: number; 
   isMilestone?: boolean; 
   dependencies?: string[]; 
@@ -52,18 +56,28 @@ export interface CalendarEvent {
   description?: string;
   status?: TaskStatus; 
   userId?: string; 
+  employeeId?: string; // New field to link directly to an employee
   created: Date | string;
   updated: Date | string;
   collectionId?: string;
   collectionName?: string; 
-  expand?: any;
-  assignedTo_text?: string;
+  expand?: {
+    assignedTo?: Employee[];
+    createdBy?: User;
+    userId?: User;
+    employeeId?: Employee;
+    [key: string]: any;
+  };
+  assignedTo?: string[];
   priority?: TaskPriority;
   progress?: number;
   isAllDay?: boolean;
   eventType?: PersonalEventType;
   ownerId?: string;
   ownerName?: string;
+  recurrence?: TaskRecurrence;
+  color?: string;
+  createdBy?: string;
 }
 
 export interface Employee {
@@ -74,6 +88,7 @@ export interface Employee {
   reportsTo_text?: string;
   department_text?: string;
   userId?: string; 
+  color?: string; // For team schedule calendar
   created?: Date | string;
   updated?: Date | string;
   collectionId?: string;
@@ -88,4 +103,50 @@ export interface ActivityLogEntry {
   details?: string; 
   created: Date | string; 
   updated: Date | string;
+}
+
+// Kanban Types
+export interface KanbanStatus {
+  id: string;
+  name: string;
+  color: string;
+  order: number;
+}
+
+export interface KanbanGroup {
+  id: string;
+  name: string;
+  description?: string;
+  order: number;
+}
+
+export interface KanbanStep {
+  id: string;
+  card: string; // Relation to kanban_cards
+  name: string;
+  completed: boolean;
+  assignees: string[]; // Relation to employees
+  order: number;
+}
+
+export interface KanbanCard {
+  id: string;
+  name: string;
+  status: string; // Relation to kanban_statuses
+  group: string; // Relation to kanban_groups
+  owners: string[]; // Relation to employees
+  createdBy: string; // Relation to users
+  startAt?: Date | string;
+  endAt?: Date | string;
+  order: number;
+  created: Date | string;
+  updated: Date | string;
+  steps: KanbanStep[]; // Populated via expand or separate query
+  expand?: {
+    'kanban_steps(card)': KanbanStep[];
+    owners?: Employee[];
+    createdBy?: User;
+    status?: KanbanStatus;
+    group?: KanbanGroup;
+  }
 }

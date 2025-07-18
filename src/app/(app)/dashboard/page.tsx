@@ -201,8 +201,12 @@ export default function DashboardPage() {
       }
 
       if (!isTaskMarkedDone && !isEffectivelyOverdue && task.task_type !== "VALIDATION_PROJECT") {
-        if (task.assignedTo_text) {
-          employeeTaskCounts[task.assignedTo_text] = (employeeTaskCounts[task.assignedTo_text] || 0) + 1;
+        if (task.expand?.assignedTo && task.expand.assignedTo.length > 0) {
+          task.expand.assignedTo.forEach(employee => {
+            if (employee.name) {
+              employeeTaskCounts[employee.name] = (employeeTaskCounts[employee.name] || 0) + 1;
+            }
+          });
         }
       }
 
@@ -654,4 +658,5 @@ export default function DashboardPage() {
 
 
     
+
 

@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle, Link as LinkIcon, Milestone } from "lucide-react";
+import { CalendarIcon, Save, UploadCloud, Loader2, AlertTriangle, Link as LinkIcon, Milestone, UserPlus } from "lucide-react";
 import { format } from "date-fns";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -69,7 +69,7 @@ export default function NewTaskPage() {
   const dependsOnValidationProjectQuery = searchParams.get("dependsOnValidationProject");
 
   const [taskType, setTaskType] = useState<TaskType>(initialTaskType);
-  const [customProjectName, setCustomProjectName] = useState<string>(""); 
+  const [customTaskName, setCustomTaskName] = useState<string>(""); 
   const [instrumentSubtype, setInstrumentSubtype] = useState<string | undefined>();
   const [method, setMethod] = useState<string | undefined>();
   const [description, setDescription] = useState("");
@@ -95,7 +95,7 @@ export default function NewTaskPage() {
     return "Daily"; // Default for non-validation types if nothing saved
   });
 
-  const [assignedToText, setAssignedToText] = useState<string | undefined>();
+  const [assignedTo, setAssignedTo] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<FileList | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMilestone, setIsMilestone] = useState(false);
@@ -109,6 +109,7 @@ export default function NewTaskPage() {
   const [fetchTasksError, setFetchTasksError] = useState<string | null>(null);
   const [selectedDependencies, setSelectedDependencies] = useState<string[]>(dependsOnValidationProjectQuery ? [dependsOnValidationProjectQuery] : []);
   const [isDependenciesPopoverOpen, setIsDependenciesPopoverOpen] = useState(false);
+  const [isAssigneePopoverOpen, setIsAssigneePopoverOpen] = useState(false);
   
   const [availableMethods, setAvailableMethods] = useState<readonly string[]>([]);
 
@@ -183,6 +184,7 @@ export default function NewTaskPage() {
     
     if (taskType !== "VALIDATION_PROJECT" && taskType !== "VALIDATION_STEP") {
       setIsMilestone(false);
+      setCustomTaskName("");
     }
 
     if (taskType === "VALIDATION_STEP") {
@@ -294,6 +296,12 @@ export default function NewTaskPage() {
     );
   };
 
+  const handleAssigneeChange = (employeeId: string) => {
+    setAssignedTo(prev =>
+      prev.includes(employeeId) ? prev.filter(id => id !== employeeId) : [...prev, employeeId]
+    );
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!pbClient || !user) {
@@ -301,12 +309,18 @@ export default function NewTaskPage() {
       return;
     }
     
-    const finalTitle = taskType === "VALIDATION_PROJECT" ? customProjectName.trim() : taskType;
+    const finalTitle = (taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP")
+      ? customTaskName.trim()
+      : taskType;
 
     if (!finalTitle) {
-      toast({ title: "Validation Error", description: taskType === "VALIDATION_PROJECT" ? "Project Name is required." : "Task Type (which serves as Name) is required.", variant: "destructive" });
+      let errorMsg = "Task Type (which serves as Name) is required.";
+      if (taskType === "VALIDATION_PROJECT") errorMsg = "Project Name is required.";
+      if (taskType === "VALIDATION_STEP") errorMsg = "Step Name is required.";
+      toast({ title: "Validation Error", description: errorMsg, variant: "destructive" });
       return;
     }
+
     if (taskType === "MDL" && !instrumentSubtype) {
       toast({ title: "Validation Error", description: `Instrument Subtype is required for ${taskType} tasks.`, variant: "destructive" });
       return;
@@ -377,8 +391,8 @@ export default function NewTaskPage() {
         formData.append("dueDate", dueDate.toISOString());
     }
 
-    if (assignedToText) {
-      formData.append("assignedTo_text", assignedToText);
+    if (assignedTo.length > 0) {
+      assignedTo.forEach(id => formData.append("assignedTo", id));
     }
     formData.append("userId", user.id); 
     
@@ -462,6 +476,12 @@ export default function NewTaskPage() {
 
   const isCreatingStepTask = taskType === "VALIDATION_STEP" && !!dependsOnValidationProjectQuery;
   const isCreatingValidationProject = taskType === "VALIDATION_PROJECT" || initialTaskType === "VALIDATION_PROJECT";
+  
+  const assigneeButtonText = assignedTo.length === 0
+    ? "Select employees (Optional)"
+    : assignedTo.length === 1
+    ? employees.find(e => e.id === assignedTo[0])?.name || "1 employee selected"
+    : `${assignedTo.length} employees selected`;
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
@@ -489,8 +509,8 @@ export default function NewTaskPage() {
                   value={taskType}
                   onValueChange={(value: TaskType) => {
                     setTaskType(value);
-                    if (value !== "VALIDATION_PROJECT") {
-                      setCustomProjectName(""); // Clear custom name if not a VP
+                    if (value !== "VALIDATION_PROJECT" && value !== "VALIDATION_STEP") {
+                      setCustomTaskName(""); // Clear custom name if not a VP or VS
                     }
                   }}
                 >
@@ -506,14 +526,16 @@ export default function NewTaskPage() {
               </div>
             )}
 
-            {taskType === "VALIDATION_PROJECT" && (
+            {(taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP") && (
               <div>
-                <Label htmlFor="customProjectName">Project Name</Label>
+                <Label htmlFor="customTaskName">
+                  {taskType === "VALIDATION_PROJECT" ? "Project Name" : "Step Name"}
+                </Label>
                 <Input 
-                  id="customProjectName" 
-                  placeholder="Enter the project name" 
-                  value={customProjectName} 
-                  onChange={(e) => setCustomProjectName(e.target.value)} 
+                  id="customTaskName" 
+                  placeholder={taskType === "VALIDATION_PROJECT" ? "Enter the project name" : "Enter the step name"}
+                  value={customTaskName} 
+                  onChange={(e) => setCustomTaskName(e.target.value)} 
                 />
               </div>
             )}
@@ -665,21 +687,38 @@ export default function NewTaskPage() {
               )}
               <div className={(taskType === "VALIDATION_PROJECT" || taskType === "VALIDATION_STEP" || (taskType === "MDL" && availableMethods.length > 0) || (taskType !== "VALIDATION_PROJECT" && taskType !== "VALIDATION_STEP") ) ? "md:col-span-2" : ""}>
                 <Label htmlFor="assignedTo">Assigned To</Label>
-                <Select 
-                  onValueChange={(value: string) => setAssignedToText(value === "__NONE__" ? undefined : value)} 
-                  value={assignedToText || "__NONE__"}
-                  disabled={isLoadingEmployees || !!fetchEmployeesError}
-                >
-                  <SelectTrigger id="assignedTo_text">
-                    <SelectValue placeholder={isLoadingEmployees ? "Loading employees..." : (fetchEmployeesError ? "Error loading employees" : "Select employee (Optional)")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__NONE__">None</SelectItem>
-                    {employees.map(emp => (
-                      <SelectItem key={emp.id} value={emp.name}>{emp.name} ({emp.role})</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={isAssigneePopoverOpen} onOpenChange={setIsAssigneePopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant={"outline"}
+                        className="w-full justify-start text-left font-normal"
+                        disabled={isLoadingEmployees || !!fetchEmployeesError}
+                      >
+                        <UserPlus className="mr-2 h-4 w-4" />
+                        {isLoadingEmployees ? "Loading employees..." : 
+                            fetchEmployeesError ? "Error loading" :
+                            assigneeButtonText}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                      <ScrollArea className="h-48">
+                        <div className="p-4 space-y-2">
+                        {employees.map(employee => (
+                          <div key={employee.id} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`assignee-${employee.id}`}
+                              checked={assignedTo.includes(employee.id)}
+                              onCheckedChange={() => handleAssigneeChange(employee.id)}
+                            />
+                            <Label htmlFor={`assignee-${employee.id}`} className="font-normal cursor-pointer">
+                              {employee.name} ({employee.role})
+                            </Label>
+                          </div>
+                        ))}
+                        </div>
+                      </ScrollArea>
+                    </PopoverContent>
+                </Popover>
                 {fetchEmployeesError && !isLoadingEmployees && (
                    <p className="text-sm text-destructive mt-1 flex items-center">
                      <AlertTriangle className="h-4 w-4 mr-1" /> {fetchEmployeesError}

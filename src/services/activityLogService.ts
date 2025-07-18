@@ -35,7 +35,12 @@ export const getActivityLogEntries = async (pb: PocketBase, options?: PocketBase
       { ...options, context: "fetching activity log entries" }
     );
     return records.map(pbRecordToActivityLogEntry);
-  } catch (error) {
+  } catch (error: any) {
+    const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
+    if (isCancellation) {
+        throw error;
+    }
+    console.error("Failed to fetch activity log entries:", error);
     throw error;
   }
 };
@@ -53,4 +58,3 @@ export const createActivityLogEntry = async (
     throw error;
   }
 };
-

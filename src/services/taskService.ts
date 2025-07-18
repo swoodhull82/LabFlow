@@ -47,11 +47,9 @@ const pbRecordToTask = (record: any): Task => {
     priority: record.priority,
     startDate: record.startDate ? new Date(record.startDate) : undefined,
     dueDate: record.dueDate ? new Date(record.dueDate) : undefined,
-    assignedTo_text: record.assignedTo_text,
-    // More direct mapping for recurrence:
-    // Trust the type from DB if it's a valid TaskRecurrence string, otherwise default to "None".
+    assignedTo: record.assignedTo || [],
     recurrence: (record.recurrence as TaskRecurrence) || "None",
-    attachments: record.attachments, // Note: attachments might need further processing if they are file IDs
+    attachments: record.attachments,
     userId: record.userId,
     created: new Date(record.created),
     updated: new Date(record.updated),
@@ -63,11 +61,11 @@ const pbRecordToTask = (record: any): Task => {
     dependencies: Array.isArray(record.dependencies) ? record.dependencies : (typeof record.dependencies === 'string' && record.dependencies.startsWith('[') ? JSON.parse(record.dependencies) : []),
     instrument_subtype: record.instrument_subtype || undefined,
     method: record.method || undefined,
-  } as Task; // Still need `as Task` if not all optional fields are explicitly checked/mapped.
+  } as Task;
 };
 
-const DEFAULT_TASK_LIST_FIELDS = 'id,title,task_type,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies,instrument_subtype,method,recurrence';
-const DEFAULT_TASK_DETAIL_FIELDS = 'id,title,task_type,description,status,priority,startDate,dueDate,assignedTo_text,userId,created,updated,progress,isMilestone,dependencies,attachments,instrument_subtype,method,recurrence';
+const DEFAULT_TASK_LIST_FIELDS = 'id,title,task_type,status,priority,startDate,dueDate,assignedTo,userId,created,updated,progress,isMilestone,dependencies,instrument_subtype,method,recurrence,expand';
+const DEFAULT_TASK_DETAIL_FIELDS = 'id,title,task_type,description,status,priority,startDate,dueDate,assignedTo,userId,created,updated,progress,isMilestone,dependencies,attachments,instrument_subtype,method,recurrence,expand';
 
 
 export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOptions & { projectionHorizon?: Date }): Promise<Task[]> => {
@@ -76,6 +74,7 @@ export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOption
     const requestParams = {
       sort: '-created',
       fields: DEFAULT_TASK_LIST_FIELDS,
+      expand: 'assignedTo',
       ...otherOptions,
     };
     const records = await withRetry(() =>
@@ -93,7 +92,12 @@ export const getTasks = async (pb: PocketBase, options?: PocketBaseRequestOption
     }
 
     return rawTasks;
-  } catch (error) {
+  } catch (error: any) {
+    const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
+    if (isCancellation) {
+        throw error;
+    }
+    console.error("Failed to fetch tasks:", error);
     throw error;
   }
 };
@@ -103,6 +107,7 @@ export const getTaskById = async (pb: PocketBase, id: string, options?: PocketBa
     const { onRetry, signal, ...otherOptions } = options || {};
     const requestParams = {
       fields: DEFAULT_TASK_DETAIL_FIELDS,
+      expand: 'assignedTo',
       ...otherOptions,
     };
     const record = await withRetry(() => pb.collection(COLLECTION_NAME).getOne(id, requestParams, { signal }),
@@ -112,10 +117,15 @@ export const getTaskById = async (pb: PocketBase, id: string, options?: PocketBa
       onRetry
     });
     return pbRecordToTask(record);
-  } catch (error) {
+  } catch (error: any) {
     if ((error as any).status === 404) {
         return null;
     }
+    const isCancellation = error?.isAbort === true || (error?.message && (error.message.toLowerCase().includes('aborted') || error.message.toLowerCase().includes('autocancelled')));
+    if (isCancellation) {
+        throw error;
+    }
+    console.error(`Failed to fetch task by ID ${id}:`, error);
     throw error;
   }
 };
@@ -126,7 +136,7 @@ export const createTask = async (pb: PocketBase, taskData: FormData, options?: P
       taskData.set('isMilestone', taskData.get('isMilestone') === 'true' ? 'true' : 'false');
     }
 
-    const record = await pb.collection(COLLECTION_NAME).create(taskData, { signal: options?.signal });
+    const record = await pb.collection(COLLECTION_NAME).create(taskData, { signal: options?.signal, expand: 'assignedTo' });
     return pbRecordToTask(record);
   } catch (error) {
     handleCreateError(error, COLLECTION_NAME);
@@ -144,7 +154,7 @@ export const updateTask = async (pb: PocketBase, id: string, taskData: FormData 
     }
 
     const record = await withRetry(() =>
-      pb.collection(COLLECTION_NAME).update(id, taskData, { signal }),
+      pb.collection(COLLECTION_NAME).update(id, taskData, { signal, expand: 'assignedTo' }),
       { context: `updating task ${id}`, signal }
     );
     return pbRecordToTask(record);
